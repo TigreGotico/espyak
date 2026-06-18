@@ -105,11 +105,13 @@ LANGS = {
     "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş"},
     "smj": {"stress_rule": K.STRESSPOSN_1L,  # Lule Saami: first syllable
             "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY,
-            "spelling_stress": True, "extra_vowels": "áä", "extra_consonants": "ŋđ"},
+            "spelling_stress": True, "extra_vowels": "áä", "extra_consonants": "ŋđ",
+            "unstress_u_words": True},  # $u function words reduce despite the clause accent
     "ro": {"stress_rule": K.STRESSPOSN_1R,
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_FINAL_DIM_ONLY,
            "extra_vowels": "ăâîșț"},
-    "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ"},  # antepenultimate
+    "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ",  # antepenultimate
+           "unstress_u_words": True},  # $u function words reduce despite the clause accent
     "eu": {"stress_rule": K.STRESSPOSN_2R,
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ"},
     "vi": {"stress_rule": K.STRESSPOSN_1L, "unstressed_wd1": 2, "unstressed_wd2": 2,

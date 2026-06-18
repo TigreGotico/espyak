@@ -156,9 +156,23 @@ class G2P:
         )
         self._tr.expect_verb = 0
         ph, flags = self._translate_core(word.lower(), ctx)
+        self._u_out_str = None
         ph_clean = ph.strip("\"'")
         if ph_clean.startswith("_^_"):
             return ph_clean  # language-switch marker, resolved in phonemize
+        if (self._config.get("unstress_u_words") and (flags & 0x8)
+                and not (flags & K.FLAG_STRESS_END) and "||" not in ph and tonic >= 4):
+            # $u (unstressed function word) carrying the clause accent in a language that
+            # REDUCES such words (mk/smj; espeak's intonation model). The phoneme programs
+            # must see the word's natural (un-tonic) stress so each vowel laxes per its own
+            # program (mk ChangeIfNotStressed: или->ˈɪlɪ; smj ChangeIfUnstressed laxes
+            # monosyllabic gis->kˈɪːs but not villap's secondary-stressed iː). Output keeps
+            # the clause accent, overlaid in _render_phonemes. `$u+` (FLAG_STRESS_END, e.g.
+            # mk verb имам) keeps its stress; languages that PROMOTE isolated $u words to
+            # full stress (ru: для->dɭʲˈɑ) do not set unstress_u_words, so are unaffected.
+            self._u_out_str = set_word_stress(self._tr, ph, self._mnem,
+                                              dict_flags=flags, tonic=tonic)
+            return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1)
         if "||" in ph:
             # multi-word dictionary entry (e.g. es "w" -> uβe||doβle): stress each
             # sub-word separately, preserving the word break for the renderer. With
@@ -344,6 +358,7 @@ class G2P:
 
     def _render_word(self, word, tonic, ipa, tie, separator):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
+        self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
         dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
         if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and word[:-2].isdigit()):
@@ -373,6 +388,19 @@ class G2P:
         if reg:
             set_regressive_voicing(plist, self.phoneme_table, reg)
         self._interp.run(plist)  # P1b: context-dependent phoneme programs
+        out_str = getattr(self, "_u_out_str", None)
+        if out_str is not None:
+            # reduced-$u word: programs ran on the un-tonic levels (vowels laxed correctly);
+            # overlay the clause-accent stress marks from the tonic version onto the vowels
+            # in order (laxing is ChangePhoneme, so the vowel count is preserved).
+            out_levels = [e.stresslevel for e in encode_phoneme_string(out_str, self.phoneme_table)
+                          if e.ph.type == phVOWEL]
+            vi = 0
+            for e in plist:
+                if e.ph.type == phVOWEL and not e.deleted:
+                    if vi < len(out_levels):
+                        e.stresslevel = out_levels[vi]
+                    vi += 1
         _double_long_consonants(plist)
         if self._config.get("tone_language"):
             _normalize_tones(plist, self.phoneme_table)
