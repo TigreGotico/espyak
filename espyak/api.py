@@ -453,6 +453,7 @@ class G2P:
                 text = text.replace(ch, " " + ch + " ")
         _trans[0x104A] = " "
         _trans[0x104B] = " "
+        _trans[0x1039] = " "   # Myanmar virama (stacked consonants): a plain word break
         text = text.translate(_trans)
         words = []
         for raw_tok in text.split():
