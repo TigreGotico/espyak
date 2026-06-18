@@ -149,6 +149,11 @@ _FEATURES = {
     "isUStop": lambda ph, e, ctx: ph.type == phSTOP,
     "isVFricative": lambda ph, e, ctx: ph.type == phVFRICATIVE,
     "isLong": lambda ph, e, ctx: "long" in ph.flags,
+    # language-defined phoneme flags (flag1..flag8); e.g. uz front vowels for l-clearing.
+    "isFlag1": lambda ph, e, ctx: "flag1" in ph.flags,
+    "isFlag2": lambda ph, e, ctx: "flag2" in ph.flags,
+    "isFlag3": lambda ph, e, ctx: "flag3" in ph.flags,
+    "isFlag4": lambda ph, e, ctx: "flag4" in ph.flags,
 }
 
 # a synthetic pause phoneme stands in at word boundaries for *W predicates
