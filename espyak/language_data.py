@@ -72,6 +72,7 @@ LANGS = {
     "fr": {
         "stress_rule": K.STRESSPOSN_1R,   # French: final syllable
         "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM,
+        "it_lengthen": 1,  # LOPT_IT_LENGTHEN: drop length from unstressed syllables (y -> iɡʁɛk)
         "extra_vowels": "àâäéèêëîïôöùûü",
         "encoding": "iso-8859-1",
         "numbers": K.NUM_OMIT_1_HUNDRED | K.NUM_DECIMAL_COMMA,
