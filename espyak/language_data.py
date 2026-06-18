@@ -143,9 +143,10 @@ LANGS = {
     "it": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "àèéìíîòóùú",
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM_ONLY | K.S_PRIORITY_STRESS,
            "it_lengthen": 2,  # remove length from unstressed/non-penultimate
+           "lopt_alt": True,  # ApplySpecialAttribute2: $alt/$alt2 shift the post-stress e<->E o<->O
            "reduce_dict_vowels": True},  # LOPT_REDUCE&1: reduce vowels even in it_list entries
     "sl": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
-           "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž",
+           "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž", "lopt_alt": True,
            "unstress_u_words": True, "drop_u_length": True},  # $u words: short, open vowels
     "la": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2},
     "ga": {"stress_rule": K.STRESSPOSN_1L,  # Irish: initial stress, no secondary
@@ -175,7 +176,7 @@ LANGS = {
            # all tone-marked vowels are vowels (espeak vowels_vi[]) so glide rules fire
            # (o before a vowel -> w: hoặc -> hwˌa6c)
            "vowels_override": "aàáảãạăằắẳẵặâầấẩẫậeèéẻẽẹêềếểễệiìíỉĩịoòóỏõọôồốổỗộơờớởỡợuùúủũụưừứửữựyỳýỷỹỵ"},
-    "pt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_SPANISH,
+    "pt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_SPANISH, "lopt_alt": True,
            "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú"},
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",

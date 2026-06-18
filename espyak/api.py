@@ -261,8 +261,24 @@ class G2P:
                 for i, p in enumerate(parts)
             ]
             return "||".join(stressed)
-        return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
-                               suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+        return self._apply_alt_attribute(
+            set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
+                            suffix_vowels=getattr(self, "_suffix_nvowels", 0)), flags)
+
+    def _apply_alt_attribute(self, ph, flags):
+        """ApplySpecialAttribute2 (translateword.c, LOPT_ALT&2: it/pt/sl). A $alt/$alt2 word
+        shifts the vowel right after the PRIMARY stress: $alt opens it (e->E, o->O), $alt2
+        closes it (E->e, O->o). sl 'ena' ($alt): 'e:na -> 'E:na -> ˈɛːna."""
+        if not (self._config.get("lopt_alt")
+                and (flags & (K.FLAG_ALT_TRANS | K.FLAG_ALT2_TRANS))):
+            return ph
+        i = ph.find("'")
+        if i < 0 or i + 1 >= len(ph):
+            return ph
+        j = i + 1
+        repl = ({"E": "e", "O": "o"} if (flags & K.FLAG_ALT2_TRANS)
+                else {"e": "E", "o": "O"}).get(ph[j])
+        return ph[:j] + repl + ph[j + 1:] if repl else ph
 
     def _translate_core(self, word, ctx, word_flags=0):
         """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
