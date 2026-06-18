@@ -90,6 +90,11 @@ LANGS = {
     # Finnish/Estonian: fixed initial stress (espeak's zero-init default 1L; my default is 2R)
     "fi": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöy"},
     "et": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöüõ"},
+    # Latvian: fixed initial stress. _list headwords carry explicit stress so they scored
+    # 100% under the wrong 2R default, but rules-based words (Glāžšķūņa -> ɡlˈaːʒʃcuːɲa)
+    # need 1L.
+    "lv": {"stress_rule": K.STRESSPOSN_1L,
+           "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM | K.S_FINAL_DIM_ONLY | K.S_EO_CLAUSE1},
     "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_NO_AUTO_2
            | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű"},
