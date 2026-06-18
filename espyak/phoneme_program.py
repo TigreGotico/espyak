@@ -390,7 +390,12 @@ class Interpreter:
         if feat is not None:
             return feat(ph, entry, ctx if func == "thisPh" else {})
         if arg.startswith("#"):
-            # #i / #@ / #o ... — a vowel category, matched against starttype
+            # #i / #@ / #o ... — a vowel category. espeak (synthdata.c:583) matches prevPh()
+            # / prevPhW() on the previous vowel's END type (a diphthong eI ends in #i), and
+            # next/this on the start type. This nulls the palatalising `;` after an i-vowel
+            # (af edms spelled E -> ɛɪ;, no ʲ; sq).
+            if func in ("prevPh", "prevPhW", "prev2PhW", "prev2Ph") and ph.type == phVOWEL:
+                return getattr(ph, "endtype", None) == arg
             return getattr(ph, "starttype", None) == arg
         # otherwise arg is a phoneme mnemonic
         return ph.mnemonic == arg

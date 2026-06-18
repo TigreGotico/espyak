@@ -85,7 +85,7 @@ def _unescape_mnemonic(tok):
 
 class Phoneme:
     __slots__ = ("mnemonic", "type", "ipa", "stress_type", "flags", "lengthmod",
-                 "program", "place", "starttype", "voicing_switch")
+                 "program", "place", "starttype", "endtype", "voicing_switch")
 
     def __init__(self, mnemonic):
         self.mnemonic = mnemonic
@@ -97,6 +97,7 @@ class Phoneme:
         self.program = []      # raw program statement lines (IF/ChangePhoneme/CALL/...)
         self.place = None      # place of articulation (vel, pal, alv, ...) for isVelar etc.
         self.starttype = None  # vowel category (#i, #@, #o, ...) for #X group predicates
+        self.endtype = None    # end vowel category — prevPh(#X) matches on this for vowels
         self.voicing_switch = None  # voiced<->voiceless counterpart (regressive voicing)
 
     def copy(self, new_mnemonic=None):
@@ -109,6 +110,7 @@ class Phoneme:
         p.program = list(self.program)
         p.place = self.place
         p.starttype = self.starttype
+        p.endtype = self.endtype
         p.voicing_switch = self.voicing_switch
         return p
 
@@ -268,12 +270,17 @@ class PhonemeSource:
             if head == "starttype":
                 cur_ph.starttype = tok[1] if len(tok) > 1 else None
                 continue
+            if head == "endtype":
+                cur_ph.endtype = tok[1] if len(tok) > 1 else None
+                continue
             if head == "voicingswitch":
                 cur_ph.voicing_switch = _unescape_mnemonic(tok[1]) if len(tok) > 1 else None
                 continue
             for ti, t in enumerate(tok):
                 if t == "starttype" and ti + 1 < len(tok):
                     cur_ph.starttype = tok[ti + 1]
+                elif t == "endtype" and ti + 1 < len(tok):
+                    cur_ph.endtype = tok[ti + 1]
                 elif t in _TYPE_KEYWORDS:
                     cur_ph.type = _TYPE_KEYWORDS[t]
                     if t == "stress":
