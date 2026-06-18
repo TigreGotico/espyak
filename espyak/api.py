@@ -216,7 +216,13 @@ class G2P:
         self._tr.expect_verb = 0
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
         self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
+        self._spelled = False     # set by _translate_core for a $abbrev spelled-out word
         ph, flags = self._translate_core(word.lower(), ctx)
+        if self._spelled:
+            # a spelled-out abbreviation is already stressed by _join_spelled (SetSpellingStress);
+            # don't re-run set_word_stress, which would put the clause tonic on the last sub-word
+            # of a multi-word letter name (bs acw 'w' = dvostruko və -> vˈə instead of və).
+            return ph
         if caps_stress and not (flags & 0x8):  # caps-marked syllable (not a $u word)
             flags = (flags & ~0x7) | (caps_stress & 0x7)
         self._u_out_str = None
@@ -311,6 +317,7 @@ class G2P:
                 return dict_ph, flags
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
             # $abbrev with no pronunciation -> spell out as individual letter names
+            self._spelled = True
             return self._spell_word(word), 0
         if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in word):
             # syllable -> conjoining jamo (with fillers) for the rules (already NFC above).
