@@ -27,9 +27,35 @@ from espyak import language_data
 from espyak.phoneme_program import Interpreter, set_regressive_voicing
 
 
-from espyak.phoneme_tab import phNASAL, phLIQUID, phFRICATIVE, phVFRICATIVE
+from espyak.phoneme_tab import phNASAL, phLIQUID, phFRICATIVE, phVFRICATIVE, phVOWEL
+from espyak.render import PhonemeListEntry
 
 _DOUBLE_TYPES = frozenset((phFRICATIVE, phVFRICATIVE, phNASAL, phLIQUID))
+
+
+def _normalize_tones(plist, table):
+    """Tone language (vi): every syllable carries a tone immediately after its vowel.
+    Move an existing tone (digit phoneme) to right after the vowel, or insert the default
+    tone '1' (phonDEFAULTTONE) if the syllable has none."""
+    default = table.get("1")
+    i = 0
+    while i < len(plist):
+        if plist[i].ph.type == phVOWEL and not plist[i].deleted:
+            # find a tone within this syllable (before the next vowel)
+            j = i + 1
+            tone_at = None
+            while j < len(plist) and plist[j].ph.type != phVOWEL:
+                if plist[j].ph.mnemonic.isdigit():
+                    tone_at = j
+                    break
+                j += 1
+            if tone_at is not None:
+                if tone_at != i + 1:
+                    plist.insert(i + 1, plist.pop(tone_at))  # move tone to after the vowel
+            elif default is not None:
+                plist.insert(i + 1, PhonemeListEntry(default))
+            i += 1  # skip the tone we just placed
+        i += 1
 
 
 def _double_long_consonants(plist):
@@ -341,6 +367,8 @@ class G2P:
             set_regressive_voicing(plist, self.phoneme_table, reg)
         self._interp.run(plist)  # P1b: context-dependent phoneme programs
         _double_long_consonants(plist)
+        if self._config.get("tone_language"):
+            _normalize_tones(plist, self.phoneme_table)
         return render_phoneme_list(plist, self.phoneme_table,
                                    ipa=ipa, tie=tie, separator=separator)
 
