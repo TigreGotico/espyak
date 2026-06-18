@@ -30,6 +30,7 @@ DEFAULTS = {
     },
     # extra vowels added to groups A and VOWEL2 via SetLetterVowel (per-language)
     "extra_vowels": "",
+    "spelling_stress": False,
     "encoding": "utf-8",
 }
 
@@ -71,6 +72,18 @@ LANGS = {
         "extra_vowels": "àâäéèêëîïôöùûü",
         "encoding": "iso-8859-1",
     },
+    # South Slavic (tr_languages.c case L('s','r'), shared by hr/bs): initial stress,
+    # spelling stress on the first letter.
+    "sr": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2,
+           "spelling_stress": True, "extra_consonants": "čćšžđ"},
+    "hr": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2,
+           "spelling_stress": True, "extra_consonants": "čćšžđ"},
+    "bs": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2,
+           "spelling_stress": True, "extra_consonants": "čćšžđ"},
+    "cs": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
+           "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž"},
+    "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
+           "extra_vowels": "áéíóöőúüű"},
 }
 
 

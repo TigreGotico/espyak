@@ -148,13 +148,19 @@ class G2P:
         return self._join_spelled(names)
 
     def _join_spelled(self, names):
-        """Stress each letter/accent name and apply SetSpellingStress's count%3 reduction
-        of non-final primaries to secondary."""
+        """Stress each letter/accent name then apply SetSpellingStress. With
+        langopts.spelling_stress the first letter keeps primary and the rest go to
+        secondary; otherwise the last is primary with espeak's count%3 reduction."""
         stressed = [set_word_stress(self._tr, nm, self._mnem, tonic=4) for nm in names]
         n_stress = len(stressed)
+        spelling_stress = self._config.get("spelling_stress", False)
         out = []
         for count, part in enumerate(stressed, 1):
-            if count != n_stress and (((count % 3) != 0) or (count == n_stress - 1)):
+            if spelling_stress:
+                reduce = count > 1
+            else:
+                reduce = count != n_stress and (((count % 3) != 0) or (count == n_stress - 1))
+            if reduce:
                 part = part.replace("''", "'", 1).replace("'", ",,", 1)
             out.append(part)
         return "".join(out)

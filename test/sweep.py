@@ -21,12 +21,16 @@ DICTSOURCE = os.path.join(REPO, "espyak", "data", "dictsource")
 
 
 def oracle(words, lang):
+    # one word per call — batching via newline misaligns when espeak merges/splits clauses
     env = dict(os.environ, ESPEAK_DATA_PATH=ORACLE_ROOT)
-    out = subprocess.run(
-        [ORACLE_BIN, "-q", "--ipa", "-v", lang], input="\n".join(words),
-        capture_output=True, text=True, env=env, timeout=120,
-    )
-    return out.stdout.split("\n")
+    out = []
+    for w in words:
+        r = subprocess.run(
+            [ORACLE_BIN, "-q", "--ipa", "-v", lang], input=w,
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        out.append(r.stdout.strip())
+    return out
 
 
 def sample_words(lang, n):
