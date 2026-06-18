@@ -303,7 +303,9 @@ class G2P:
         words = text.split()
         out = []
         for i, word in enumerate(words):
-            tonic = 4 if i == len(words) - 1 else -1  # STRESS_IS_PRIMARY on tonic word
+            # tonic word carries the clause stress; tone languages (vi) reduce it to
+            # secondary since the tone, not stress, carries syllable prominence.
+            tonic = self._config.get("tonic_stress", 4) if i == len(words) - 1 else -1
             out.append(self._render_word(word.lower(), tonic, ipa, tie, separator))
         return " ".join(out)
 
