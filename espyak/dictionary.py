@@ -694,7 +694,10 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 shorten = prev_v_stress < STRESS_IS_PRIMARY
             if shorten:
                 continue
-        if _ph_is_vowel(ph):
+        if _ph_is_vowel(ph) and mnem != "@-":
+            # @- is excluded from the vowel count in get_vowel_stress, so it must also be
+            # skipped here or `v` desyncs and the stress mark lands on it (before an onset
+            # liquid: eo pra -> pˈra instead of prˈa).
             v_stress = vowel_stress[v]
             if v_stress <= STRESS_IS_UNSTRESSED:
                 if (v > 1) and (max_stress >= 2) and (stressflags & K.S_FINAL_DIM) and (v == vowel_count - 1):
