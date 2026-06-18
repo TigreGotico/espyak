@@ -770,10 +770,13 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
 
 
 def _compute_weights(phonetic, vowel_length, syllable_weight):
-    # port of the heavy/light syllable loop (dictionary.c:1002-1026)
-    # consonant_types[16] = {0,0,0,1,1,1,1,1,1,1,0,...}: phVOWEL(3)..phNASAL(9) are consonants
-    consonant_types = {K.phVOWEL, phLIQUID, K.phSTOP, K.phVSTOP,
-                       K.phFRICATIVE, K.phVFRICATIVE, K.phNASAL}
+    # port of the heavy/light syllable loop (dictionary.c:1002-1026).
+    # espeak's consonant_types[16] = {0,0,0,1,1,1,1,1,1,1,0,...} indexed by phoneme type
+    # (phVOWEL=2 -> 0): a *consonant* is phLIQUID..phVIRTUAL. phVOWEL is NOT a consonant, so a
+    # following vowel does NOT close the syllable (hiatus). Including phVOWEL here wrongly made
+    # V.V syllables heavy (ko su-+u- -> 2LLH stressed the wrong syllable; 키스의 -> khˈisɯˌɯj).
+    consonant_types = {phLIQUID, K.phSTOP, K.phVSTOP,
+                       K.phFRICATIVE, K.phVFRICATIVE, K.phNASAL, K.phVIRTUAL}
     ix = 1
     n = len(phonetic)
     i = 0
