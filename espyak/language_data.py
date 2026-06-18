@@ -88,8 +88,14 @@ LANGS = {
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
            "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž"},
     # Finnish/Estonian: fixed initial stress (espeak's zero-init default 1L; my default is 2R)
-    "fi": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöy"},
-    "et": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöüõ"},
+    # fi/et: fixed initial stress, secondary on alternating NON-final syllables. espeak's
+    # case sets no stress_flags (flags=0) yet never auto-secondaries the final vowel —
+    # it relies on the uninitialised vowel_stress[] sentinel (UB we can't reproduce without
+    # regressing langs that DO take a trochaic final-2, e.g. bn/ko/ro/ar). S_FINAL_NO_2 is a
+    # documented, behaviour-faithful divergence that suppresses it cleanly for fi/et only
+    # (pieneksi -> pˈieneksɪ not pˈieneksˌi; meie -> mˈeije not mˈeijˌe).
+    "fi": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "äöy"},
+    "et": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "äöüõ"},
     # Latvian: fixed initial stress. _list headwords carry explicit stress so they scored
     # 100% under the wrong 2R default, but rules-based words (Glāžšķūņa -> ɡlˈaːʒʃcuːɲa)
     # need 1L.
