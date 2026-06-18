@@ -304,6 +304,12 @@ class Interpreter:
         from espyak.render import PhonemeListEntry
         entry = PhonemeListEntry(ph)
         plist.insert(i, entry)
+        # The main loop already passed index i (the inserting phoneme is now at i+1), so the
+        # inserted phoneme would never get its own program run. Run it now so e.g. the
+        # epenthetic @- before 'r' applies its conditional `ipa NULL` (ru при -> prʲɪ, not
+        # pərʲɪ). Inserted phonemes here don't themselves InsertPhoneme, so no recursion.
+        if ph.program:
+            self._exec(self._program(ph), plist, i, self._context(plist, i))
 
     # -- condition evaluation (left-to-right AND/OR, no precedence) --
     def _eval(self, cond, plist, i, ctx):
