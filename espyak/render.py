@@ -84,6 +84,7 @@ def encode_phoneme_string(s, table):
     i = 0
     n = len(s)
     first_word_done = False
+    pending_newword = False
     while i < n:
         c = s[i]
         if c in (" ", "\t"):
@@ -92,8 +93,12 @@ def encode_phoneme_string(s, table):
             # or come from multi-word translation (P5).
             i += 1
             continue
-        if c == "|":  # morpheme/tie barrier in phoneme strings — not a phoneme
-            i += 1
+        if c == "|":
+            if s[i:i + 2] == "||":
+                pending_newword = True  # "||" is a word break in the phoneme string
+                i += 2
+            else:
+                i += 1  # single "|" is a morpheme/tie barrier — not a phoneme
             continue
         # find the longest matching mnemonic starting at i
         m = None
@@ -112,13 +117,12 @@ def encode_phoneme_string(s, table):
             pending_stress = ph.stress_type
             continue
         entry = PhonemeListEntry(ph)
-        if entries == [] or (first_word_done and entries):
-            # mark start-of-word on the first phoneme after a space (and the very first)
-            if not entries:
-                entry.newword = PHLIST_START_OF_WORD | PHLIST_START_OF_SENTENCE
-            elif first_word_done:
-                entry.newword = PHLIST_START_OF_WORD
-                first_word_done = False
+        if not entries:
+            entry.newword = PHLIST_START_OF_WORD | PHLIST_START_OF_SENTENCE
+        elif pending_newword or first_word_done:
+            entry.newword = PHLIST_START_OF_WORD
+            pending_newword = False
+            first_word_done = False
         if ph.type == phVOWEL:
             entry.synthflags |= SFLAG_SYLLABLE
             # Unmarked vowels default to UNSTRESSED (1), not diminished (0): espeak

@@ -81,8 +81,19 @@ class G2P:
         )
         self._tr.expect_verb = 0
         ph, flags = self._translate_core(word.lower(), ctx)
-        ph = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
-        return ph
+        if "||" in ph:
+            # multi-word dictionary entry (e.g. es "w" -> uβe||doβle): stress each
+            # sub-word separately, preserving the word break for the renderer.
+            parts = ph.split("||")
+            last = len(parts) - 1
+            stressed = [
+                set_word_stress(self._tr, p, self._mnem,
+                                dict_flags=(flags if i == last else 0),
+                                tonic=(tonic if i == last else 4))
+                for i, p in enumerate(parts)
+            ]
+            return "||".join(stressed)
+        return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
 
     def _translate_core(self, word, ctx, word_flags=0):
         """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
