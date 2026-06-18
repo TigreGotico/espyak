@@ -218,13 +218,30 @@ class PhonemeSource:
                 continue
 
             if head == "import_phoneme":
-                # import_phoneme TABLE/MNEM  -> copy that phoneme into current table
+                # import_phoneme TABLE/MNEM -> copy that phoneme from TABLE; a bare
+                # `import_phoneme MNEM` (no '/') copies from the CURRENT table (gd R imports
+                # R2 -> R renders 'r' not the fallback Kirshenbaum ʀ). The bare form was being
+                # mis-read as a table name and silently dropped.
                 ref = tok[1]
-                src_table, _, src_mnem = ref.partition("/")
-                src = raw_index.get(src_table)
                 imported = None
-                if src and src_mnem in src[2]:
-                    imported = src[2][src_mnem].copy(cur_ph.mnemonic if cur_ph else src_mnem)
+                if "/" in ref:
+                    src_table, _, src_mnem = ref.partition("/")
+                    src = raw_index.get(src_table)
+                    src_phonemes = src[2] if src else None
+                else:
+                    src_mnem = ref
+                    # current table, then its parent chain (espeak compiles the inherited
+                    # base first, so a bare import resolves against it): gd R -> R2 from base.
+                    src_phonemes = cur_phonemes if src_mnem in cur_phonemes else None
+                    pname, seen = cur_parent, set()
+                    while src_phonemes is None and pname and pname not in seen:
+                        seen.add(pname)
+                        entry = raw_index.get(pname)
+                        if entry and src_mnem in entry[2]:
+                            src_phonemes = entry[2]
+                        pname = entry[1] if entry else None
+                if src_phonemes and src_mnem in src_phonemes:
+                    imported = src_phonemes[src_mnem].copy(cur_ph.mnemonic if cur_ph else src_mnem)
                 if cur_ph is not None and imported is not None:
                     # keep the new mnemonic, inherit attributes
                     imported.mnemonic = cur_ph.mnemonic
