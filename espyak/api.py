@@ -181,13 +181,13 @@ class G2P:
             plist, self.phoneme_table, ipa=ipa, tie=tie, separator=separator
         )
 
-    def translate_word(self, word, tonic=-1):
+    def translate_word(self, word, tonic=-1, caps_stress=0):
         """Translate a single lowercase word to its mnemonic phoneme string.
 
         Pipeline: dictionary `_list` lookup -> (fallback) letter-to-sound rules ->
         stress assignment. `tonic` (>=0) forces the word's main stress to that level,
-        used for the tonic (clause-stressed) word. (Clause/number handling and phoneme
-        programs are still being wired; see the repo plan.)
+        used for the tonic (clause-stressed) word. `caps_stress` (>0) forces the main
+        stress onto that syllable (Lojban LOPT_CAPS_IN_WORD: a capital marks stress).
         """
         ctx = LookupContext(
             first_upper=word[:1].isupper(),
@@ -198,6 +198,8 @@ class G2P:
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
         self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
         ph, flags = self._translate_core(word.lower(), ctx)
+        if caps_stress and not (flags & 0x8):  # caps-marked syllable (not a $u word)
+            flags = (flags & ~0x7) | (caps_stress & 0x7)
         self._u_out_str = None
         ph_clean = ph.strip("\"'")
         if ph_clean.startswith("_^_"):
@@ -472,7 +474,19 @@ class G2P:
             tonic = self._config.get("tonic_stress", 4) if i == len(words) - 1 else -1
             if out and not nospace:
                 out.append(" ")
-            rendered = self._render_word(word.lower(), tonic, ipa, tie, separator)
+            caps_stress = 0
+            if self._config.get("caps_in_word") and word != word.lower():
+                # Lojban: a capital marks the stressed syllable (espeak inserts ˈ before the
+                # first capital, stressing the next vowel) -> stress the (nth+1) syllable.
+                nv = 0
+                for ch in word:
+                    if ch.isupper():
+                        caps_stress = nv + 1
+                        break
+                    if ch.lower() in "aeiouy":
+                        nv += 1
+            rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
+                                         caps_stress=caps_stress)
             if (not rendered and self.lang != "en" and word.isascii()
                     and any(c.isalpha() for c in word)):
                 # phonSWITCH (translate.c): a word unpronounceable in the current (non-Latin)
@@ -494,7 +508,7 @@ class G2P:
             cls._EN_FALLBACK = G2P("en")
         return cls._EN_FALLBACK
 
-    def _render_word(self, word, tonic, ipa, tie, separator):
+    def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
@@ -509,7 +523,7 @@ class G2P:
             ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
             if ph:
                 return self._render_phonemes(ph, ipa, tie, separator)
-        ph = self.translate_word(word, tonic=tonic)
+        ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress)
         if ph.startswith("_^_"):
             # foreign word: re-translate in the named language and wrap (lang)...(orig)
             target = ph[3:].split("|")[0].lower().strip()
