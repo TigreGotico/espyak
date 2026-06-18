@@ -655,7 +655,11 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                     if (vowel_stress[v - 1] < STRESS_IS_DIMINISHED) or ((stressflags & K.S_MID_DIM) == 0):
                         v_stress = STRESS_IS_DIMINISHED
                         vowel_stress[v] = v_stress
-            if (v_stress == STRESS_IS_DIMINISHED) or (v_stress > STRESS_IS_UNSTRESSED):
+            # espeak emits a stress mark only for stress > unstressed (GetTranslatedPhoneme
+            # String: `if stresslevel > 1`). A diminished vowel gets NO mark, and its
+            # program-visible stress stays unstressed — so don't emit the "%%" marker that
+            # would otherwise encode a DIMINISHED level and (wrongly) trip ChangeIfDiminished.
+            if v_stress > STRESS_IS_UNSTRESSED:
                 out.append(_STRESS_MNEM.get(v_stress, ""))
             prev_v = v
             prev_v_stress = v_stress
