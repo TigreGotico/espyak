@@ -964,6 +964,20 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
             add_points = 1
         else:
             failed = 1
+    elif rb == K.RULE_NOVOWELS:
+        # X) — no vowel between here and the start of the word (scanning backward)
+        p = pre_ptr - letter_xbytes
+        lw = letter_w
+        ok = True
+        while lw != K.RULE_SPACE and lw != 0:
+            if tr.is_letter(lw, K.LETTERGP_VOWEL2):
+                failed = 1
+                ok = False
+                break
+            lw, nb = _utf8_back(buf, p - 1)
+            p -= nb
+        if ok and not failed:
+            add_points = 3
     elif rb == ord("-"):
         if letter == ord("-") or (letter == ord(" ") and (word_flags & K.FLAG_HYPHEN)):
             add_points = 22 - distance_right
