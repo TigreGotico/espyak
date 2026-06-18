@@ -84,6 +84,13 @@ LANGS = {
            "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž"},
     "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "extra_vowels": "áéíóöőúüű"},
+    "ht": {"stress_rule": K.STRESSPOSN_1R,  # Haitian Creole: final-syllable stress
+           "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM, "extra_vowels": "àèéò"},
+    "it": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "àèéìíîòóùú"},
+    "pt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_SPANISH,
+           "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
+    "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú"},
+    "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż"},
 }
 
 

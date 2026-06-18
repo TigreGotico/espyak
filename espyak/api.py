@@ -47,23 +47,27 @@ class G2P:
         self._dict = DictList.load(data_paths.list_path(lang), data_paths.extra_path(lang))
 
     def _resolve_phoneme_table(self, lang):
-        # voice file `phonemes <table>` line, else the lang code, else 'base1'
+        # voice file `phonemes <table>` line, else the lang code, else base1/base.
+        candidates = []
         if self._voice:
             try:
                 with open(self._voice, encoding="utf-8") as fh:
                     for line in fh:
                         parts = line.split()
                         if parts and parts[0] == "phonemes":
-                            return parts[1]
+                            candidates.append(parts[1])
+                            break
             except OSError:
                 pass
-        if self._phsource.table(lang):
-            return lang
-        return "base1"
+        candidates += [lang, "base1", "base"]
+        for name in candidates:
+            if self._phsource.table(name) is not None:
+                return name
+        return "base"
 
     @property
     def phoneme_table(self):
-        return self._phsource.table(self._ph_table_name)
+        return self._phsource.table(self._ph_table_name) or self._phsource.table("base1")
 
     def render(self, phoneme_string, ipa=True, tie=None, separator=None):
         """Render a raw espeak phoneme mnemonic string (as produced by the rules, or as
