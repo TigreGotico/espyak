@@ -159,7 +159,8 @@ LANGS = {
     "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş"},
     # Welsh: $u function words reduce (clear y -> obscure: fy -> vˈø not vˈɨː); default 2R suits
     # the penultimate stress, so only the $u-reduction flag is needed.
-    "cy": {"unstress_u_words": True},
+    "cy": {"unstress_u_words": True, "extra_vowels": "wy"},  # Welsh: w and y are vowels
+                                                              # (SetLetterVowel w/y) -> wy digraph wins
     "smj": {"stress_rule": K.STRESSPOSN_1L,  # Lule Saami: first syllable
             "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY,
             "spelling_stress": True, "extra_vowels": "áä", "extra_consonants": "ŋđ",
