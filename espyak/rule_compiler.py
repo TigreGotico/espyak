@@ -430,6 +430,10 @@ class RuleSet:
             self.groups1.setdefault(nb[0], []).extend(rules)
         elif len(nb) == 2:
             self.groups2.setdefault(bytes(nb), []).extend(rules)
+        elif not raw and len(name) == 1:
+            # a single >=3-byte char (Korean jamo, etc.) — key by codepoint so the
+            # many chars that share a UTF-8 lead byte don't collide in groups1.
+            self.groups3.setdefault(ord(name), []).extend(rules)
         else:
             self.groups1.setdefault(nb[0], []).extend(rules)
 

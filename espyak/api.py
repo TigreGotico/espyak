@@ -27,6 +27,24 @@ from espyak import language_data
 from espyak.phoneme_program import Interpreter, set_regressive_voicing
 
 
+def _decompose_hangul(word):
+    """Break Hangul syllable blocks (U+AC00–D7A3) into conjoining jamo L/V/T, matching
+    espeak's translateword.c: lead 11 (ㅇ, silent initial) is dropped; the final is
+    always emitted (0x11A7 filler when none), so ko_rules see the jamo it has groups for."""
+    out = []
+    for ch in word:
+        code = ord(ch) - 0xac00
+        if 0 <= code <= 0xd7a3 - 0xac00:
+            initial = (code // 28) // 21
+            if initial != 11:
+                out.append(chr(initial + 0x1100))
+            out.append(chr((code // 28) % 21 + 0x1161))  # medial vowel
+            out.append(chr(code % 28 + 0x11a7))           # final (filler if none)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 class G2P:
     """Grapheme-to-phoneme translator for one language."""
 
@@ -128,6 +146,8 @@ class G2P:
             acc = self._spell_accented_letter(word)
             if acc:
                 return acc, 0
+        if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in word):
+            word = _decompose_hangul(word)
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
             dict_flags=flags)

@@ -1064,6 +1064,12 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
         found = False
         match1 = None
 
+        # single >=3-byte char (Korean jamo, etc.): dispatch by codepoint via groups3
+        if wc_bytes >= 3 and wc in rules.groups3:
+            match1, p = match_rule(tr, buf, p, wc_bytes, rules.groups3[wc],
+                                   word_flags, dict_flags)
+            found = True
+
         # 2-letter group (keyed by the two bytes at this position, as espeak's c12)
         two = bytes(buf[p:p + 2])
         if not found and two in rules.groups2:

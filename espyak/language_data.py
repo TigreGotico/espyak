@@ -228,6 +228,18 @@ LANGS["ar"] = {
 }
 
 
+# --- Korean (Hangul syllables decomposed to jamo; SetLetterBits at OFFSET_KOREAN) ------
+LANGS["ko"] = {
+    "stress_rule": K.STRESSPOSN_2R, "stress_flags": 0, "decompose_hangul": True,
+    "letter_bits": {}, "letter_bits_offset": 0x1100,
+    "letter_bits_ranges": [(K.LETTERGP_A, 0x61, 0x75), (K.LETTERGP_VOWEL2, 0x61, 0x75)],
+    "letter_bits_codes": [
+        (K.LETTERGP_Y, [0x63, 0x64, 0x67, 0x68, 0x6d, 0x72, 0x74, 0x75]),  # y/i vowels
+        (K.LETTERGP_G, [0x02, 0x05, 0x06, 0xab, 0xaf, 0xb7, 0xbc]),        # voiced
+    ],
+}
+
+
 def get_config(lang):
     cfg = dict(DEFAULTS)
     cfg["letter_bits"] = dict(DEFAULTS["letter_bits"])
