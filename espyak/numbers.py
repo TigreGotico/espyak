@@ -42,6 +42,41 @@ def _three_digit(tr_dict, value, ctx, hundred_and):
     return out
 
 
+ORDINAL_SUFFIXES = ("st", "nd", "rd", "th")
+
+
+def _ordinal_stem(tr_dict, value, ctx):
+    """Ordinal stem for 1..99 (the `_#<suffix>` ending is appended by the caller).
+    Uses a special `_No` stem where one exists (first/second/twentieth/…), otherwise the
+    cardinal; for tens+units the tens stays cardinal and only the unit is ordinalised."""
+    stem = _frag(tr_dict, "%do" % value, ctx)
+    if stem:
+        return stem
+    if value < 20:
+        return _frag(tr_dict, str(value), ctx)
+    tens, units = divmod(value, 10)
+    if units == 0:
+        return _frag(tr_dict, "%dx" % tens, ctx)
+    return _frag(tr_dict, "%dx" % tens, ctx) + _ordinal_stem(tr_dict, units, ctx)
+
+
+def translate_ordinal(tr_dict, digits, suffix, ctx=None, hundred_and=True):
+    """Translate an ordinal like '21st'/'100th': cardinal for the high part, ordinal stem
+    for the final tens/units, then the suffix ending (`_#st` etc.)."""
+    if ctx is None:
+        ctx = LookupContext()
+    n = int(digits)
+    tens_units = n % 100
+    if n < 100:
+        return _ordinal_stem(tr_dict, n, ctx) + _frag(tr_dict, "#" + suffix, ctx)
+    out = translate_number(tr_dict, str(n - tens_units), ctx, hundred_and)
+    if tens_units:
+        return (out + "||" + _ordinal_stem(tr_dict, tens_units, ctx)
+                + _frag(tr_dict, "#" + suffix, ctx))
+    # round hundred/thousand: the ending is a separate word ("hundred  th")
+    return out + "||" + _frag(tr_dict, "#" + suffix, ctx)
+
+
 def translate_number(tr_dict, digits, ctx=None, hundred_and=True, decimal_sep="."):
     """Translate a number (optionally with a decimal part) to a phoneme string with `||`
     word breaks. A fractional part is read as "point" then each digit individually."""
