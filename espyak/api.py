@@ -260,6 +260,12 @@ class G2P:
         return " ".join(out)
 
     def _render_word(self, word, tonic, ipa, tie, separator):
+        if word.isdigit():
+            from espyak.numbers import translate_number
+            ph = translate_number(self._dict, word,
+                                  hundred_and=bool(self._config.get("num_hundred_and", True)))
+            if ph:
+                return self._render_phonemes(ph, ipa, tie, separator)
         ph = self.translate_word(word, tonic=tonic)
         if ph.startswith("_^_"):
             # foreign word: re-translate in the named language and wrap (lang)...(orig)
@@ -269,6 +275,9 @@ class G2P:
                 inner = tg._render_word(word, tonic, ipa, tie, separator)
                 return "(%s)%s(%s)" % (target, inner, self.lang)
             ph = ""
+        return self._render_phonemes(ph, ipa, tie, separator)
+
+    def _render_phonemes(self, ph, ipa, tie, separator):
         plist = encode_phoneme_string(ph, self.phoneme_table)
         reg = self._config.get("regression", 0)
         if reg:

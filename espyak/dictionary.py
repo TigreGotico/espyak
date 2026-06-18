@@ -206,6 +206,18 @@ class DictList:
             return
         flag_codes = []
         rest_words = ""
+        # a condition can precede the word, e.g. "?!3 _0and  @n"
+        leading_cond = []
+        while line and line[0] == "?":
+            ctok, _, line = line.partition(" ")
+            line = line.lstrip()
+            neg = len(ctok) > 1 and ctok[1] == "!"
+            num = "".join(ch for ch in ctok if ch.isdigit())
+            if num:
+                leading_cond.append(int(num) + (132 if neg else 100))
+        if not line:
+            return
+        flag_codes.extend(leading_cond)
         # multi-word entry "(w1 w2 ...)"
         if line[0] == "(":
             close = line.find(")")
