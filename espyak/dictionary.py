@@ -1271,6 +1271,7 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
 
         found = False
         match1 = None
+        p_start = p  # char start; match_rule below reassigns p past the (failed) match
 
         # single >=3-byte char (Korean jamo, etc.): dispatch by codepoint via groups3
         if wc_bytes >= 3 and wc in rules.groups3:
@@ -1309,8 +1310,11 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                     base = (_REMOVE_ACCENT[wc - 0xC0]
                             if 0xC0 <= wc < 0xC0 + len(_REMOVE_ACCENT) else 0)
                     if 0x61 <= base <= 0x7A and len(wb) > wc_bytes:
-                        new_word = (buf[2:p] + bytes([base]) + buf[p + wc_bytes:end]).decode(
-                            "utf-8", "replace")
+                        # slice from the CHAR START (p_start), not the advanced p: the failed
+                        # default match leaves p mid-character, which split the multi-byte
+                        # accented char and corrupted the re-translated word (sjn fëanor).
+                        new_word = (buf[2:p_start] + bytes([base])
+                                    + buf[p_start + wc_bytes:end]).decode("utf-8", "replace")
                         return translate_rules(tr, new_word, mnem_index, word_flags,
                                                want_endings, dict_flags)
                     # unrecognised character: skip it
