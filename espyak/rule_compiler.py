@@ -393,7 +393,14 @@ class RuleSet:
                 line = raw.rstrip("\n")
                 if line.startswith("."):
                     finish_group()
-                    mode = 0
+                    # espeak (compiledict.c:1371) flushes the group on every '.'-line but only
+                    # changes compile_mode for .replace/.group. A '.'-line that is NOT a known
+                    # directive (e.g. te's disabled candrabindu rule ".\tఁ") is skipped without
+                    # touching mode/group_name, so following rules keep accumulating in the
+                    # same group. Resetting mode here dropped every rule after such a line
+                    # (te matras ా/ి -> Telugu dependent vowels were lost).
+                    if mode == 2:
+                        mode = 0  # end of the .replace section
                     if line.startswith(".L") and len(line) > 2 and line[2].isdigit():
                         rs._parse_lettergroup(line[2:])
                     elif line.startswith(".replace"):
