@@ -284,6 +284,9 @@ class PhonemeSource:
                     cur_ph.flags.add(t)
                 elif t == "lng":
                     cur_ph.flags.add("long")  # phLONG: long vowel (syllable-weight + 1SL/1RH)
+                elif t in ("flag1", "flag2", "flag3", "flag4"):
+                    cur_ph.flags.add(t)  # phoneme feature bits tested by isFlag1..4 programs
+                    # (e.g. Bashkir/Tatar back vowels -> dark-l: prevVowel(isFlag2)->Change(L))
             if len(tok) == 1:
                 cur_ph.flags.add(head)
 
