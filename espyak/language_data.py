@@ -210,9 +210,11 @@ _INDIC_STRESS = {
     "ne": K.S_MID_DIM | K.S_FINAL_DIM, "bn": K.S_MID_DIM | K.S_FINAL_DIM,
     "as": K.S_MID_DIM | K.S_FINAL_DIM,
 }
+_INDIC_STRESS_RULE = {"hi": K.STRESSPOSN_1RH, "mr": K.STRESSPOSN_1RH}
 for _l, _off in _INDIC_OFFSETS.items():
     LANGS[_l] = _indic_config(
-        _off, stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
+        _off, stress_rule=_INDIC_STRESS_RULE.get(_l, K.STRESSPOSN_1L),
+        stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
 
 
 # --- Arabic (tr_languages.c SetArabicLetters, SetLetterBitsUTF8 with offset 0x600) -----

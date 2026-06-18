@@ -538,6 +538,21 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 stressed_syllable = 1
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
             max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_1RH:  # last heaviest syllable, excl. final (hi/mr)
+        if stressed_syllable == 0:
+            max_weight = -1
+            for ix in range(1, vowel_count - 1):
+                if vowel_stress[ix] < STRESS_IS_DIMINISHED:
+                    wt = syllable_weight[ix]
+                    if wt >= max_weight:
+                        max_weight = wt
+                        stressed_syllable = ix
+            if syllable_weight[vowel_count - 1] == 2 and max_weight < 2:
+                stressed_syllable = vowel_count - 1
+            elif max_weight <= 0:
+                stressed_syllable = 1
+            vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
 
     # guess complete stress pattern (secondary stresses)
     stress = STRESS_IS_PRIMARY if max_stress < STRESS_IS_PRIMARY else STRESS_IS_SECONDARY
