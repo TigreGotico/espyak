@@ -59,18 +59,22 @@ LANGS = {
         "unstressed_wd2": 2,
         "extra_vowels": "áéíóúü",
         "encoding": "iso-8859-1",
+        "numbers": K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED | K.NUM_OMIT_1_THOUSAND
+        | K.NUM_DECIMAL_COMMA,
     },
     "de": {
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)
         "stress_flags": 0,
         "extra_vowels": "äöü",
         "encoding": "iso-8859-1",
+        "numbers": K.NUM_SWAP_TENS | K.NUM_DECIMAL_COMMA,
     },
     "fr": {
         "stress_rule": K.STRESSPOSN_1R,   # French: final syllable
         "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM,
         "extra_vowels": "àâäéèêëîïôöùûü",
         "encoding": "iso-8859-1",
+        "numbers": K.NUM_OMIT_1_HUNDRED | K.NUM_DECIMAL_COMMA,
     },
     # South Slavic (tr_languages.c case L('s','r'), shared by hr/bs): initial stress,
     # spelling stress on the first letter.

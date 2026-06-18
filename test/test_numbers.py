@@ -19,3 +19,17 @@ def en():
 @pytest.mark.parametrize("num", CASES)
 def test_cardinal_matches_oracle(en, oracle, num):
     assert en.phonemize(num) == oracle(num, "en")
+
+
+# German: NUM_SWAP_TENS (units-and-tens) + the _Na "ein"-before-magnitude form
+DE_CASES = ["5", "21", "35", "99", "100", "105", "1000", "1234"]
+
+
+@pytest.fixture(scope="module")
+def de():
+    return G2P("de")
+
+
+@pytest.mark.parametrize("num", DE_CASES)
+def test_german_cardinal_matches_oracle(de, oracle, num):
+    assert de.phonemize(num) == oracle(num, "de")

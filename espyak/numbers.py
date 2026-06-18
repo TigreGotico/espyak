@@ -9,6 +9,7 @@ myriads, …) are not yet modelled — see numbers.c.
 Word breaks between components use `||` so the renderer emits a space, matching how the
 `_Nx` tens fragments already carry a trailing `||`.
 """
+from espyak import constants as K
 from espyak.dictionary import LookupContext
 
 
@@ -18,27 +19,47 @@ def _frag(tr_dict, key, ctx):
     return ph or ""
 
 
-def _tens_units(tr_dict, value, ctx):
-    """1..99 -> phonemes."""
+def _digit(tr_dict, value, ctx, final):
+    """A single digit; when not final (followed by hundreds/thousands) prefer the `_Na`
+    variant if the language has one (German "ein" before a magnitude vs "eins")."""
+    if not final:
+        alt = _frag(tr_dict, "%da" % value, ctx)
+        if alt:
+            return alt
+    return _frag(tr_dict, str(value), ctx)
+
+
+def _tens_units(tr_dict, value, ctx, flags=0, final=True):
+    """1..99 -> phonemes. Honours NUM_SWAP_TENS (units before tens, e.g. German
+    "ein-und-zwanzig") and NUM_AND_UNITS ("and" between tens and units)."""
     if value < 20:
-        return _frag(tr_dict, str(value), ctx)
+        return _digit(tr_dict, value, ctx, final)
     tens, units = divmod(value, 10)
-    out = _frag(tr_dict, "%dx" % tens, ctx)
-    if units:
-        out += _frag(tr_dict, str(units), ctx)
-    return out
+    ph_tens = _frag(tr_dict, "%dx" % tens, ctx)
+    if units == 0:
+        return ph_tens
+    if flags & K.NUM_SWAP_TENS:
+        # units "and" tens (German "ein-und-zwanzig"); swap languages take the connective.
+        ph_and = _frag(tr_dict, "0and", ctx)
+        return _digit(tr_dict, units, ctx, False) + "||" + ph_and + ph_tens
+    ph_and = _frag(tr_dict, "0and", ctx) if (flags & K.NUM_AND_UNITS) else ""
+    return ph_tens + ph_and + _digit(tr_dict, units, ctx, final)
 
 
-def _three_digit(tr_dict, value, ctx, hundred_and):
+def _three_digit(tr_dict, value, ctx, flags=0, final=True):
     """0..999 -> phonemes (no leading/trailing magnitude)."""
     hundreds, tens_units = divmod(value, 100)
     out = ""
     if hundreds:
-        out += _frag(tr_dict, str(hundreds), ctx) + _frag(tr_dict, "0c", ctx)
-        if tens_units and hundred_and:
-            out += _frag(tr_dict, "0and", ctx) + "||"
+        if not (hundreds == 1 and (flags & K.NUM_OMIT_1_HUNDRED)):
+            out += _digit(tr_dict, hundreds, ctx, final=False)  # before "hundred"
+        out += _frag(tr_dict, "0c", ctx)
     if tens_units:
-        out += _tens_units(tr_dict, tens_units, ctx)
+        if hundreds:
+            if flags & K.NUM_HUNDRED_AND:
+                out += _frag(tr_dict, "0and", ctx)
+            out += "||"  # break between hundreds and the tens/units
+        out += _tens_units(tr_dict, tens_units, ctx, flags, final)
     return out
 
 
@@ -60,7 +81,7 @@ def _ordinal_stem(tr_dict, value, ctx):
     return _frag(tr_dict, "%dx" % tens, ctx) + _ordinal_stem(tr_dict, units, ctx)
 
 
-def translate_ordinal(tr_dict, digits, suffix, ctx=None, hundred_and=True):
+def translate_ordinal(tr_dict, digits, suffix, ctx=None, flags=K.NUM_HUNDRED_AND):
     """Translate an ordinal like '21st'/'100th': cardinal for the high part, ordinal stem
     for the final tens/units, then the suffix ending (`_#st` etc.)."""
     if ctx is None:
@@ -69,7 +90,7 @@ def translate_ordinal(tr_dict, digits, suffix, ctx=None, hundred_and=True):
     tens_units = n % 100
     if n < 100:
         return _ordinal_stem(tr_dict, n, ctx) + _frag(tr_dict, "#" + suffix, ctx)
-    out = translate_number(tr_dict, str(n - tens_units), ctx, hundred_and)
+    out = translate_number(tr_dict, str(n - tens_units), ctx, flags)
     if tens_units:
         return (out + "||" + _ordinal_stem(tr_dict, tens_units, ctx)
                 + _frag(tr_dict, "#" + suffix, ctx))
@@ -77,14 +98,15 @@ def translate_ordinal(tr_dict, digits, suffix, ctx=None, hundred_and=True):
     return out + "||" + _frag(tr_dict, "#" + suffix, ctx)
 
 
-def translate_number(tr_dict, digits, ctx=None, hundred_and=True, decimal_sep="."):
+def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal_sep="."):
     """Translate a number (optionally with a decimal part) to a phoneme string with `||`
-    word breaks. A fractional part is read as "point" then each digit individually."""
+    word breaks. `flags` is the language's langopts.numbers bitfield (NUM_*). A fractional
+    part is read as "point" then each digit individually."""
     if ctx is None:
         ctx = LookupContext()
     if decimal_sep in digits:
         intpart, _, frac = digits.partition(decimal_sep)
-        out = translate_number(tr_dict, intpart or "0", ctx, hundred_and)
+        out = translate_number(tr_dict, intpart or "0", ctx, flags)
         out += "||" + _frag(tr_dict, "dpt", ctx)
         for d in frac:
             if d.isdigit():
@@ -102,10 +124,13 @@ def translate_number(tr_dict, digits, ctx=None, hundred_and=True, decimal_sep=".
         gv = groups[thousandplex]
         if gv == 0:
             continue
-        part = _three_digit(tr_dict, gv, ctx, hundred_and)
+        if thousandplex == 1 and gv == 1 and (flags & K.NUM_OMIT_1_THOUSAND):
+            part = ""  # "mil" not "one thousand" (es)
+        else:
+            part = _three_digit(tr_dict, gv, ctx, flags, final=(thousandplex == 0))
         if thousandplex > 0:
             mag = _frag(tr_dict, "0m%d" % thousandplex, ctx)
             if mag:
-                part += "||" + mag
+                part += ("||" if part else "") + mag
         parts.append(part)
     return "||".join(p for p in parts if p)

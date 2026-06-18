@@ -260,19 +260,17 @@ class G2P:
         return " ".join(out)
 
     def _render_word(self, word, tonic, ipa, tie, separator):
-        from espyak.numbers import ORDINAL_SUFFIXES, translate_ordinal
+        from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
+        num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
+        dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
         if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and word[:-2].isdigit()):
-            ph = translate_ordinal(self._dict, word[:-2], word[-2:],
-                                   hundred_and=bool(self._config.get("num_hundred_and", True)))
+            ph = translate_ordinal(self._dict, word[:-2], word[-2:], flags=num_flags)
             if ph:
                 return self._render_phonemes(ph, ipa, tie, separator)
-        dsep = self._config.get("decimal_sep", ".")
         if word and (word.isdigit() or (word.replace(dsep, "", 1).isdigit()
                                         and dsep in word and not word.startswith(dsep)
                                         and not word.endswith(dsep))):
-            from espyak.numbers import translate_number
-            ph = translate_number(self._dict, word, decimal_sep=dsep,
-                                  hundred_and=bool(self._config.get("num_hundred_and", True)))
+            ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
             if ph:
                 return self._render_phonemes(ph, ipa, tie, separator)
         ph = self.translate_word(word, tonic=tonic)
