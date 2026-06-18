@@ -496,9 +496,14 @@ def get_vowel_stress(toks, stressed_syllable=0):
     return vowel_stress, phonetic, count, primary_posn, max_stress
 
 
-def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control=0):
+def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control=0,
+                    suffix_vowels=0):
     """Port of SetWordStress (dictionary.c:919) for stress_rule=STRESSPOSN_2R and the
     common path. Returns the phoneme string with stress mnemonics inserted.
+
+    `suffix_vowels` is the number of trailing vowels that belong to a removed suffix:
+    espeak runs GetVowelStress on the stem only and appends the suffix unstressed, so
+    those vowels are excluded from the auto-secondary loop (ro unele -> ˈunele not ˈunelˌe).
     """
     toks = mnem_index.tokenize(phoneme_str)
     if not toks:
@@ -634,7 +639,10 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     stress = STRESS_IS_PRIMARY if max_stress < STRESS_IS_PRIMARY else STRESS_IS_SECONDARY
     done = False
     first_primary = 0
-    for v in range(1, vowel_count):
+    # exclude a removed suffix's trailing vowels from the auto-secondary pass (espeak runs
+    # this on the stem only); never go below 1 so a stem vowel is still considered.
+    sec_count = max(1, vowel_count - suffix_vowels) if suffix_vowels else vowel_count
+    for v in range(1, sec_count):
         if vowel_stress[v] < STRESS_IS_DIMINISHED:
             if (stressflags & 0x10) and (stress < STRESS_IS_PRIMARY) and (v == vowel_count - 1):
                 pass  # S_FINAL_NO_2

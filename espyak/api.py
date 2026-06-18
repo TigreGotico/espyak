@@ -158,6 +158,7 @@ class G2P:
             dict_condition=self._tr.dict_condition,
         )
         self._tr.expect_verb = 0
+        self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
         ph, flags = self._translate_core(word.lower(), ctx)
         self._u_out_str = None
         ph_clean = ph.strip("\"'")
@@ -196,7 +197,8 @@ class G2P:
                 for i, p in enumerate(parts)
             ]
             return "||".join(stressed)
-        return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
+        return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
+                               suffix_vowels=getattr(self, "_suffix_nvowels", 0))
 
     def _translate_core(self, word, ctx, word_flags=0):
         """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
@@ -346,6 +348,13 @@ class G2P:
             stem_ph, _, _ = translate_rules(
                 self._tr, stem, self._mnem,
                 word_flags=end_flags | K.FLAG_SUFFIX_REMOVED, dict_flags=dict_flags)
+        # record the suffix's vowel count so set_word_stress runs the auto-secondary on the
+        # stem only (espeak stresses the stem, then appends the suffix unstressed). Only when
+        # there is a real stem — some endings span the whole word (stem empty, e.g. en
+        # "house"), where the "suffix" vowels ARE the word and must keep their stress.
+        if stem_ph.strip("\"'"):
+            self._suffix_nvowels = sum(1 for _m, p in self._mnem.tokenize(end_ph)
+                                       if p.type == phVOWEL and "nonsyllabic" not in p.flags)
         return stem_ph + end_ph
 
     def phonemize(self, text, ipa=True, tie=None, separator=None):
