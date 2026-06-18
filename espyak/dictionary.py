@@ -13,7 +13,7 @@ Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 """
 import unicodedata
 from espyak import constants as K
-from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP
 
 
 def _nfc(s):
@@ -565,6 +565,26 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     elif tr.stress_rule == K.STRESSPOSN_3R:  # antepenultimate (e.g. Macedonian)
         if stressed_syllable == 0:
             stressed_syllable = vowel_count - 3
+            if stressed_syllable < 1:
+                stressed_syllable = 1
+            vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_SYLCOUNT:  # Russian: guess stress from syllable count
+        # port of dictionary.c case STRESSPOSN_SYLCOUNT — for words without an explicit
+        # (dictionary) stress, guess from the syllable count and the final phoneme type.
+        if stressed_syllable == 0:
+            guess_ru = (0, 0, 1, 1, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 11)
+            guess_ru_v = (0, 0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10)  # final = vowel
+            guess_ru_t = (0, 0, 1, 2, 3, 3, 3, 4, 5, 6, 7, 7, 7, 8, 9, 10)  # final = unvoiced stop
+            stressed_syllable = vowel_count - 3
+            if vowel_count < 16:
+                final_type = phonetic[-1][1].type if phonetic else None
+                if final_type == phVOWEL:
+                    stressed_syllable = guess_ru_v[vowel_count]
+                elif final_type == phSTOP:
+                    stressed_syllable = guess_ru_t[vowel_count]
+                else:
+                    stressed_syllable = guess_ru[vowel_count]
             if stressed_syllable < 1:
                 stressed_syllable = 1
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
