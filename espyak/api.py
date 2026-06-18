@@ -420,6 +420,9 @@ class G2P:
         espeak's single-clause behavior and is what makes an isolated monosyllable like
         "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
         """
+        # normalize typographic apostrophes/primes to ' (espeak ReadClause, translate.c):
+        # ga D'fhuascail uses ’ (U+2019) but the d'-rules use ' (U+0027).
+        text = text.translate({0x2019: "'", 0x00B4: "'", 0x2032: "'", 0x0092: "'"})
         words = []
         for raw_tok in text.split():
             # a '-' between two letters is a word break (espeak translate.c:1316: "'-'
