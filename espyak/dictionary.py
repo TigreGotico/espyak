@@ -212,7 +212,14 @@ class DictList:
 
     def __init__(self):
         self.words = {}     # lowercase word -> list[DictEntry] in file order
+        self.cased_keys = set()  # original-case keys (espeak's letter lookup is case-sensitive)
         self.text_mode = False
+
+    def has_exact(self, key):
+        """True if `key` existed verbatim (case-sensitive). espeak's LookupLetter is
+        case-sensitive: a lowercase letter must not match an uppercase `_X` name entry
+        (smj `_O o:` is the name of UPPERCASE O; lowercase o spells via the rules -> oɔ)."""
+        return _nfc(key) in self.cased_keys
 
     @classmethod
     def load(cls, *paths):
@@ -293,6 +300,7 @@ class DictList:
         # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
         # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries.
         self.words.setdefault(_nfc(word.lower()), []).append(entry)
+        self.cased_keys.add(_nfc(word))
 
     def lookup(self, word, ctx):
         """Return (phonemes_or_None, flags1) or (None, None) if not found.

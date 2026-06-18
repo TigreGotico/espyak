@@ -407,6 +407,10 @@ class G2P:
         ctx = LookupContext(dict_condition=self._tr.dict_condition,
                             at_end=at_end, first_word=first)
         for key in ("_" + ch, ch):
+            # case-sensitive: a lowercase letter must not borrow an UPPERCASE `_X` name entry
+            # (smj `_O`/`O` name uppercase O; lowercase o spells via the rules -> oɔ, not o:).
+            if not self._dict.has_exact(key):
+                continue
             ph, _ = self._dict.lookup(key, ctx)
             if ph:
                 return ph
