@@ -34,3 +34,18 @@ def de():
 @pytest.mark.parametrize("num", DE_CASES)
 def test_german_cardinal_matches_oracle(de, oracle, num):
     assert de.phonemize(num) == oracle(num, "de")
+
+
+# Spanish: lexicalised hundreds (cien/ciento/doscientos), exact tens (veinte), "mil".
+# Compound tens+units (21, 31) need NUM_SINGLE_STRESS reassignment — not yet modelled.
+ES_CASES = ["5", "20", "30", "100", "105", "200", "300", "500", "1000"]
+
+
+@pytest.fixture(scope="module")
+def es():
+    return G2P("es")
+
+
+@pytest.mark.parametrize("num", ES_CASES)
+def test_spanish_cardinal_matches_oracle(es, oracle, num):
+    assert es.phonemize(num) == oracle(num, "es")

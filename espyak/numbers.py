@@ -35,9 +35,11 @@ def _tens_units(tr_dict, value, ctx, flags=0, final=True):
     if value < 20:
         return _digit(tr_dict, value, ctx, final)
     tens, units = divmod(value, 10)
-    ph_tens = _frag(tr_dict, "%dx" % tens, ctx)
     if units == 0:
-        return ph_tens
+        # exact ten: a lexicalised full form if the language has one (es "veinte"),
+        # otherwise the combining tens form (en "twenty").
+        return _frag(tr_dict, str(value), ctx) or _frag(tr_dict, "%dx" % tens, ctx)
+    ph_tens = _frag(tr_dict, "%dx" % tens, ctx)
     if flags & K.NUM_SWAP_TENS:
         # units "and" tens (German "ein-und-zwanzig"); swap languages take the connective.
         ph_and = _frag(tr_dict, "0and", ctx)
@@ -51,9 +53,15 @@ def _three_digit(tr_dict, value, ctx, flags=0, final=True):
     hundreds, tens_units = divmod(value, 100)
     out = ""
     if hundreds:
-        if not (hundreds == 1 and (flags & K.NUM_OMIT_1_HUNDRED)):
-            out += _digit(tr_dict, hundreds, ctx, final=False)  # before "hundred"
-        out += _frag(tr_dict, "0c", ctx)
+        # lexicalised hundreds (es cien/ciento/doscientos): _NC0 exact, else _NC
+        lex = (_frag(tr_dict, "%dc0" % hundreds, ctx) if tens_units == 0 else "") \
+            or _frag(tr_dict, "%dc" % hundreds, ctx)
+        if lex:
+            out += lex
+        else:
+            if not (hundreds == 1 and (flags & K.NUM_OMIT_1_HUNDRED)):
+                out += _digit(tr_dict, hundreds, ctx, final=False)  # before "hundred"
+            out += _frag(tr_dict, "0c", ctx)
     if tens_units:
         if hundreds:
             if flags & K.NUM_HUNDRED_AND:
