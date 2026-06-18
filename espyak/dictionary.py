@@ -112,6 +112,12 @@ class Translator:
             for ch in letters:
                 if ord(ch) < 256:
                     self.letter_bits[ord(ch)] |= (1 << group)
+        # non-Latin scripts: letter_bits indexed by (char - offset) code values
+        self.letter_bits_offset = config.get("letter_bits_offset", 0)
+        for group, codes in config.get("letter_bits_codes", []):
+            for code in codes:
+                if 0 <= code < 256:
+                    self.letter_bits[code] |= (1 << group)
 
     def is_letter(self, letter, group):
         # port of IsLetter (dictionary.c:770)

@@ -93,6 +93,41 @@ LANGS = {
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż"},
 }
 
+# --- Cyrillic-script setup (tr_languages.c SetCyrillicLetters, offset 0x420) ----------
+_RU_VOWELS = [0x10, 0x15, 0x31, 0x18, 0x1e, 0x23, 0x2b, 0x2d, 0x2e, 0x2f,
+              0xb9, 0xc9, 0x91, 0x8f, 0x36]
+_RU_CONSONANTS = [0x11, 0x12, 0x13, 0x14, 0x16, 0x17, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+                  0x1f, 0x20, 0x21, 0x22, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a,
+                  0x2c, 0x73, 0x7b, 0x83, 0x9b]
+_CYRL_SOFT = [0x2c, 0x19, 0x27, 0x29]
+_CYRL_HARD = [0x2a, 0x16, 0x26, 0x28]
+_CYRL_NOTHARD = [0x11, 0x12, 0x13, 0x14, 0x17, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1f,
+                 0x20, 0x21, 0x22, 0x24, 0x25, 0x27, 0x29, 0x2c]
+_CYRL_VOICED = [0x11, 0x12, 0x13, 0x14, 0x16, 0x17]
+_CYRL_IVOWELS = [0x2c, 0x2e, 0x2f, 0x31]
+
+
+def _cyrillic_config(stress_rule, stress_flags=0, **extra):
+    cfg = {
+        "stress_rule": stress_rule, "stress_flags": stress_flags,
+        "letter_bits": {},  # clear the default Latin letter bits
+        "letter_bits_offset": 0x420,
+        "letter_bits_codes": [
+            (K.LETTERGP_A, _RU_VOWELS), (K.LETTERGP_VOWEL2, _RU_VOWELS),
+            (K.LETTERGP_B, _CYRL_SOFT), (K.LETTERGP_C, _RU_CONSONANTS),
+            (K.LETTERGP_H, _CYRL_HARD), (K.LETTERGP_F, _CYRL_NOTHARD),
+            (K.LETTERGP_G, _CYRL_VOICED), (K.LETTERGP_Y, _CYRL_IVOWELS),
+        ],
+    }
+    cfg.update(extra)
+    return cfg
+
+
+LANGS["ru"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT)
+LANGS["uk"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT)
+LANGS["bg"] = _cyrillic_config(K.STRESSPOSN_2R)
+LANGS["tt"] = _cyrillic_config(K.STRESSPOSN_1R)
+
 
 def get_config(lang):
     cfg = dict(DEFAULTS)
