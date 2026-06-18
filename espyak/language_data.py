@@ -245,6 +245,9 @@ LANGS["ar"] = {
         (K.LETTERGP_Y, _ar_codes("ّ")),                    # shadda
     ],
 }
+# Sindhi is written in the Arabic script (OFFSET_ARABIC); reuse the Arabic letter bits so
+# vowels are detected and the penultimate-stress rule lands correctly.
+LANGS["sd"] = dict(LANGS["ar"])
 
 
 # --- Korean (Hangul syllables decomposed to jamo; SetLetterBits at OFFSET_KOREAN) ------
