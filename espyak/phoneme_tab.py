@@ -308,6 +308,9 @@ class PhonemeSource:
                     cur_ph.flags.add(t)
                 elif t == "lng":
                     cur_ph.flags.add("long")  # phLONG: long vowel (syllable-weight + 1SL/1RH)
+                elif t == "nsy":
+                    cur_ph.flags.add("nonsyllabic")  # phNONSYLLABIC: a glide/vocalic-r that is
+                    # NOT counted as a syllable for stress (bs vocalic r* in dvostruko)
                 elif t in ("flag1", "flag2", "flag3", "flag4"):
                     cur_ph.flags.add(t)  # phoneme feature bits tested by isFlag1..4 programs
                     # (e.g. Bashkir/Tatar back vowels -> dark-l: prevVowel(isFlag2)->Change(L))
