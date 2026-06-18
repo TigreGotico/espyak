@@ -255,6 +255,20 @@ LANGS["ka"] = {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2}
 LANGS["am"] = {"stress_rule": K.STRESSPOSN_1L,
                "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM}
 
+# Sinhala has its own Unicode layout (not the ISCII-derived ranges SetIndicLetters assumes),
+# so it overrides the generic Indic config built above: consonants 0x1a-0x46, vowels 0x05-0x16,
+# vowel signs + virama 0x4a-0x73. The C range is what lets the virama's `C) ්` rule fire
+# (suppress the inherent vowel) instead of speaking the virama's name "halkirima".
+LANGS["si"] = {
+    "stress_rule": K.STRESSPOSN_1L,
+    "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
+    "letter_bits": {}, "letter_bits_offset": 0x0d80,
+    "letter_bits_ranges": [
+        (K.LETTERGP_A, 0x05, 0x16), (K.LETTERGP_A, 0x4a, 0x73),
+        (K.LETTERGP_B, 0x4a, 0x73), (K.LETTERGP_C, 0x1a, 0x46),
+    ],
+}
+
 # --- Arabic (tr_languages.c SetArabicLetters, SetLetterBitsUTF8 with offset 0x600) -----
 def _ar_codes(s):
     return [ord(c) - 0x600 for c in s if not c.isspace()]
