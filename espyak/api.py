@@ -401,6 +401,13 @@ class G2P:
                     if vi < len(out_levels):
                         e.stresslevel = out_levels[vi]
                     vi += 1
+            # sl additionally shortens these program-unstressed vowels: drop the rule-emitted
+            # length marker after a vowel (sva -> sʋˈa not sʋˈaː). smj keeps length (the laxed
+            # vowel stays long: gis -> kˈɪːs), so this is gated separately from the de-stress.
+            if self._config.get("drop_u_length"):
+                for k in range(1, len(plist)):
+                    if plist[k].ph.mnemonic == ":" and plist[k - 1].ph.type == phVOWEL:
+                        plist[k].deleted = True
         _double_long_consonants(plist)
         if self._config.get("tone_language"):
             _normalize_tones(plist, self.phoneme_table)

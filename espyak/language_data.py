@@ -95,7 +95,8 @@ LANGS = {
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM_ONLY | K.S_PRIORITY_STRESS,
            "it_lengthen": 2},  # remove length from unstressed/non-penultimate
     "sl": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
-           "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž"},
+           "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž",
+           "unstress_u_words": True, "drop_u_length": True},  # $u words: short, open vowels
     "la": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2},
     "lt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "extra_vowels": "ąęėįųū", "extra_consonants": "čšž"},
