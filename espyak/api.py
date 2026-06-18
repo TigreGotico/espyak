@@ -313,7 +313,11 @@ class G2P:
         stem = stem.strip()
         self._tr.expect_verb = 0
         sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True)
-        sdict_ph, sdict_flags = self._dict.lookup(stem, sctx)
+        # A vowelless stem (e.g. eu gara - 'ara' suffix -> 'g') is not a real word stem;
+        # skipping the dict avoids matching single-letter *name* entries (eu 'g'->'ge'),
+        # which would inject a spurious vowel (gara -> gea**a instead of gaɾa).
+        has_vowel = any(self._tr.is_letter(ord(c), 0) for c in stem)
+        sdict_ph, sdict_flags = self._dict.lookup(stem, sctx) if has_vowel else (None, None)
         if sdict_ph:
             stem_ph = sdict_ph
         else:
