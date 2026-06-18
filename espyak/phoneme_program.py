@@ -14,6 +14,54 @@ from espyak.phoneme_tab import (
     phVOWEL, phPAUSE, phLIQUID, phNASAL, phSTOP, phVSTOP, phFRICATIVE, phVFRICATIVE,
 )
 
+# newword flag (render.PHLIST_START_OF_WORD)
+_START_OF_WORD = 1
+
+
+def set_regressive_voicing(plist, table, regression):
+    """Port of SetRegressiveVoicing (phonemelist.c). Walks the phoneme list backward and
+    assimilates consonant voicing (regressive), with optional word-final devoicing.
+    Used by Slavic and other languages (LOPT_REGRESSIVE_VOICING)."""
+    if not regression:
+        return
+    voicing = 1 if (regression & 0x100) else 0
+    stop_propagation = False
+    for j in range(len(plist) - 1, -1, -1):
+        ph = plist[j].ph
+        t = ph.type
+        if regression & 0x2 and ph.mnemonic[:1] in ("v", "R"):
+            stop_propagation = True
+            if regression & 0x10:
+                voicing = 0
+        if t in (phSTOP, phFRICATIVE):          # voiceless obstruent
+            if voicing == 0 and (regression & 0xf):
+                voicing = 1
+            elif voicing == 2 and ph.voicing_switch:
+                nph = table.get(ph.voicing_switch)
+                if nph is not None:
+                    plist[j].ph = nph
+        elif t in (phVSTOP, phVFRICATIVE):      # voiced obstruent
+            if voicing == 0 and (regression & 0xf):
+                voicing = 2
+            elif voicing == 1 and ph.voicing_switch:
+                nph = table.get(ph.voicing_switch)
+                if nph is not None:
+                    plist[j].ph = nph
+        else:
+            if regression & 0x8:
+                if t in (phPAUSE, phVOWEL):
+                    voicing = 0
+            else:
+                voicing = 0
+        if stop_propagation:
+            voicing = 0
+            stop_propagation = False
+        if plist[j].newword & _START_OF_WORD:
+            if regression & 0x04:
+                voicing = 0
+            if (regression & 0x100) and voicing == 0:
+                voicing = 1
+
 # --- program parser ------------------------------------------------------------
 
 

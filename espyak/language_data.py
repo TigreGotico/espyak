@@ -110,6 +110,7 @@ _CYRL_IVOWELS = [0x2c, 0x2e, 0x2f, 0x31]
 def _cyrillic_config(stress_rule, stress_flags=0, **extra):
     cfg = {
         "stress_rule": stress_rule, "stress_flags": stress_flags,
+        "regression": 0x03,  # regressive voicing assimilation (no final devoicing)
         "letter_bits": {},  # clear the default Latin letter bits
         "letter_bits_offset": 0x420,
         "letter_bits_codes": [
@@ -133,7 +134,7 @@ LANGS["uk"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT)
 LANGS["uk"]["letter_bits_codes"] = LANGS["uk"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),
 ]
-LANGS["bg"] = _cyrillic_config(K.STRESSPOSN_2R)
+LANGS["bg"] = _cyrillic_config(K.STRESSPOSN_2R, regression=0x107)  # + word-final devoicing
 LANGS["tt"] = _cyrillic_config(K.STRESSPOSN_1R)
 
 

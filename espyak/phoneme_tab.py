@@ -85,7 +85,7 @@ def _unescape_mnemonic(tok):
 
 class Phoneme:
     __slots__ = ("mnemonic", "type", "ipa", "stress_type", "flags", "lengthmod",
-                 "program", "place", "starttype")
+                 "program", "place", "starttype", "voicing_switch")
 
     def __init__(self, mnemonic):
         self.mnemonic = mnemonic
@@ -97,6 +97,7 @@ class Phoneme:
         self.program = []      # raw program statement lines (IF/ChangePhoneme/CALL/...)
         self.place = None      # place of articulation (vel, pal, alv, ...) for isVelar etc.
         self.starttype = None  # vowel category (#i, #@, #o, ...) for #X group predicates
+        self.voicing_switch = None  # voiced<->voiceless counterpart (regressive voicing)
 
     def copy(self, new_mnemonic=None):
         p = Phoneme(new_mnemonic or self.mnemonic)
@@ -108,6 +109,7 @@ class Phoneme:
         p.program = list(self.program)
         p.place = self.place
         p.starttype = self.starttype
+        p.voicing_switch = self.voicing_switch
         return p
 
     def __repr__(self):
@@ -266,6 +268,9 @@ class PhonemeSource:
             if head == "starttype":
                 cur_ph.starttype = tok[1] if len(tok) > 1 else None
                 continue
+            if head == "voicingswitch":
+                cur_ph.voicing_switch = _unescape_mnemonic(tok[1]) if len(tok) > 1 else None
+                continue
             for ti, t in enumerate(tok):
                 if t == "starttype" and ti + 1 < len(tok):
                     cur_ph.starttype = tok[ti + 1]
@@ -275,6 +280,8 @@ class PhonemeSource:
                         cur_ph.flags.add("stress")
                 elif t in _PLACE_KEYWORDS:
                     cur_ph.place = t
+                elif t in ("vcd", "vls"):
+                    cur_ph.flags.add(t)
             if len(tok) == 1:
                 cur_ph.flags.add(head)
 
@@ -303,6 +310,17 @@ class PhonemeSource:
             flatten(name, set())
 
         self._resolve_call_types()
+        self._derive_voiced_types()
+
+    def _derive_voiced_types(self):
+        """compiledata.c: a phVOICED stop/fricative becomes phVSTOP/phVFRICATIVE."""
+        for table in self.tables.values():
+            for ph in table.phonemes.values():
+                if "vcd" in ph.flags:
+                    if ph.type == phSTOP:
+                        ph.type = phVSTOP
+                    elif ph.type == phFRICATIVE:
+                        ph.type = phVFRICATIVE
 
     def _resolve_call_types(self):
         """A phoneme defined only via `CALL X` inherits X's type (e.g. `3` is `CALL @`

@@ -24,7 +24,7 @@ _ACCENT_NAMES = {
     0x0309: "_hok",
 }
 from espyak import language_data
-from espyak.phoneme_program import Interpreter
+from espyak.phoneme_program import Interpreter, set_regressive_voicing
 
 
 class G2P:
@@ -235,6 +235,9 @@ class G2P:
             tonic = 4 if i == len(words) - 1 else -1  # STRESS_IS_PRIMARY on tonic word
             ph = self.translate_word(word.lower(), tonic=tonic)
             plist = encode_phoneme_string(ph, self.phoneme_table)
+            reg = self._config.get("regression", 0)
+            if reg:
+                set_regressive_voicing(plist, self.phoneme_table, reg)
             self._interp.run(plist)  # P1b: context-dependent phoneme programs
             out.append(render_phoneme_list(plist, self.phoneme_table,
                                            ipa=ipa, tie=tie, separator=separator))
