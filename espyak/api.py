@@ -12,6 +12,7 @@ from espyak.dictionary import (
     Translator, translate_rules, set_word_stress, MnemIndex, DictList, LookupContext,
 )
 from espyak import language_data
+from espyak.phoneme_program import Interpreter
 
 
 class G2P:
@@ -25,6 +26,7 @@ class G2P:
         # phoneme table name defaults to the language code; voice file may override.
         self._ph_table_name = self._resolve_phoneme_table(lang)
         self._mnem = MnemIndex(self.phoneme_table)
+        self._interp = Interpreter(self._phsource, self.phoneme_table)
         # rule engine (letter-to-sound). Loaded lazily per language.
         self._config = language_data.get_config(lang)
         self._rules = RuleSet.compile_file(data_paths.rules_path(lang))
@@ -98,6 +100,7 @@ class G2P:
             tonic = 4 if i == len(words) - 1 else -1  # STRESS_IS_PRIMARY on tonic word
             ph = self.translate_word(word.lower(), tonic=tonic)
             plist = encode_phoneme_string(ph, self.phoneme_table)
+            self._interp.run(plist)  # P1b: context-dependent phoneme programs
             out.append(render_phoneme_list(plist, self.phoneme_table,
                                            ipa=ipa, tie=tie, separator=separator))
         return " ".join(out)

@@ -120,9 +120,11 @@ def encode_phoneme_string(s, table):
                 first_word_done = False
         if ph.type == phVOWEL:
             entry.synthflags |= SFLAG_SYLLABLE
-            if pending_stress is not None:
-                entry.stresslevel = pending_stress
-                pending_stress = None
+            # Unmarked vowels default to UNSTRESSED (1), not diminished (0): espeak
+            # emits an explicit "%%" marker for diminished syllables. This distinction
+            # is invisible to rendering but matters for ChangeIfDiminished programs.
+            entry.stresslevel = pending_stress if pending_stress is not None else 1
+            pending_stress = None
         entries.append(entry)
     return entries
 

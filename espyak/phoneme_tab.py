@@ -51,6 +51,17 @@ _TYPE_KEYWORDS = {
 }
 
 
+# program statement keywords captured for the phoneme-program interpreter (P1b).
+# Synthesis-only statements (FMT/WAV/Vowelin/Vowelout/formants) are intentionally NOT
+# captured — they don't affect the translation-time phoneme string.
+_PROGRAM_KEYWORDS = {
+    "IF", "ELIF", "ELSE", "ENDIF",
+    "ChangePhoneme", "InsertPhoneme",
+    "ChangeIfDiminished", "ChangeIfUnstressed", "ChangeIfNotStressed",
+    "ChangeIfStressed", "CALL", "RETURN",
+}
+
+
 def _unescape_mnemonic(tok):
     """Phoneme source escapes special chars with backslash (e.g. ``\\,`` -> ``,``)."""
     out = []
@@ -66,7 +77,8 @@ def _unescape_mnemonic(tok):
 
 
 class Phoneme:
-    __slots__ = ("mnemonic", "type", "ipa", "stress_type", "flags", "lengthmod")
+    __slots__ = ("mnemonic", "type", "ipa", "stress_type", "flags", "lengthmod",
+                 "program")
 
     def __init__(self, mnemonic):
         self.mnemonic = mnemonic
@@ -75,6 +87,7 @@ class Phoneme:
         self.stress_type = 0   # for phSTRESS phonemes: std_length / stress level 0..7
         self.flags = set()     # misc boolean keywords (unstressed, length, nolink, ...)
         self.lengthmod = 0
+        self.program = []      # raw program statement lines (IF/ChangePhoneme/CALL/...)
 
     def copy(self, new_mnemonic=None):
         p = Phoneme(new_mnemonic or self.mnemonic)
@@ -83,6 +96,7 @@ class Phoneme:
         p.stress_type = self.stress_type
         p.flags = set(self.flags)
         p.lengthmod = self.lengthmod
+        p.program = list(self.program)
         return p
 
     def __repr__(self):
@@ -145,6 +159,8 @@ class PhonemeSource:
         it = self._iter_lines(master)
         cur_ph = None
         in_proc = False
+        cur_proc = None
+        self.procedures = {}  # name -> list of program lines
 
         for line in it:
             tok = line.split()
@@ -152,11 +168,16 @@ class PhonemeSource:
 
             if head == "procedure":
                 in_proc = True
+                cur_proc = tok[1] if len(tok) > 1 else ""
+                self.procedures[cur_proc] = []
                 continue
             if head == "endprocedure":
                 in_proc = False
+                cur_proc = None
                 continue
             if in_proc:
+                if cur_proc is not None and head.split("(")[0] in _PROGRAM_KEYWORDS:
+                    self.procedures[cur_proc].append(line)
                 continue
 
             if head == "phonemetable":
@@ -195,6 +216,13 @@ class PhonemeSource:
                 continue
 
             if cur_ph is None:
+                continue
+
+            # capture program statements (control flow + phoneme changes) for P1b.
+            # Statements like `ChangePhoneme(D)` are a single token (no space), so test
+            # the keyword prefix before any '('.
+            if head.split("(")[0] in _PROGRAM_KEYWORDS:
+                cur_ph.program.append(line)
                 continue
 
             # --- phoneme attribute lines ---
