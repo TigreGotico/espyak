@@ -161,6 +161,15 @@ class G2P:
             rctx = LookupContext(dict_condition=self._tr.dict_condition)
             rest_ph, _ = self._translate_core(rest, rctx)
             return end_ph + rest_ph, flags
+        if end_type and (end_type & K.SUFX_Q):
+            # "lookup stem in *_list without the suffix" (it `_S1q`): if the stem is a
+            # dictionary entry use it, otherwise keep the in-context rule output (don't
+            # re-run the rules on the stem — that would re-expose a geminate to the
+            # word-end rule, palla->pal, and lose intervocalic context, casa s->z).
+            stem, _ = remove_ending(self._tr, word, end_type)
+            sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True)
+            sdict_ph, _ = self._dict.lookup(stem.strip(), sctx)
+            return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
         if end_type and not (end_type & K.SUFX_P):
             return self._translate_with_suffix(word, end_type, end_ph, flags), flags
         return ph, flags
