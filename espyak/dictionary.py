@@ -166,6 +166,11 @@ class Translator:
                 letter = l2
             else:
                 return 0
+        elif 0xc0 <= letter < 0xc0 + len(_REMOVE_ACCENT):
+            # accented Latin letter inherits its base letter's groups (dictionary.c:788):
+            # ò counts as a vowel because o does -> gd `A) p (_` fires (ròp -> …b), ga IsVowel.
+            base = _REMOVE_ACCENT[letter - 0xc0]
+            return 1 if (self.letter_bits[base] & (1 << group)) else 0
         if 0 <= letter < 0x100:
             return 1 if (self.letter_bits[letter] & (1 << group)) else 0
         return 0
