@@ -88,9 +88,10 @@ LANGS = {
     "ht": {"stress_rule": K.STRESSPOSN_1R,  # Haitian Creole: final-syllable stress
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM, "extra_vowels": "àèéò"},
     "it": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "àèéìíîòóùú",
-           "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM_ONLY | K.S_PRIORITY_STRESS},
+           "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM_ONLY | K.S_PRIORITY_STRESS,
+           "it_lengthen": 2},  # remove length from unstressed/non-penultimate
     "sl": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
-           "extra_consonants": "čšž"},
+           "it_lengthen": 1, "extra_consonants": "čšž"},
     "la": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2},
     "lt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "extra_vowels": "ąęėįųū", "extra_consonants": "čšž"},

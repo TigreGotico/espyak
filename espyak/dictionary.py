@@ -91,6 +91,7 @@ class Translator:
         self.stress_flags = config.get("stress_flags", 0)
         self.unstressed_wd1 = config.get("unstressed_wd1", 1)
         self.unstressed_wd2 = config.get("unstressed_wd2", 3)
+        self.it_lengthen = config.get("it_lengthen", 0)  # LOPT_IT_LENGTHEN
         self.translator_name = config.get("translator_name", 0)
         self._setup_letters(config)
 
@@ -596,9 +597,20 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         max_stress = tonic
 
     # produce output: walk phonetic, insert stress mnemonic before each vowel
+    opt_length = getattr(tr, "it_lengthen", 0)  # LOPT_IT_LENGTHEN
     out = []
     v = 1
+    prev_v = 0
+    prev_v_stress = 0
     for mnem, ph in phonetic:
+        if (opt_length & 1) and mnem == ":":
+            # remove a lengthen indicator from a non-stressed (or non-max-stress) syllable
+            if opt_length & 0x10:
+                shorten = prev_v != max_stress_posn
+            else:
+                shorten = prev_v_stress < STRESS_IS_PRIMARY
+            if shorten:
+                continue
         if _ph_is_vowel(ph):
             v_stress = vowel_stress[v]
             if v_stress <= STRESS_IS_UNSTRESSED:
@@ -614,6 +626,8 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                         vowel_stress[v] = v_stress
             if (v_stress == STRESS_IS_DIMINISHED) or (v_stress > STRESS_IS_UNSTRESSED):
                 out.append(_STRESS_MNEM.get(v_stress, ""))
+            prev_v = v
+            prev_v_stress = v_stress
             v += 1
         out.append(mnem)
     return "".join(out)
