@@ -102,16 +102,20 @@ def _copy_rule_string(string, state):
                 hexdigit_input = False
 
         cval = ord(c) if len(c) == 1 else c  # c is always 1 char here
+        handled_special = False
         if state in (1, 3) and not literal:
             handled, extra, cval2, consumed, sxflags = _special_char(c, p, i, state, sxflags)
             if handled:
                 out.extend(extra)
                 cval = cval2
                 i += consumed
+                handled_special = True
         v = cval if isinstance(cval, int) else ord(cval)
-        if v > 0xff and not _is_command_byte(v):
-            # a non-ASCII letter (Greek/Cyrillic/...) — emit its UTF-8 bytes, not the
-            # truncated low byte, so multi-byte match/pre/post letters work.
+        # A literal non-ASCII letter (>= 0x80, e.g. á/ä Latin-1 or Greek/Cyrillic) must be
+        # emitted as its UTF-8 bytes to match the UTF-8 word — but NOT the special-encoded
+        # bytes from _special_char (rule commands, ending length value|0x80) or explicit
+        # \-octal/0x hex literals, which are real single bytes.
+        if v >= 0x80 and not handled_special and not literal:
             out.extend(chr(v).encode("utf-8"))
         else:
             out.append(v & 0xff)
