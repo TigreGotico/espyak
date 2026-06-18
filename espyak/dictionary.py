@@ -402,7 +402,7 @@ def _ph_is_vowel(p):
     return p.type == phVOWEL and "nonsyllabic" not in p.flags
 
 
-def get_vowel_stress(toks):
+def get_vowel_stress(toks, stressed_syllable=0):
     """Port of GetVowelStress. Returns (vowel_stress list, phonetic toks, count, primary).
 
     `phonetic` is the token stream with stress markers removed (as ph_out in C).
@@ -416,8 +416,23 @@ def get_vowel_stress(toks):
     primary_posn = 0
     for mnem, ph in toks:
         if ph.type == phSTRESS:
+            if mnem == "=":
+                # phonSTRESS_PREV: place primary stress on the PRECEDING stressable vowel
+                j = count - 1
+                while (j > 0) and (stressed_syllable == 0) and (vowel_stress[j] < STRESS_IS_PRIMARY):
+                    if vowel_stress[j] not in (STRESS_IS_DIMINISHED, STRESS_IS_UNSTRESSED):
+                        vowel_stress[j] = STRESS_IS_PRIMARY
+                        if max_stress < STRESS_IS_PRIMARY:
+                            max_stress = STRESS_IS_PRIMARY
+                            primary_posn = j
+                        for ix in range(1, j):
+                            if vowel_stress[ix] == STRESS_IS_PRIMARY:
+                                vowel_stress[ix] = STRESS_IS_SECONDARY
+                        break
+                    j -= 1
+                continue
             # stress marker for the following vowel
-            if ph.stress_type < 4 or True:
+            if (ph.stress_type < 4) or (stressed_syllable == 0):
                 stress = ph.stress_type
                 if stress > max_stress:
                     max_stress = stress
@@ -451,7 +466,8 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         stressed_syllable = dict_flags & 0x3
         unstressed_word = True
 
-    vowel_stress, phonetic, vowel_count, primary_posn, max_stress = get_vowel_stress(toks)
+    vowel_stress, phonetic, vowel_count, primary_posn, max_stress = get_vowel_stress(
+        toks, stressed_syllable)
     max_stress_input = max_stress
     if stressed_syllable > 0:
         if stressed_syllable >= vowel_count:
