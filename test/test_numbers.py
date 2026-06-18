@@ -5,7 +5,8 @@ from espyak.api import G2P
 # cardinal core (NUM_HUNDRED_AND). NUM_THOUSAND_AND ("one million and five"), ordinals,
 # decimals/years and the per-language NUM_* variants are not yet modelled.
 CASES = ["0", "5", "7", "21", "42", "100", "105", "999",
-         "1000", "1234", "1000000", "2000000", "1005000", "13", "19", "80"]
+         "1000", "1234", "1000000", "2000000", "1005000", "13", "19", "80",
+         "3.14", "0.5", "2.0", "42.5", "100.25"]
 
 
 @pytest.fixture(scope="module")

@@ -42,10 +42,19 @@ def _three_digit(tr_dict, value, ctx, hundred_and):
     return out
 
 
-def translate_number(tr_dict, digits, ctx=None, hundred_and=True):
-    """Translate a run of decimal digits to a phoneme string with `||` word breaks."""
+def translate_number(tr_dict, digits, ctx=None, hundred_and=True, decimal_sep="."):
+    """Translate a number (optionally with a decimal part) to a phoneme string with `||`
+    word breaks. A fractional part is read as "point" then each digit individually."""
     if ctx is None:
         ctx = LookupContext()
+    if decimal_sep in digits:
+        intpart, _, frac = digits.partition(decimal_sep)
+        out = translate_number(tr_dict, intpart or "0", ctx, hundred_and)
+        out += "||" + _frag(tr_dict, "dpt", ctx)
+        for d in frac:
+            if d.isdigit():
+                out += "||" + _frag(tr_dict, d, ctx)
+        return out
     n = int(digits)
     if n == 0:
         return _frag(tr_dict, "0", ctx)
