@@ -120,6 +120,7 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         groups.append(n % 1000)
         n //= 1000
     parts = []
+    higher_emitted = False
     for thousandplex in range(len(groups) - 1, -1, -1):
         gv = groups[thousandplex]
         if gv == 0:
@@ -128,9 +129,14 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
             part = ""  # "mil" not "one thousand" (es)
         else:
             part = _three_digit(tr_dict, gv, ctx, flags, final=(thousandplex == 0))
+        if thousandplex == 0 and higher_emitted and gv < 100 and (flags & K.NUM_HUNDRED_AND):
+            # "and" before a final tens/units group after higher magnitudes (one thousand
+            # AND five). espeak doubles the space when a middle group was skipped.
+            part = _frag(tr_dict, "0and", ctx) + "||" + part
         if thousandplex > 0:
             mag = _frag(tr_dict, "0m%d" % thousandplex, ctx)
             if mag:
                 part += ("||" if part else "") + mag
+            higher_emitted = True
         parts.append(part)
     return "||".join(p for p in parts if p)
