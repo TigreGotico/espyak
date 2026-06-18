@@ -59,8 +59,8 @@ LANGS = {
         "unstressed_wd2": 2,
         "extra_vowels": "áéíóúü",
         "encoding": "iso-8859-1",
-        "numbers": K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED | K.NUM_OMIT_1_THOUSAND
-        | K.NUM_DECIMAL_COMMA,
+        "numbers": K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
+        | K.NUM_OMIT_1_THOUSAND | K.NUM_DECIMAL_COMMA,
     },
     "de": {
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)

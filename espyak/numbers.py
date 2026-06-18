@@ -43,9 +43,25 @@ def _tens_units(tr_dict, value, ctx, flags=0, final=True):
     if flags & K.NUM_SWAP_TENS:
         # units "and" tens (German "ein-und-zwanzig"); swap languages take the connective.
         ph_and = _frag(tr_dict, "0and", ctx)
-        return _digit(tr_dict, units, ctx, False) + "||" + ph_and + ph_tens
-    ph_and = _frag(tr_dict, "0and", ctx) if (flags & K.NUM_AND_UNITS) else ""
-    return ph_tens + ph_and + _digit(tr_dict, units, ctx, final)
+        out = _digit(tr_dict, units, ctx, False) + "||" + ph_and + ph_tens
+    else:
+        ph_and = _frag(tr_dict, "0and", ctx) if (flags & K.NUM_AND_UNITS) else ""
+        out = ph_tens + ph_and + _digit(tr_dict, units, ctx, final)
+    if flags & K.NUM_SINGLE_STRESS:
+        out = _single_stress(out)
+    return out
+
+
+def _single_stress(ph):
+    """NUM_SINGLE_STRESS: keep only the last primary stress ("'"), demoting earlier ones to
+    secondary (",") — Spanish/French "treinta y uno" -> tɾˌeɪntaiˈuno."""
+    marks = [i for i, c in enumerate(ph) if c == "'"]
+    if len(marks) <= 1:
+        return ph
+    chars = list(ph)
+    for i in marks[:-1]:
+        chars[i] = ","
+    return "".join(chars)
 
 
 def _three_digit(tr_dict, value, ctx, flags=0, final=True):
