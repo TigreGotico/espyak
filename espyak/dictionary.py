@@ -240,8 +240,12 @@ class DictList:
             multiword = False
         phon_tokens = []
         for tok in tokens:
-            if tok.startswith("?"):
-                neg = tok[1] == "!" if len(tok) > 1 else False
+            # a condition marker is "?N" or "?!N" (? + digit); a token like "?ila:h" is
+            # phonemes beginning with the glottal-stop phoneme `?` (Arabic hamza), NOT a
+            # condition — misreading it dropped the pronunciation of hamza-initial words.
+            if tok.startswith("?") and len(tok) > 1 and (
+                    tok[1].isdigit() or (tok[1] == "!" and tok[2:3].isdigit())):
+                neg = tok[1] == "!"
                 num = "".join(ch for ch in tok if ch.isdigit())
                 if num:
                     flag_codes.append(int(num) + (132 if neg else 100))

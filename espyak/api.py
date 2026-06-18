@@ -105,7 +105,10 @@ class G2P:
         self._rules = RuleSet.compile_file(data_paths.rules_path(lang))
         self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
-        self._dict = DictList.load(data_paths.list_path(lang), data_paths.extra_path(lang))
+        # _listx is the supplementary lexical-stress / vocalized dictionary (ar/ru/it/bg/
+        # tr/he/...); espeak compiles it after _list, so later entries win ties.
+        self._dict = DictList.load(data_paths.list_path(lang), data_paths.listx_path(lang),
+                                   data_paths.extra_path(lang))
 
     def _resolve_phoneme_table(self, lang):
         # voice file `phonemes <table>` line, else the lang code, else base1/base.
