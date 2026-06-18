@@ -124,6 +124,11 @@ LANGS = {
     "pap": {"stress_rule": K.STRESSPOSN_1R, "unstressed_wd1": 0, "unstressed_wd2": 2,
             "stress_flags": (K.S_FINAL_VOWEL_UNSTRESSED | K.S_FINAL_DIM_ONLY
                              | K.S_FINAL_NO_2 | K.S_NO_AUTO_2)},
+    # Albanian: stress the last syllable unless it ends in a vowel (1R +
+    # S_FINAL_VOWEL_UNSTRESSED). No config -> wrong 2R default. Plain 1R regresses (final
+    # vowels), but the flags move stress off a final vowel (muaji -> mˈuaɪi).
+    "sq": {"stress_rule": K.STRESSPOSN_1R, "extra_vowels": "y",
+           "stress_flags": (K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_FINAL_VOWEL_UNSTRESSED)},
     "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_NO_AUTO_2
            | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű"},
