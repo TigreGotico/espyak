@@ -251,6 +251,7 @@ def _greek_config(stress_rule, stress_flags):
 
 
 LANGS["el"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY)
+LANGS["el"]["u_clause_final"] = True  # 3+-syll $u words take the clause accent on the last syllable
 LANGS["grc"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2)
 # Lojban: LOPT_CAPS_IN_WORD — a capital letter marks the stressed syllable (RAtatar -> rˈatatˌar).
 LANGS["jbo"] = {"stress_rule": K.STRESSPOSN_2R, "caps_in_word": True, "extra_vowels": "y"}

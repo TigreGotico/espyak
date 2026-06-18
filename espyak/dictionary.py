@@ -112,6 +112,7 @@ class Translator:
         self.stress_flags = config.get("stress_flags", 0)
         self.unstressed_wd1 = config.get("unstressed_wd1", 1)
         self.unstressed_wd2 = config.get("unstressed_wd2", 3)
+        self.u_clause_final = config.get("u_clause_final", False)
         self.it_lengthen = config.get("it_lengthen", 0)  # LOPT_IT_LENGTHEN
         self.translator_name = config.get("translator_name", 0)
         self._setup_letters(config)
@@ -753,6 +754,15 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         if (tonic > max_stress) or (max_stress <= STRESS_IS_PRIMARY):
             vowel_stress[max_stress_posn] = tonic
         max_stress = tonic
+        # el: a multi-syllable $u (function) word carrying the clause accent takes it on the
+        # LAST syllable, its lexical accent dropping to secondary (είμαστε -> ˌimastˈe). Short
+        # $u words (<=2 vowels) keep the accent on the accented syllable (είμαι -> ˈime).
+        if (getattr(tr, "u_clause_final", False) and unstressed_word
+                and tonic >= STRESS_IS_PRIMARY and vowel_count >= 4
+                and max_stress_posn != vowel_count - 1):
+            vowel_stress[max_stress_posn] = STRESS_IS_SECONDARY
+            vowel_stress[vowel_count - 1] = tonic
+            max_stress_posn = vowel_count - 1
 
     # produce output: walk phonetic, insert stress mnemonic before each vowel
     opt_length = getattr(tr, "it_lengthen", 0)  # LOPT_IT_LENGTHEN
