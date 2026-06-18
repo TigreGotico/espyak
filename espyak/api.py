@@ -420,10 +420,17 @@ class G2P:
         espeak's single-clause behavior and is what makes an isolated monosyllable like
         "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
         """
-        # normalize typographic apostrophes/primes to ' (espeak ReadClause, translate.c):
-        # ga D'fhuascail uses ’ (U+2019) but the d'-rules use ' (U+0027). ZWJ (U+200D) is a
-        # word break, but KEPT (not dropped) so a Malayalam chillu (virama+ZWJ, e.g. ര്‍) stays
-        # a dead consonant: insert a break AFTER it (നിര്‍ഝ -> നിര്‍ + ഝ -> nˈiɾ ɟʰ…).
+        # Malayalam chillu: base consonant + virama + ZWJ is the atomic chillu (a dead
+        # consonant). espeak normalises the sequence to the atomic char so the la+virama rules
+        # (ി (ल्K -> I) don't mis-fire, then breaks after it. Map + break: നിര്‍ഝ -> നിർ ഝ ->
+        # nˈiɾ ɟʰ…; ...ില്‍ -> ...ിൽ -> …il (not …ɪl).
+        for seq, atom in (("ണ്‍", "ൺ"), ("ന്‍", "ൻ"),
+                          ("ര്‍", "ർ"), ("ല്‍", "ൽ"),
+                          ("ള്‍", "ൾ"), ("ക്‍", "ൿ")):
+            if seq in text:
+                text = text.replace(seq, atom + " ")
+        # normalize typographic apostrophes/primes to ' (espeak ReadClause). A remaining (plain)
+        # ZWJ (U+200D) is a word break, kept so it doesn't garble any cluster.
         text = text.translate({0x2019: "'", 0x00B4: "'", 0x2032: "'", 0x0092: "'",
                                0x200D: "‍ "})
         words = []
