@@ -124,13 +124,13 @@ def _cyrillic_config(stress_rule, stress_flags=0, **extra):
     return cfg
 
 
-LANGS["ru"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT)
-# Translator_Russian adds "е и є ї" to the Y (iotated/soft) letter group, which makes
-# consonants palatalize before them (д (Y -> d;): будем -> bˈudʲim).
+# Translator_Russian (shared by ru and uk): syllable-count stress, no auto-secondary.
+LANGS["ru"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT, K.S_NO_AUTO_2)
+# adds "е и є ї" to the Y (iotated/soft) group -> consonants palatalize (будем -> bˈudʲim)
 LANGS["ru"]["letter_bits_codes"] = LANGS["ru"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),
 ]
-LANGS["uk"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT)
+LANGS["uk"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT, K.S_NO_AUTO_2)
 LANGS["uk"]["letter_bits_codes"] = LANGS["uk"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),
 ]
