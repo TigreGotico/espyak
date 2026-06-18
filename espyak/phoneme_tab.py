@@ -282,6 +282,8 @@ class PhonemeSource:
                     cur_ph.place = t
                 elif t in ("vcd", "vls"):
                     cur_ph.flags.add(t)
+                elif t == "lng":
+                    cur_ph.flags.add("long")  # phLONG: long vowel (syllable-weight + 1SL/1RH)
             if len(tok) == 1:
                 cur_ph.flags.add(head)
 

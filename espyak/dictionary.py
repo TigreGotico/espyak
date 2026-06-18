@@ -566,6 +566,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     # STRESSPOSN_1L (first syllable) has no case in espeak's switch: the secondary-stress
     # loop below places the primary on the first eligible vowel (trochaic), so we do
     # nothing here.
+    elif tr.stress_rule == K.STRESSPOSN_1SL:  # Malayalam: 1st syllable, unless the 1st vowel
+        # is short and the 2nd is long (then the 2nd): കഠോര -> kɐʈʰˈoːɾɐ (1st a short, 2nd o: long).
+        if stressed_syllable == 0:
+            stressed_syllable = 1
+            if vowel_length[1] == 0 and vowel_count > 2 and vowel_length[2] > 0:
+                stressed_syllable = 2
+            vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
     elif tr.stress_rule == K.STRESSPOSN_1R:
         if stressed_syllable == 0:
             stressed_syllable = vowel_count - 1

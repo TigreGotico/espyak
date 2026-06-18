@@ -242,6 +242,7 @@ _INDIC_STRESS = {
 _INDIC_STRESS_RULE = {
     "hi": K.STRESSPOSN_1RH, "mr": K.STRESSPOSN_1RH,
     "gu": K.STRESSPOSN_1RH, "or": K.STRESSPOSN_1RH, "pa": K.STRESSPOSN_1RH,
+    "ml": K.STRESSPOSN_1SL,  # 1st syllable unless 1st vowel short and 2nd long
 }
 for _l, _off in _INDIC_OFFSETS.items():
     LANGS[_l] = _indic_config(
