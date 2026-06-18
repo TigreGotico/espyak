@@ -118,13 +118,16 @@ class G2P:
             return ph_clean  # language-switch marker, resolved in phonemize
         if "||" in ph:
             # multi-word dictionary entry (e.g. es "w" -> uβe||doβle): stress each
-            # sub-word separately, preserving the word break for the renderer.
+            # sub-word separately, preserving the word break for the renderer. With
+            # S_PRIORITY_STRESS (e.g. Italian spelled abbreviations a||bi||tʃ'i) the
+            # non-final sub-words stay unstressed instead of taking their own primary.
+            nonfinal = 1 if (self._config.get("stress_flags", 0) & K.S_PRIORITY_STRESS) else 4
             parts = ph.split("||")
             last = len(parts) - 1
             stressed = [
                 set_word_stress(self._tr, p, self._mnem,
                                 dict_flags=(flags if i == last else 0),
-                                tonic=(tonic if i == last else 4))
+                                tonic=(tonic if i == last else nonfinal))
                 for i, p in enumerate(parts)
             ]
             return "||".join(stressed)
