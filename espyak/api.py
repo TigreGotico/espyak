@@ -51,26 +51,32 @@ from espyak.render import PhonemeListEntry
 _DOUBLE_TYPES = frozenset((phFRICATIVE, phVFRICATIVE, phNASAL, phLIQUID))
 
 
-def _normalize_tones(plist, table):
+def _normalize_tones(plist, table, insert_default=True):
     """Tone language (vi): every syllable carries a tone immediately after its vowel.
     Move an existing tone (digit phoneme) to right after the vowel, or insert the default
-    tone '1' (phonDEFAULTTONE) if the syllable has none."""
+    tone '1' (phonDEFAULTTONE) if the syllable has none. With ``insert_default=False`` (my:
+    Burmese) only the per-syllable tone collapse runs — toneless syllables stay toneless."""
     default = table.get("1")
     i = 0
     while i < len(plist):
         if plist[i].ph.type == phVOWEL and not plist[i].deleted:
-            # find a tone within this syllable (before the next vowel)
+            # find the tones within this syllable (before the next vowel). A syllable may carry
+            # the vowel's inherent tone (my ီ -> i1) AND an explicit tone marker (visarga း -> 2);
+            # the explicit one overrides, so keep only the LAST and drop the earlier defaults
+            # (kri1 2 -> kri2, not kri12).
             j = i + 1
-            tone_at = None
+            tones = []
             while j < len(plist) and plist[j].ph.type != phVOWEL:
                 if plist[j].ph.mnemonic.isdigit():
-                    tone_at = j
-                    break
+                    tones.append(j)
                 j += 1
-            if tone_at is not None:
+            if tones:
+                for t in reversed(tones[:-1]):
+                    plist.pop(t)  # drop the earlier (default) tones
+                tone_at = tones[-1] - (len(tones) - 1)
                 if tone_at != i + 1:
-                    plist.insert(i + 1, plist.pop(tone_at))  # move tone to after the vowel
-            elif default is not None:
+                    plist.insert(i + 1, plist.pop(tone_at))  # move kept tone after the vowel
+            elif insert_default and default is not None:
                 plist.insert(i + 1, PhonemeListEntry(default))
             i += 1  # skip the tone we just placed
         i += 1
@@ -577,8 +583,9 @@ class G2P:
                     if plist[k].ph.mnemonic == ":" and plist[k - 1].ph.type == phVOWEL:
                         plist[k].deleted = True
         _double_long_consonants(plist)
-        if self._config.get("tone_language"):
-            _normalize_tones(plist, self.phoneme_table)
+        if self._config.get("tone_language") or self._config.get("tone_collapse"):
+            _normalize_tones(plist, self.phoneme_table,
+                             insert_default=bool(self._config.get("tone_language")))
         return render_phoneme_list(plist, self.phoneme_table,
                                    ipa=ipa, tie=tie, separator=separator)
 
