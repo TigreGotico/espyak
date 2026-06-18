@@ -93,6 +93,9 @@ class G2P:
         flags = dict_flags or 0
         if dict_ph:
             return dict_ph, flags
+        if dict_flags is not None and (flags & K.FLAG_ABBREV):
+            # $abbrev with no pronunciation -> spell out as individual letter names
+            return self._spell_word(word), 0
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True)
         if end_type and (end_type & K.SUFX_P) and not (word_flags & K.FLAG_NO_PREFIX):
@@ -105,6 +108,36 @@ class G2P:
         if end_type and not (end_type & K.SUFX_P):
             return self._translate_with_suffix(word, end_type, end_ph), flags
         return ph, flags
+
+    def _spell_word(self, word):
+        """Spell a word as individual letter names (SpeakIndividualLetters +
+        SetSpellingStress). Each letter name is stressed, then non-final primaries are
+        reduced to secondary by espeak's count%3 rule."""
+        names = []
+        n = len(word)
+        for idx, ch in enumerate(word):
+            name = self._lookup_letter(ch, at_end=(idx == n - 1), first=(idx == 0))
+            if name:
+                names.append(set_word_stress(self._tr, name, self._mnem, tonic=4))
+        n_stress = len(names)
+        out = []
+        for count, part in enumerate(names, 1):
+            if count != n_stress and (((count % 3) != 0) or (count == n_stress - 1)):
+                part = part.replace("''", "'", 1).replace("'", ",,", 1)  # primary -> secondary
+            out.append(part)
+        return "".join(out)
+
+    def _lookup_letter(self, ch, at_end, first):
+        """Look up a single letter's name: the spelling entry `_X`, else the plain
+        letter `X`, else letter-to-sound rules (LookupLetter)."""
+        ctx = LookupContext(dict_condition=self._tr.dict_condition,
+                            at_end=at_end, first_word=first)
+        for key in ("_" + ch, ch):
+            ph, _ = self._dict.lookup(key, ctx)
+            if ph:
+                return ph
+        ph, _, _ = translate_rules(self._tr, ch, self._mnem)
+        return ph
 
     def _translate_with_suffix(self, word, end_type, end_ph):
         """Remove a standard suffix, (re)translate the stem, append the suffix phonemes.
