@@ -186,9 +186,9 @@ _INDIC_OFFSETS = {
 }
 
 
-def _indic_config(offset, stress_rule=K.STRESSPOSN_1L):
+def _indic_config(offset, stress_rule=K.STRESSPOSN_1L, stress_flags=0):
     return {
-        "stress_rule": stress_rule, "stress_flags": 0,
+        "stress_rule": stress_rule, "stress_flags": stress_flags,
         "letter_bits": {}, "letter_bits_offset": offset,
         "letter_bits_ranges": [
             (K.LETTERGP_A, 0x04, 0x14), (K.LETTERGP_A, 0x3e, 0x4d),
@@ -204,8 +204,15 @@ def _indic_config(offset, stress_rule=K.STRESSPOSN_1L):
     }
 
 
+# per-language Indic stress_flags (tr_languages.c); default kn/ta-style.
+_INDIC_STRESS = {
+    "hi": K.S_MID_DIM | K.S_FINAL_DIM, "mr": K.S_MID_DIM | K.S_FINAL_DIM,
+    "ne": K.S_MID_DIM | K.S_FINAL_DIM, "bn": K.S_MID_DIM | K.S_FINAL_DIM,
+    "as": K.S_MID_DIM | K.S_FINAL_DIM,
+}
 for _l, _off in _INDIC_OFFSETS.items():
-    LANGS[_l] = _indic_config(_off)
+    LANGS[_l] = _indic_config(
+        _off, stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
 
 
 # --- Arabic (tr_languages.c SetArabicLetters, SetLetterBitsUTF8 with offset 0x600) -----
