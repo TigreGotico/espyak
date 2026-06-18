@@ -384,22 +384,41 @@ class G2P:
         "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
         """
         words = []
-        for tok in text.split():
-            # split mixed/camelCase at a lowercase->uppercase boundary (espeak tokenizer):
-            # mOn -> "m","On" (-> ˈɛm ˈɒn), fooBar -> "foo","Bar".
-            start = 0
-            for j in range(1, len(tok)):
-                if tok[j].isupper() and tok[j - 1].islower():
-                    words.append(tok[start:j])
-                    start = j
-            words.append(tok[start:])
+        for raw_tok in text.split():
+            # a '-' between two letters is a word break (espeak translate.c:1316: "'-'
+            # between two letters is a hyphen, treat as a space"): Cèit-Ùna -> Cèit, Ùna.
+            parts = []
+            seg = 0
+            for k in range(len(raw_tok)):
+                if (raw_tok[k] == "-" and 0 < k < len(raw_tok) - 1
+                        and raw_tok[k - 1].isalpha() and raw_tok[k + 1].isalpha()):
+                    parts.append(raw_tok[seg:k])
+                    seg = k + 1
+            parts.append(raw_tok[seg:])
+            for pi, tok in enumerate(parts):
+                if not tok:
+                    continue
+                # split mixed/camelCase at a lowercase->uppercase boundary (espeak tokenizer):
+                # mOn -> "m","On" (-> ˈɛm ˈɒn), fooBar -> "foo","Bar".
+                # A hyphen-joined part (pi>0) is a separate word for stress but joins to the
+                # previous with NO space (espeak FLAG_NOSPACE): Cèit-Ùna -> kʲˈɛːdʲˈuːnə.
+                sub_first = True
+                start = 0
+                for j in range(1, len(tok)):
+                    if tok[j].isupper() and tok[j - 1].islower():
+                        words.append((tok[start:j], pi > 0 and sub_first))
+                        sub_first = False
+                        start = j
+                words.append((tok[start:], pi > 0 and sub_first))
         out = []
-        for i, word in enumerate(words):
+        for i, (word, nospace) in enumerate(words):
             # tonic word carries the clause stress; tone languages (vi) reduce it to
             # secondary since the tone, not stress, carries syllable prominence.
             tonic = self._config.get("tonic_stress", 4) if i == len(words) - 1 else -1
+            if out and not nospace:
+                out.append(" ")
             out.append(self._render_word(word.lower(), tonic, ipa, tie, separator))
-        return " ".join(out)
+        return "".join(out)
 
     def _render_word(self, word, tonic, ipa, tie, separator):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
