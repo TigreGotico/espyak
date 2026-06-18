@@ -115,6 +115,10 @@ class Translator:
         self.u_clause_final = config.get("u_clause_final", False)
         self.it_lengthen = config.get("it_lengthen", 0)  # LOPT_IT_LENGTHEN
         self.translator_name = config.get("translator_name", 0)
+        # voice `dictrules N M ...` permanently set those numbered conditions, so `?N`-gated
+        # dict entries match (sr `?2 w -> duplo` for the W letter name needs condition 2).
+        for _n in config.get("dictrules", ()):
+            self.dict_condition |= (1 << _n)
         self._setup_letters(config)
 
     def _setup_letters(self, config):
