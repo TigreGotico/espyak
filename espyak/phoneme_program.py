@@ -276,6 +276,18 @@ class Interpreter:
 
     def _eval_pred(self, pred, plist, i, ctx):
         func, arg = pred
+        # nextVowel / prevVowel: scan to the next/previous vowel, skipping consonants
+        if func in ("nextVowel", "prevVowel"):
+            step = 1 if func == "nextVowel" else -1
+            j = i + step
+            while 0 <= j < len(plist):
+                if plist[j].ph.type == phVOWEL:
+                    feat = _FEATURES.get(arg)
+                    if feat is not None:
+                        return feat(plist[j].ph, plist[j], {})
+                    return plist[j].ph.mnemonic == arg
+                j += step
+            return False
         target_i = {"thisPh": i, "prevPh": i - 1, "nextPh": i + 1,
                     "prevPhW": i - 1, "nextPhW": i + 1, "next2Ph": i + 2}.get(func)
         if target_i is None:
