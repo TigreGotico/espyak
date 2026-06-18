@@ -21,6 +21,16 @@ def _nfc(s):
 
 REPLACED_E = ord("E")
 
+# remove_accent[] (dictionary.c:66), indexed by codepoint-0xC0: the 7-bit base letter an
+# accented char reduces to. espeak, on finding no rule for a letter, substitutes this base
+# and re-translates the word (dictionary.c:2228). Covers 0xC0..0x25D.
+_REMOVE_ACCENT = bytes.fromhex(
+    "61616161616161636565656569696969646e6f6f6f6f6f006f7575757579747361616161616161636565656569696969646e6f6f6f6f6f006f757575757974796161616161616363636363636363646464646565656565656565656567676767676767676868686869"
+    "69696969696969696969696a6a6b6b6b6c6c6c6c6c6c6c6c6c6c6e6e6e6e6e6e6e6e6e6f6f6f6f6f6f6f6f727272727272737373737373737374747474747475757575757575757575757577777979797a7a7a7a7a7a736262626200006f6363646464646465656566"
+    "6667676869696b6b6c6c6d6e6e6f6f6f6f6f70707900007373747474747575757679797a7a7a7a7a7a7a000000777474746b6464646c6c6c6e6e6e616169696f6f7575757575757575757565616161616161676767676b6b6f6f6f6f7a7a6a646464676777776e6e61"
+    "6161616f6f6161616165656565696969696f6f6f6f727272727575757573737474797968686e646f6f7a7a616165656f6f6f6f6f6f6f6f79796c6e746a64716163636c74737a000062757665656a6a717172727979616161626f636464656565656565"
+)
+
 # default English letter classification (tr_languages.c NewTranslator lines 277-284)
 _DEFAULT_LETTER_BITS = {
     K.LETTERGP_A: "aeiou",
@@ -1265,7 +1275,17 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
             else:
                 match1, p = match_rule(tr, buf, p, 0, rules.default, word_flags, dict_flags)
                 if match1.points == 0:
-                    # unrecognised character: skip it (full fallback handling TODO)
+                    # no rule: espeak strips the accent and re-translates the word
+                    # (dictionary.c:2228). Only when the char isn't the whole word (a lone
+                    # accented letter is spelled out instead). Fire for ASCII-letter bases.
+                    base = (_REMOVE_ACCENT[wc - 0xC0]
+                            if 0xC0 <= wc < 0xC0 + len(_REMOVE_ACCENT) else 0)
+                    if 0x61 <= base <= 0x7A and len(wb) > wc_bytes:
+                        new_word = (buf[2:p] + bytes([base]) + buf[p + wc_bytes:end]).decode(
+                            "utf-8", "replace")
+                        return translate_rules(tr, new_word, mnem_index, word_flags,
+                                               want_endings, dict_flags)
+                    # unrecognised character: skip it
                     p += (wc_bytes - 1)
 
         if match1 is None or match1.phonemes is None:
