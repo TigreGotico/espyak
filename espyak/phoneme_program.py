@@ -16,6 +16,7 @@ from espyak.phoneme_tab import (
 
 # newword flag (render.PHLIST_START_OF_WORD)
 _START_OF_WORD = 1
+_SFLAG_SYLLABLE = 0x04  # render.SFLAG_SYLLABLE
 
 
 def set_regressive_voicing(plist, table, regression):
@@ -300,6 +301,14 @@ class Interpreter:
         self._changed = True
         plist[i].ph = ph
         plist[i].ipa_override = None
+        # espeak's ReInterpretPhoneme (phonemelist.c): a ChangePhoneme updates SFLAG_SYLLABLE
+        # from the new type — set for a vowel, cleared otherwise. So a spelled letter whose
+        # vowel turns into a glide (fr cia: i -> j before a) loses its syllable flag and its
+        # stress mark (sˌejˈa, not sˌeˌjˈa).
+        if ph.type == phVOWEL:
+            plist[i].synthflags |= _SFLAG_SYLLABLE
+        else:
+            plist[i].synthflags &= ~_SFLAG_SYLLABLE
         # re-run the new phoneme's program so ITS ipa / further changes apply (espeak
         # re-interprets the changed phoneme). Guard against ChangePhoneme cycles.
         if ph.program and _depth < 8:
