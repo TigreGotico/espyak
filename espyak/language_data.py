@@ -252,6 +252,20 @@ LANGS["ar"] = {
 # vowels are detected and the penultimate-stress rule lands correctly.
 LANGS["sd"] = dict(LANGS["ar"])
 
+# --- Armenian (tr_languages.c case L('h','y'), OFFSET_ARMENIAN 0x530) -----------------
+_HY_VOWELS = [0x31, 0x35, 0x37, 0x38, 0x3b, 0x48, 0x55]
+_HY_CONSONANTS = [0x32, 0x33, 0x34, 0x36, 0x39, 0x3a, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41,
+                  0x42, 0x43, 0x44, 0x46, 0x47, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+                  0x50, 0x51, 0x52, 0x53, 0x54, 0x56]
+LANGS["hy"] = {
+    "stress_rule": K.STRESSPOSN_1R, "stress_flags": 0,  # final syllable
+    "letter_bits": {}, "letter_bits_offset": 0x530,
+    "letter_bits_codes": [
+        (K.LETTERGP_A, _HY_VOWELS), (K.LETTERGP_VOWEL2, _HY_VOWELS),
+        (K.LETTERGP_B, _HY_CONSONANTS), (K.LETTERGP_C, _HY_CONSONANTS + [0x45]),
+    ],
+}
+
 
 # --- Korean (Hangul syllables decomposed to jamo; SetLetterBits at OFFSET_KOREAN) ------
 LANGS["ko"] = {
