@@ -111,19 +111,21 @@ class G2P:
                                    data_paths.extra_path(lang))
 
     def _resolve_phoneme_table(self, lang):
-        # voice file `phonemes <table>` line, else the lang code, else base1/base.
-        candidates = []
+        # voice file `phonemes <table>` line(s), else the lang code, else base1/base.
+        # A voice may list several `phonemes` lines (e.g. xex: "phonemes pt-br" then
+        # "phonemes pt"); a later line overrides, so try them last-first, falling back to
+        # earlier ones when a name isn't a real table (pt-br -> pt).
+        voiced = []
         if self._voice:
             try:
                 with open(self._voice, encoding="utf-8") as fh:
                     for line in fh:
                         parts = line.split()
-                        if parts and parts[0] == "phonemes":
-                            candidates.append(parts[1])
-                            break
+                        if parts and parts[0] == "phonemes" and len(parts) > 1:
+                            voiced.append(parts[1])
             except OSError:
                 pass
-        candidates += [lang, "base1", "base"]
+        candidates = list(reversed(voiced)) + [lang, "base1", "base"]
         for name in candidates:
             if self._phsource.table(name) is not None:
                 return name
