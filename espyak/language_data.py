@@ -137,6 +137,30 @@ LANGS["uk"]["letter_bits_codes"] = LANGS["uk"]["letter_bits_codes"] + [
 LANGS["bg"] = _cyrillic_config(K.STRESSPOSN_2R, regression=0x107)  # + word-final devoicing
 LANGS["tt"] = _cyrillic_config(K.STRESSPOSN_1R)
 
+# --- Greek-script setup (tr_languages.c case L('e','l'), offset 0x380) ----------------
+_EL_VOWELS = [0x10, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x35, 0x37, 0x39, 0x3f, 0x45,
+              0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f]
+_EL_FVOWELS = [0x2d, 0x2e, 0x2f, 0x35, 0x37, 0x39, 0x45, 0x4d]
+_EL_VOICELESS = [0x38, 0x3a, 0x3e, 0x40, 0x42, 0x43, 0x44, 0x46, 0x47]
+_EL_CONSONANTS = [0x32, 0x33, 0x34, 0x36, 0x38, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x40,
+                  0x41, 0x42, 0x43, 0x44, 0x46, 0x47, 0x48]
+
+
+def _greek_config(stress_rule, stress_flags):
+    return {
+        "stress_rule": stress_rule, "stress_flags": stress_flags,
+        "letter_bits": {}, "letter_bits_offset": 0x380,
+        "letter_bits_codes": [
+            (K.LETTERGP_A, _EL_VOWELS), (K.LETTERGP_VOWEL2, _EL_VOWELS),
+            (K.LETTERGP_B, _EL_VOICELESS), (K.LETTERGP_C, _EL_CONSONANTS),
+            (K.LETTERGP_Y, _EL_FVOWELS),
+        ],
+    }
+
+
+LANGS["el"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY)
+LANGS["grc"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2)
+
 
 def get_config(lang):
     cfg = dict(DEFAULTS)
