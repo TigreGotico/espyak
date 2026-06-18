@@ -175,9 +175,13 @@ class Interpreter:
         if head == "CALL":
             self._call(tok[1], plist, i, ctx)
             return False
+        if head == "ipa":
+            from espyak.phoneme_tab import _decode_ipa
+            plist[i].ipa_override = _decode_ipa(line[len("ipa"):].strip())
+            return False
         arg = _paren_arg(line)
         if head == "ChangePhoneme":
-            self._change(plist, i, arg)
+            return self._change(plist, i, arg, ctx)
         elif head == "InsertPhoneme":
             self._insert(plist, i, arg)
         elif head in ("ChangeIfDiminished", "ChangeIfUnstressed",
@@ -190,7 +194,7 @@ class Interpreter:
                 "ChangeIfStressed": lvl >= 4,
             }[head]
             if cond:
-                self._change(plist, i, arg)
+                return self._change(plist, i, arg, ctx)
         return False
 
     def _call(self, ref, plist, i, ctx):
@@ -207,10 +211,17 @@ class Interpreter:
         if prog:
             self._exec(prog, plist, i, ctx)
 
-    def _change(self, plist, i, mnem):
+    def _change(self, plist, i, mnem, ctx, _depth=0):
         ph = self.table.get(mnem)
-        if ph is not None:
-            plist[i].ph = ph
+        if ph is None:
+            return False
+        plist[i].ph = ph
+        plist[i].ipa_override = None
+        # re-run the new phoneme's program so ITS ipa / further changes apply (espeak
+        # re-interprets the changed phoneme). Guard against ChangePhoneme cycles.
+        if ph.program and _depth < 8:
+            self._exec(self._program(ph), plist, i, ctx)
+        return True  # the changed phoneme's program takes over; stop the old one
 
     def _insert(self, plist, i, mnem):
         ph = self.table.get(mnem)

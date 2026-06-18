@@ -158,6 +158,7 @@ class PhonemeSource:
 
         it = self._iter_lines(master)
         cur_ph = None
+        if_depth = 0
         in_proc = False
         cur_proc = None
         self.procedures = {}  # name -> list of program lines
@@ -194,6 +195,7 @@ class PhonemeSource:
                 mnem = _unescape_mnemonic(tok[1])
                 cur_ph = Phoneme(mnem)
                 cur_phonemes[mnem] = cur_ph
+                if_depth = 0
                 continue
 
             if head == "endphoneme":
@@ -223,13 +225,20 @@ class PhonemeSource:
             # the keyword prefix before any '('.
             if head.split("(")[0] in _PROGRAM_KEYWORDS:
                 cur_ph.program.append(line)
+                if head == "IF":
+                    if_depth += 1
+                elif head == "ENDIF":
+                    if_depth = max(0, if_depth - 1)
                 continue
 
             # --- phoneme attribute lines ---
             if head == "ipa":
-                # `ipa <string>` — the rest of the line is the IPA text (may be '|'-joined,
-                # may contain U+xxxx escapes handled by _decode_ipa)
-                cur_ph.ipa = _decode_ipa(line[len("ipa"):].strip())
+                # `ipa <string>` sets the output IPA. A top-level ipa is the default; an
+                # ipa inside an IF block is conditional, so it goes to the program and is
+                # applied by the interpreter (e.g. @- is `ipa ə` but `ipa NULL` before *).
+                if if_depth == 0:
+                    cur_ph.ipa = _decode_ipa(line[len("ipa"):].strip())
+                cur_ph.program.append(line)
                 continue
             if head == "stress_type":
                 cur_ph.stress_type = int(tok[1])

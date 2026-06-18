@@ -53,13 +53,14 @@ def _is_digit09(c):
 
 
 class PhonemeListEntry:
-    __slots__ = ("ph", "stresslevel", "synthflags", "newword")
+    __slots__ = ("ph", "stresslevel", "synthflags", "newword", "ipa_override")
 
     def __init__(self, ph):
         self.ph = ph
         self.stresslevel = 0
         self.synthflags = 0
         self.newword = 0
+        self.ipa_override = None  # set by the phoneme-program interpreter (conditional ipa)
 
     @property
     def type(self):
@@ -131,17 +132,22 @@ def encode_phoneme_string(s, table):
 
 def write_ph_mnemonic(ph, use_ipa, plist_entry=None):
     """Port of WritePhMnemonic (dictionary.c:441). Returns the rendered phoneme name."""
-    # IPA: prefer an explicit ipa attribute
-    if use_ipa and ph.ipa is not None:
-        p = ph.ipa
-        if p == "":
-            return ""
-        if p and ord(p[0]) == 0x20:
-            return ""  # space => no name
-        if p and ord(p[0]) < 0x20:
-            p = p[1:]  # leading flags byte
-        # '|' is a no-tie barrier, dropped from plain output
-        return p.replace("|", "")
+    # IPA: prefer the interpreter's conditional ipa override, else the static attribute
+    if use_ipa:
+        p = None
+        if plist_entry is not None and plist_entry.ipa_override is not None:
+            p = plist_entry.ipa_override
+        elif ph.ipa is not None:
+            p = ph.ipa
+        if p is not None:
+            if p == "":
+                return ""
+            if ord(p[0]) == 0x20:
+                return ""  # space => no name
+            if ord(p[0]) < 0x20:
+                p = p[1:]  # leading flags byte
+            # '|' is a no-tie barrier, dropped from plain output
+            return p.replace("|", "")
 
     out = []
     first = True
