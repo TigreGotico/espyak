@@ -108,10 +108,20 @@ def _copy_rule_string(string, state):
                 out.extend(extra)
                 cval = cval2
                 i += consumed
-        out.append(cval & 0xff if isinstance(cval, int) else ord(cval))
-        if (cval if isinstance(cval, int) else ord(cval)) == 0:
+        v = cval if isinstance(cval, int) else ord(cval)
+        if v > 0xff and not _is_command_byte(v):
+            # a non-ASCII letter (Greek/Cyrillic/...) — emit its UTF-8 bytes, not the
+            # truncated low byte, so multi-byte match/pre/post letters work.
+            out.extend(chr(v).encode("utf-8"))
+        else:
+            out.append(v & 0xff)
+        if v == 0:
             break
     return bytes(out), next_state
+
+
+def _is_command_byte(v):
+    return v <= K.RULE_LAST_RULE
 
 
 def _special_char(c, p, i, state, sxflags):
