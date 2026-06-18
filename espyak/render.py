@@ -53,7 +53,7 @@ def _is_digit09(c):
 
 
 class PhonemeListEntry:
-    __slots__ = ("ph", "stresslevel", "synthflags", "newword", "ipa_override")
+    __slots__ = ("ph", "stresslevel", "synthflags", "newword", "ipa_override", "deleted")
 
     def __init__(self, ph):
         self.ph = ph
@@ -61,6 +61,7 @@ class PhonemeListEntry:
         self.synthflags = 0
         self.newword = 0
         self.ipa_override = None  # set by the phoneme-program interpreter (conditional ipa)
+        self.deleted = False      # ChangePhoneme(NULL) deletes the phoneme
 
     @property
     def type(self):
@@ -189,6 +190,8 @@ def render_phoneme_list(plist, table, ipa=True, tie=None, separator=None):
 
     pieces = []
     for ix, entry in enumerate(plist):
+        if entry.deleted:
+            continue
         ph = entry.ph
         buf = []
 

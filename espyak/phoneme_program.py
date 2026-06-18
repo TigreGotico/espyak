@@ -190,6 +190,13 @@ class Interpreter:
             return self._change(plist, i, arg, ctx)
         elif head == "InsertPhoneme":
             self._insert(plist, i, arg)
+        elif head == "IfNextVowelAppend":
+            # append the phoneme (e.g. linking r-) after this one if next is a vowel
+            if i + 1 < len(plist) and plist[i + 1].ph.type == phVOWEL:
+                ph = self.table.get(arg)
+                if ph is not None:
+                    from espyak.render import PhonemeListEntry
+                    plist.insert(i + 1, PhonemeListEntry(ph))
         elif head in ("ChangeIfDiminished", "ChangeIfUnstressed",
                       "ChangeIfNotStressed", "ChangeIfStressed"):
             lvl = plist[i].stresslevel
@@ -218,6 +225,10 @@ class Interpreter:
             self._exec(prog, plist, i, ctx)
 
     def _change(self, plist, i, mnem, ctx, _depth=0):
+        if mnem == "NULL":
+            # ChangePhoneme(NULL) deletes this phoneme (e.g. linking ; before a consonant)
+            plist[i].deleted = True
+            return True
         ph = self.table.get(mnem)
         if ph is None:
             return False
@@ -314,6 +325,9 @@ class Interpreter:
         feat = _FEATURES.get(arg)
         if feat is not None:
             return feat(ph, entry, ctx if func == "thisPh" else {})
+        if arg.startswith("#"):
+            # #i / #@ / #o ... — a vowel category, matched against starttype
+            return getattr(ph, "starttype", None) == arg
         # otherwise arg is a phoneme mnemonic
         return ph.mnemonic == arg
 

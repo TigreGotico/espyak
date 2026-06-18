@@ -56,7 +56,7 @@ _TYPE_KEYWORDS = {
 # captured — they don't affect the translation-time phoneme string.
 _PROGRAM_KEYWORDS = {
     "IF", "ELIF", "ELSE", "ENDIF",
-    "ChangePhoneme", "InsertPhoneme",
+    "ChangePhoneme", "InsertPhoneme", "IfNextVowelAppend",
     "ChangeIfDiminished", "ChangeIfUnstressed", "ChangeIfNotStressed",
     "ChangeIfStressed", "CALL", "RETURN",
 }
@@ -85,7 +85,7 @@ def _unescape_mnemonic(tok):
 
 class Phoneme:
     __slots__ = ("mnemonic", "type", "ipa", "stress_type", "flags", "lengthmod",
-                 "program", "place")
+                 "program", "place", "starttype")
 
     def __init__(self, mnemonic):
         self.mnemonic = mnemonic
@@ -96,6 +96,7 @@ class Phoneme:
         self.lengthmod = 0
         self.program = []      # raw program statement lines (IF/ChangePhoneme/CALL/...)
         self.place = None      # place of articulation (vel, pal, alv, ...) for isVelar etc.
+        self.starttype = None  # vowel category (#i, #@, #o, ...) for #X group predicates
 
     def copy(self, new_mnemonic=None):
         p = Phoneme(new_mnemonic or self.mnemonic)
@@ -106,6 +107,7 @@ class Phoneme:
         p.lengthmod = self.lengthmod
         p.program = list(self.program)
         p.place = self.place
+        p.starttype = self.starttype
         return p
 
     def __repr__(self):
@@ -261,8 +263,13 @@ class PhonemeSource:
                 continue
             # Feature/type keywords may appear anywhere on the line (e.g. `vcd alv stp`).
             # Apply every type keyword found (last wins, as espeak applies features in order).
-            for t in tok:
-                if t in _TYPE_KEYWORDS:
+            if head == "starttype":
+                cur_ph.starttype = tok[1] if len(tok) > 1 else None
+                continue
+            for ti, t in enumerate(tok):
+                if t == "starttype" and ti + 1 < len(tok):
+                    cur_ph.starttype = tok[ti + 1]
+                elif t in _TYPE_KEYWORDS:
                     cur_ph.type = _TYPE_KEYWORDS[t]
                     if t == "stress":
                         cur_ph.flags.add("stress")
