@@ -132,7 +132,7 @@ class G2P:
             rest_ph, _ = self._translate_core(rest, rctx)
             return end_ph + rest_ph, flags
         if end_type and not (end_type & K.SUFX_P):
-            return self._translate_with_suffix(word, end_type, end_ph), flags
+            return self._translate_with_suffix(word, end_type, end_ph, flags), flags
         return ph, flags
 
     def _spell_word(self, word):
@@ -193,11 +193,12 @@ class G2P:
         ph, _, _ = translate_rules(self._tr, ch, self._mnem)
         return ph
 
-    def _translate_with_suffix(self, word, end_type, end_ph):
+    def _translate_with_suffix(self, word, end_type, end_ph, dict_flags=0):
         """Remove a standard suffix, (re)translate the stem, append the suffix phonemes.
 
         Port of the suffix branch of TranslateWord3 (single-suffix; SUFX_M multiple
-        suffixes and SUFX_Q/SUFX_T variants are not yet handled)."""
+        suffixes and SUFX_Q/SUFX_T variants are not yet handled). The word's dict $alt
+        flags are carried into the stem retranslation (canonical keeps $alt3)."""
         stem, end_flags = remove_ending(self._tr, word, end_type)
         stem = stem.strip()
         self._tr.expect_verb = 0
@@ -208,7 +209,7 @@ class G2P:
         else:
             stem_ph, _, _ = translate_rules(
                 self._tr, stem, self._mnem,
-                word_flags=end_flags | K.FLAG_SUFFIX_REMOVED)
+                word_flags=end_flags | K.FLAG_SUFFIX_REMOVED, dict_flags=dict_flags)
         return stem_ph + end_ph
 
     def phonemize(self, text, ipa=True, tie=None, separator=None):
