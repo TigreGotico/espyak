@@ -1392,19 +1392,24 @@ def _is_letter_group(tr, buf, ix, group, pre):
     items = tr.rules.letter_groups.get(group) if getattr(tr, "rules", None) else None
     if not items:
         return -1
+    # espeak stores .Lnn group members longest-first and takes the longest match (compiledict.c):
+    # .L01 has both 'u' and the diphthong 'ui', so 'ui' must win (sjn Arvedui: e (CL01X matches
+    # the 'ui' so X reaches the word end -> the =E retraction fires). Return the LONGEST match.
+    best = -1
+    has_null = False
     for item in items:
         if item == "~":
-            return 0
+            has_null = True
+            continue
         ib = item.encode("utf-8")
+        length = len(ib)
         if pre:
             # match backwards: the bytes ending at ix
-            length = len(ib)
             start = ix - length + 1
-            if start < 0:
-                continue
-            if bytes(buf[start:ix + 1]) == ib:
-                return length
-        else:
-            if bytes(buf[ix:ix + len(ib)]) == ib:
-                return len(ib)
-    return -1
+            if start >= 0 and bytes(buf[start:ix + 1]) == ib and length > best:
+                best = length
+        elif bytes(buf[ix:ix + length]) == ib and length > best:
+            best = length
+    if best >= 0:
+        return best
+    return 0 if has_null else -1
