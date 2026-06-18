@@ -430,9 +430,12 @@ class G2P:
             if seq in text:
                 text = text.replace(seq, atom + " ")
         # normalize typographic apostrophes/primes to ' (espeak ReadClause). A remaining (plain)
-        # ZWJ (U+200D) is a word break, kept so it doesn't garble any cluster.
-        text = text.translate({0x2019: "'", 0x00B4: "'", 0x2032: "'", 0x0092: "'",
-                               0x200D: "‍ "})
+        # ZWJ (U+200D) is a word break, kept so it doesn't garble any cluster. Ethiopic
+        # punctuation (U+1361 wordspace .. U+1368) is a word/clause separator: without it the
+        # word-final consonant rule (am: @) ል (_ -> l) can't fire (አስፍረዋል። -> …wal not …walɨ).
+        _trans = {0x2019: "'", 0x00B4: "'", 0x2032: "'", 0x0092: "'", 0x200D: "‍ "}
+        _trans.update({cp: " " for cp in range(0x1361, 0x1369)})
+        text = text.translate(_trans)
         words = []
         for raw_tok in text.split():
             # a '-' between two letters is a word break (espeak translate.c:1316: "'-'
