@@ -385,17 +385,27 @@ class Interpreter:
                     "next2Ph": i + 2, "next2PhW": i + 2}.get(func)
         if target_i is None:
             return False
-        # *W variants: treat a word boundary as a pause
+        # *PhW variants do NOT cross a word boundary: espeak (synthdata.c:497-516) returns
+        # false for the whole condition when the boundary is hit, rather than evaluating on a
+        # pause. prevPhW fails if THIS phoneme starts a word; nextPhW if the next one does; the
+        # 2-step variants if either intervening phoneme starts a word. (it ibm: the first
+        # spelled letter's prevPhW(isNotVowel) then fails, so its `i` is not reduced to ɪ.)
         within = func in ("prevPhW", "nextPhW", "prev2PhW", "next2PhW")
+        if within:
+            def _ws(k):
+                return 0 <= k < len(plist) and (plist[k].newword & 1)
+            if func == "prevPhW" and _ws(i):
+                return False
+            if func == "prev2PhW" and (_ws(i) or i - 1 < 0 or _ws(i - 1)):
+                return False
+            if func == "nextPhW" and (i + 1 >= len(plist) or _ws(i + 1)):
+                return False
+            if func == "next2PhW" and (
+                    i + 1 >= len(plist) or _ws(i + 1) or i + 2 >= len(plist) or _ws(i + 2)):
+                return False
         if 0 <= target_i < len(plist):
             entry = plist[target_i]
             ph = entry.ph
-            if within:
-                # crossing a start-of-word boundary -> pause
-                if func in ("nextPhW", "next2PhW") and (entry.newword & 1):
-                    ph, entry = _PAUSE, None
-                elif func in ("prevPhW", "prev2PhW") and (plist[i].newword & 1):
-                    ph, entry = _PAUSE, None
         else:
             ph, entry = _PAUSE, None
         feat = _FEATURES.get(arg)
