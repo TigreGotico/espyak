@@ -57,6 +57,15 @@ def _normalize_tones(plist, table, insert_default=True):
     tone '1' (phonDEFAULTTONE) if the syllable has none. With ``insert_default=False`` (my:
     Burmese) only the per-syllable tone collapse runs — toneless syllables stay toneless."""
     default = table.get("1")
+    # A tone that is the word's FIRST phoneme is orphaned — a Burmese visarga split from its
+    # syllable by the asat word-break (း…စာကို -> 2stskˈo). Move it to after the word's last
+    # vowel (stskˈo2). (A tone after the vowel, e.g. i1 then visarga 2 in i12, is not first, so
+    # it is left for the collapse pass below.)
+    live = [k for k in range(len(plist)) if not plist[k].deleted]
+    if live and plist[live[0]].ph.mnemonic.isdigit() and plist[live[0]].ph.type != phVOWEL:
+        last_v = next((k for k in reversed(live) if plist[k].ph.type == phVOWEL), None)
+        if last_v is not None and last_v > live[0]:
+            plist.insert(last_v + 1, plist.pop(live[0]))
     i = 0
     while i < len(plist):
         if plist[i].ph.type == phVOWEL and not plist[i].deleted:
