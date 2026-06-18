@@ -718,9 +718,11 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
                     letter_xbytes = nb - 1
                     letter = buf[post_ptr] if post_ptr < len(buf) else 0
                     post_ptr += 1
-                    failed, add_points, post_ptr, k = _match_post(
+                    failed, add_points, post_ptr, k, rule_end = _match_post(
                         tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
                         last_letter_w, distance_right, post_ptr, word_flags)
+                    if rule_end:
+                        end_type = rule_end
             elif match_type == K.RULE_PRE:
                 distance_left += 2
                 if distance_left > 18:
@@ -764,6 +766,7 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
                 last_letter_w, distance_right, post_ptr, word_flags):
     failed = 0
     add_points = 0
+    end_type = 0
     if rb == K.RULE_LETTERGP:
         letter_group = _letter_group_no(prog[k]); k += 1
         if tr.is_letter(letter_w, letter_group):
@@ -856,9 +859,15 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
     elif rb == K.RULE_DEL_FWD:
         pass  # del_fwd handled minimally (rare; English 'e' replacement)
     elif rb == K.RULE_ENDING:
-        # 3 bytes: flags hi, flags mid, length|0x80 — endings handled in TranslateRules
-        failed = 1  # not yet wired through retranslation; skip ending rules for now
+        # 3 bytes: flags(16-23), flags(8-15), length|0x80 -> end_type
+        et = (prog[k] << 16) | ((prog[k + 1] & 0x7f) << 8) | (prog[k + 2] & 0x7f)
         k += 3
+        # LANG=tr: don't match a suffix if no previous syllable (LOPT_SUFFIX). en: off.
+        if (tr.word_vowel_count == 0) and not (et & K.SUFX_P) and \
+                (tr.config.get("param_suffix", 0) & 1):
+            failed = 1
+        else:
+            end_type = et
     elif rb == K.RULE_NO_SUFFIX:
         if word_flags & K.FLAG_SUFFIX_REMOVED:
             failed = 1
@@ -871,7 +880,7 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
                 add_points = 21 - distance_right
         else:
             failed = 1
-    return failed, add_points, post_ptr, k
+    return failed, add_points, post_ptr, k, end_type
 
 
 def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
@@ -980,11 +989,14 @@ def _dollar_rule(tr, command, word_flags):
     return 1, 0
 
 
-def translate_rules(tr, word, mnem_index, word_flags=0):
+def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 
-    Returns the accumulated mnemonic phoneme string. (Endings/retranslation, accent
-    removal, spell-word fallback, and language-switch are not yet wired.)
+    Returns (phonemes, end_type, end_phonemes). When `want_endings` and a standard
+    suffix/prefix ending rule wins, translation stops, `end_phonemes` holds the affix
+    pronunciation, and `end_type` encodes the affix (the caller removes it and
+    retranslates the stem). Otherwise end_type=0.
+    (Accent removal, spell-word fallback, and language-switch are not yet wired.)
     """
     rules = tr.rules
     wb = word.encode("utf-8")
@@ -1043,9 +1055,18 @@ def translate_rules(tr, word, mnem_index, word_flags=0):
         if match1 is None or match1.phonemes is None:
             continue
         if match1.points > 0:
+            end_type = match1.end_type & ~K.SUFX_UNPRON
+            if want_endings and end_type != 0:
+                # a standard ending matched: stop, return the affix phonemes + type
+                if (end_type & K.SUFX_P) and (word_flags & K.FLAG_NO_PREFIX):
+                    pass  # ignore the prefix match
+                else:
+                    if (end_type & K.SUFX_P) and ((end_type & 0x7f) == 0):
+                        end_type |= (p - 2)  # prefix length = chars consumed so far
+                    return phonemes, end_type, match1.phonemes
             phonemes = _append(tr, phonemes, match1.phonemes, mnem_index)
 
-    return phonemes
+    return phonemes, 0, ""
 
 
 def _append(tr, phonemes, ph, mnem_index):
@@ -1053,6 +1074,50 @@ def _append(tr, phonemes, ph, mnem_index):
         return phonemes
     count_vowels(tr, ph, mnem_index)
     return phonemes + ph  # AppendPhonemes uses strcat (no separator)
+
+
+_ADD_E_EXCEPTIONS = ("ion",)
+_ADD_E_ADDITIONS = ("c", "rs", "ir", "ur", "ath", "ns", "u", "spong", "rang", "larg")
+
+
+def remove_ending(tr, word, end_type):
+    """Port of RemoveEnding (dictionary.c:2901). Returns (stem, end_flags).
+
+    Removes a standard suffix indicated by the dictionary rules and (for English)
+    reverses the y->i and e-dropping that adding the suffix performed.
+    """
+    chars = list(word.replace(chr(REPLACED_E), "e"))
+    n_remove = end_type & 0x3f
+    stem = chars[: len(chars) - n_remove] if n_remove else chars[:]
+    ending = "".join(chars[len(chars) - n_remove:]) if n_remove else ""
+    end_flags = (end_type & 0xfff0) | K.FLAG_SUFX
+
+    if (end_type & K.SUFX_I) and stem and stem[-1] == "i":
+        stem[-1] = "y"
+
+    if end_type & K.SUFX_E and tr.translator_name == K.L("e", "n"):
+        last = ord(stem[-1]) if stem else 0
+        prev = ord(stem[-2]) if len(stem) >= 2 else 0
+        added = False
+        if tr.is_letter(prev, K.LETTERGP_VOWEL2) and tr.is_letter(last, 1):
+            tail = "".join(stem[-3:])
+            if not any(tail.endswith(ex) for ex in _ADD_E_EXCEPTIONS):
+                added = True
+        else:
+            tail = "".join(stem)
+            if any(tail.endswith(a) for a in _ADD_E_ADDITIONS):
+                added = True
+        if added:
+            stem.append("e")
+            end_flags |= K.FLAG_SUFX_E_ADDED
+
+    if (end_type & K.SUFX_V) and tr.expect_verb == 0:
+        tr.expect_verb = 1
+
+    if ending in ("s", "es"):
+        end_flags |= K.FLAG_SUFX_S
+
+    return "".join(stem), end_flags
 
 
 def _is_letter_group(tr, buf, ix, group, pre):

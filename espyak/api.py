@@ -10,7 +10,9 @@ from espyak.render import render_phoneme_list, encode_phoneme_string
 from espyak.rule_compiler import RuleSet
 from espyak.dictionary import (
     Translator, translate_rules, set_word_stress, MnemIndex, DictList, LookupContext,
+    remove_ending,
 )
+from espyak import constants as K
 from espyak import language_data
 from espyak.phoneme_program import Interpreter
 
@@ -78,14 +80,34 @@ class G2P:
             dict_condition=self._tr.dict_condition,
         )
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
+        flags = dict_flags or 0
         if dict_ph:
             ph = dict_ph
-            flags = dict_flags or 0
         else:
-            ph = translate_rules(self._tr, word.lower(), self._mnem)
-            flags = dict_flags or 0  # flags-only dictionary hit still informs stress
+            ph, end_type, end_ph = translate_rules(
+                self._tr, word.lower(), self._mnem, want_endings=True)
+            if end_type and not (end_type & K.SUFX_P):
+                ph = self._translate_with_suffix(word.lower(), end_type, end_ph)
         ph = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
         return ph
+
+    def _translate_with_suffix(self, word, end_type, end_ph):
+        """Remove a standard suffix, (re)translate the stem, append the suffix phonemes.
+
+        Port of the suffix branch of TranslateWord3 (single-suffix; SUFX_M multiple
+        suffixes and SUFX_Q/SUFX_T variants are not yet handled)."""
+        stem, end_flags = remove_ending(self._tr, word, end_type)
+        stem = stem.strip()
+        self._tr.expect_verb = 0
+        sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True)
+        sdict_ph, sdict_flags = self._dict.lookup(stem, sctx)
+        if sdict_ph:
+            stem_ph = sdict_ph
+        else:
+            stem_ph, _, _ = translate_rules(
+                self._tr, stem, self._mnem,
+                word_flags=end_flags | K.FLAG_SUFFIX_REMOVED)
+        return stem_ph + end_ph
 
     def phonemize(self, text, ipa=True, tie=None, separator=None):
         """Translate text to phonemes (word-by-word; full clause handling is P5).
