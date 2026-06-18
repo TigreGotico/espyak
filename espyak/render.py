@@ -114,7 +114,9 @@ def encode_phoneme_string(s, table):
             continue
         ph = table.phonemes[m]
         i += len(m)
-        if ph.type == phSTRESS:
+        if ph.type == phSTRESS and not m.isdigit():
+            # punctuation stress markers ('/,/%/=) attach to the next vowel; digit-named
+            # stress phonemes are tone marks (Vietnamese 1-7) that render in place.
             pending_stress = ph.stress_type
             continue
         entry = PhonemeListEntry(ph)

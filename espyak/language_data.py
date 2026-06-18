@@ -104,6 +104,8 @@ LANGS = {
     "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ"},  # antepenultimate
     "eu": {"stress_rule": K.STRESSPOSN_2R,
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ"},
+    # vi (Vietnamese) deferred: needs the full tone subsystem (default-tone insertion,
+    # tone-phoneme flow through set_word_stress, digit->IPA conversion) — not just config.
     "pt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_SPANISH,
            "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú"},
