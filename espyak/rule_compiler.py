@@ -128,6 +128,17 @@ def _is_command_byte(v):
     return v <= K.RULE_LAST_RULE
 
 
+def _leading_int(s):
+    """Leading decimal run of a condition string (tolerates trailing junk like '2!5')."""
+    digits = ""
+    for ch in s.lstrip():
+        if ch.isdigit():
+            digits += ch
+        else:
+            break
+    return int(digits) if digits else 0
+
+
 def _special_char(c, p, i, state, sxflags):
     """Handle one special character in a pre/post section.
 
@@ -316,9 +327,9 @@ def compile_rule(line, group_name, group_raw=False):
 
     if sec.cond:
         if sec.cond[0] == "!":
-            ix = int(sec.cond[1:] or 0) + 32
+            ix = _leading_int(sec.cond[1:]) + 32
         else:
-            ix = int(sec.cond or 0)
+            ix = _leading_int(sec.cond)
         if 0 < ix < 255:
             out.append(K.RULE_CONDITION)
             out.append(ix)
