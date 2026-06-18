@@ -97,7 +97,8 @@ class G2P:
             # $abbrev with no pronunciation -> spell out as individual letter names
             return self._spell_word(word), 0
         ph, end_type, end_ph = translate_rules(
-            self._tr, word, self._mnem, word_flags=word_flags, want_endings=True)
+            self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
+            dict_flags=flags)
         if end_type and (end_type & K.SUFX_P) and not (word_flags & K.FLAG_NO_PREFIX):
             # prefix: remove it, translate the remaining stem, prepend the prefix phonemes
             prefix_len = end_type & 0x3f

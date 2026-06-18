@@ -720,7 +720,7 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
                     post_ptr += 1
                     failed, add_points, post_ptr, k, rule_end = _match_post(
                         tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-                        last_letter_w, distance_right, post_ptr, word_flags)
+                        last_letter_w, distance_right, post_ptr, word_flags, dict_flags)
                     if rule_end:
                         end_type = rule_end
             elif match_type == K.RULE_PRE:
@@ -737,7 +737,7 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
                     letter = buf[pre_ptr] if pre_ptr >= 0 else 0
                     failed, add_points, pre_ptr, k = _match_pre(
                         tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-                        last_letter_w, distance_left, distance_right, pre_ptr, word_flags)
+                        last_letter_w, distance_left, distance_right, pre_ptr, word_flags, dict_flags)
 
             if failed == 0:
                 points += add_points
@@ -763,7 +763,7 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
 
 
 def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-                last_letter_w, distance_right, post_ptr, word_flags):
+                last_letter_w, distance_right, post_ptr, word_flags, dict_flags):
     failed = 0
     add_points = 0
     end_type = 0
@@ -812,7 +812,7 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
     elif rb == K.RULE_DOLLAR:
         post_ptr -= 1
         command = prog[k]; k += 1
-        failed, add_points = _dollar_rule(tr, command, word_flags)
+        failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags)
     elif rb == ord("-"):
         if letter == ord("-") or (letter == ord(" ") and (word_flags & K.FLAG_HYPHEN_AFTER)):
             add_points = 22 - distance_right
@@ -884,7 +884,7 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
 
 
 def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-               last_letter_w, distance_left, distance_right, pre_ptr, word_flags):
+               last_letter_w, distance_left, distance_right, pre_ptr, word_flags, dict_flags):
     failed = 0
     add_points = 0
     if rb == K.RULE_LETTERGP:
@@ -933,7 +933,7 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         pre_ptr += 1
         command = prog[k]; k += 1
         if (command == K.DOLLAR_LIST) or ((command & 0xf0) == 0x20):
-            failed, add_points = _dollar_rule(tr, command, word_flags)
+            failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags)
     elif rb == K.RULE_SYLLABLE:
         syllable_count = 1
         while k < len(prog) and prog[k] == K.RULE_SYLLABLE:
@@ -977,19 +977,24 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
     return failed, add_points, pre_ptr, k
 
 
-def _dollar_rule(tr, command, word_flags):
-    # $list / $p_alt / $w_alt — needs the *_list lookup (wired in api via LookupDict).
-    # Until the list lookup is connected here, fail these rules (rare in core words).
+def _dollar_rule(tr, command, word_flags, dict_flags):
+    # Port of the RULE_DOLLAR branch of MatchRule. $w_alt is gated on the word's dict
+    # $alt flags. $p_alt / $list need a part-word *_list lookup (DollarRule) and are not
+    # yet wired, so they fail (rare in core words).
     if command == K.DOLLAR_NOPREFIX:
         if word_flags & K.FLAG_PREFIX_REMOVED:
             return 1, 0
         return 0, 1
     if command == K.DOLLAR_UNPR:
         return 0, 0
+    if (command & 0xf0) == 0x10:  # $w_alt / $w_alt1..6
+        if dict_flags & (1 << (K.BITNUM_FLAG_ALT + (command & 0xf))):
+            return 0, 23
+        return 1, 0
     return 1, 0
 
 
-def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False):
+def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 
     Returns (phonemes, end_type, end_phonemes). When `want_endings` and a standard
@@ -1028,12 +1033,12 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False):
         two = bytes(buf[p:p + 2])
         if not found and two in rules.groups2:
             g2 = rules.groups2[two]
-            m2, p2 = match_rule(tr, buf, p, 2, g2, word_flags, 0)
+            m2, p2 = match_rule(tr, buf, p, 2, g2, word_flags, dict_flags)
             if m2.points > 0:
                 m2.points += 35
             g1 = rules.groups1.get(c)
             if g1 is not None:
-                m1, p1 = match_rule(tr, buf, p, 1, g1, word_flags, 0)
+                m1, p1 = match_rule(tr, buf, p, 1, g1, word_flags, dict_flags)
             else:
                 m1, p1 = MatchRecord(), p
             if m2.points >= m1.points:
@@ -1045,9 +1050,9 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False):
         if not found:
             g1 = rules.groups1.get(c)
             if g1 is not None:
-                match1, p = match_rule(tr, buf, p, 1, g1, word_flags, 0)
+                match1, p = match_rule(tr, buf, p, 1, g1, word_flags, dict_flags)
             else:
-                match1, p = match_rule(tr, buf, p, 0, rules.default, word_flags, 0)
+                match1, p = match_rule(tr, buf, p, 0, rules.default, word_flags, dict_flags)
                 if match1.points == 0:
                     # unrecognised character: skip it (full fallback handling TODO)
                     p += (wc_bytes - 1)
