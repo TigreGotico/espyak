@@ -569,6 +569,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 stressed_syllable = 1
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
             max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_2LLH:  # Korean: 1st if heavy, else 2nd
+        # port of dictionary.c case STRESSPOSN_2LLH -> STRESSPOSN_2L: keep stress on the
+        # first syllable unless it is light and the second is heavy, then move to the second.
+        if stressed_syllable == 0:
+            if not (syllable_weight[1] > 0 or syllable_weight[2] == 0) and vowel_count > 2:
+                stressed_syllable = 2
+                vowel_stress[2] = STRESS_IS_PRIMARY
+                max_stress = STRESS_IS_PRIMARY
     elif tr.stress_rule == K.STRESSPOSN_1RH:  # last heaviest syllable, excl. final (hi/mr)
         if stressed_syllable == 0:
             max_weight = -1

@@ -275,7 +275,7 @@ LANGS["hy"] = {
 
 # --- Korean (Hangul syllables decomposed to jamo; SetLetterBits at OFFSET_KOREAN) ------
 LANGS["ko"] = {
-    "stress_rule": K.STRESSPOSN_1L, "stress_flags": 0, "decompose_hangul": True,
+    "stress_rule": K.STRESSPOSN_2LLH, "stress_flags": 0, "decompose_hangul": True,
     "letter_bits": {}, "letter_bits_offset": 0x1100,
     "letter_bits_ranges": [(K.LETTERGP_A, 0x61, 0x75), (K.LETTERGP_VOWEL2, 0x61, 0x75)],
     "letter_bits_codes": [
