@@ -95,6 +95,9 @@ class G2P:
         )
         self._tr.expect_verb = 0
         ph, flags = self._translate_core(word.lower(), ctx)
+        ph_clean = ph.strip("\"'")
+        if ph_clean.startswith("_^_"):
+            return ph_clean  # language-switch marker, resolved in phonemize
         if "||" in ph:
             # multi-word dictionary entry (e.g. es "w" -> uβe||doβle): stress each
             # sub-word separately, preserving the word break for the renderer.
@@ -233,12 +236,36 @@ class G2P:
         out = []
         for i, word in enumerate(words):
             tonic = 4 if i == len(words) - 1 else -1  # STRESS_IS_PRIMARY on tonic word
-            ph = self.translate_word(word.lower(), tonic=tonic)
-            plist = encode_phoneme_string(ph, self.phoneme_table)
-            reg = self._config.get("regression", 0)
-            if reg:
-                set_regressive_voicing(plist, self.phoneme_table, reg)
-            self._interp.run(plist)  # P1b: context-dependent phoneme programs
-            out.append(render_phoneme_list(plist, self.phoneme_table,
-                                           ipa=ipa, tie=tie, separator=separator))
+            out.append(self._render_word(word.lower(), tonic, ipa, tie, separator))
         return " ".join(out)
+
+    def _render_word(self, word, tonic, ipa, tie, separator):
+        ph = self.translate_word(word, tonic=tonic)
+        if ph.startswith("_^_"):
+            # foreign word: re-translate in the named language and wrap (lang)...(orig)
+            target = ph[3:].split("|")[0].lower().strip()
+            tg = self._switch_g2p(target)
+            if tg is not None:
+                inner = tg._render_word(word, tonic, ipa, tie, separator)
+                return "(%s)%s(%s)" % (target, inner, self.lang)
+            ph = ""
+        plist = encode_phoneme_string(ph, self.phoneme_table)
+        reg = self._config.get("regression", 0)
+        if reg:
+            set_regressive_voicing(plist, self.phoneme_table, reg)
+        self._interp.run(plist)  # P1b: context-dependent phoneme programs
+        return render_phoneme_list(plist, self.phoneme_table,
+                                   ipa=ipa, tie=tie, separator=separator)
+
+    _SWITCH_CACHE = {}
+
+    def _switch_g2p(self, lang):
+        """Cached G2P for a language switched to via `_^_<lang>` (foreign words)."""
+        g = G2P._SWITCH_CACHE.get(lang)
+        if g is None and lang not in G2P._SWITCH_CACHE:
+            try:
+                g = G2P(lang)
+            except Exception:
+                g = None
+            G2P._SWITCH_CACHE[lang] = g
+        return g
