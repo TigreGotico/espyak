@@ -8,7 +8,9 @@ from espyak import data_paths
 from espyak.phoneme_tab import get_source
 from espyak.render import render_phoneme_list, encode_phoneme_string
 from espyak.rule_compiler import RuleSet
-from espyak.dictionary import Translator, translate_rules, set_word_stress, MnemIndex
+from espyak.dictionary import (
+    Translator, translate_rules, set_word_stress, MnemIndex, DictList, LookupContext,
+)
 
 
 class G2P:
@@ -26,6 +28,7 @@ class G2P:
         self._rules = RuleSet.compile_file(data_paths.rules_path(lang))
         self._tr = Translator(phsource=self._phsource)
         self._tr.rules = self._rules
+        self._dict = DictList.load(data_paths.list_path(lang), data_paths.extra_path(lang))
 
     def _resolve_phoneme_table(self, lang):
         # voice file `phonemes <table>` line, else the lang code, else 'base1'
@@ -57,22 +60,41 @@ class G2P:
             plist, self.phoneme_table, ipa=ipa, tie=tie, separator=separator
         )
 
-    def translate_word(self, word):
+    def translate_word(self, word, tonic=-1):
         """Translate a single lowercase word to its mnemonic phoneme string.
 
-        Pipeline: letter-to-sound rules -> stress assignment. (Dictionary `_list`
-        lookup, clause/number handling, and phoneme programs are still being wired;
-        see the repo plan.)
+        Pipeline: dictionary `_list` lookup -> (fallback) letter-to-sound rules ->
+        stress assignment. `tonic` (>=0) forces the word's main stress to that level,
+        used for the tonic (clause-stressed) word. (Clause/number handling and phoneme
+        programs are still being wired; see the repo plan.)
         """
-        ph = translate_rules(self._tr, word, self._mnem)
-        ph = set_word_stress(self._tr, ph, self._mnem)
+        ctx = LookupContext(
+            first_upper=word[:1].isupper(),
+            all_upper=word.isupper() and any(c.isalpha() for c in word),
+            dict_condition=self._tr.dict_condition,
+        )
+        dict_ph, dict_flags = self._dict.lookup(word, ctx)
+        if dict_ph:
+            ph = dict_ph
+            flags = dict_flags or 0
+        else:
+            ph = translate_rules(self._tr, word.lower(), self._mnem)
+            flags = dict_flags or 0  # flags-only dictionary hit still informs stress
+        ph = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
         return ph
 
     def phonemize(self, text, ipa=True, tie=None, separator=None):
-        """Translate text to phonemes (word-by-word; full clause handling is P5)."""
+        """Translate text to phonemes (word-by-word; full clause handling is P5).
+
+        The last word carries the clause tonic stress (STRESS_IS_PRIMARY); this matches
+        espeak's single-clause behavior and is what makes an isolated monosyllable like
+        "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
+        """
+        words = text.split()
         out = []
-        for word in text.split():
-            ph = self.translate_word(word.lower())
+        for i, word in enumerate(words):
+            tonic = 4 if i == len(words) - 1 else -1  # STRESS_IS_PRIMARY on tonic word
+            ph = self.translate_word(word.lower(), tonic=tonic)
             plist = encode_phoneme_string(ph, self.phoneme_table)
             out.append(render_phoneme_list(plist, self.phoneme_table,
                                            ipa=ipa, tie=tie, separator=separator))

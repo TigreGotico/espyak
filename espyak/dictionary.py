@@ -112,6 +112,188 @@ class Translator:
         return self.is_letter(letter, K.LETTERGP_VOWEL2)
 
 
+# mnem_flags table (compiledict.c) — keyword -> flag code value
+_MNEM_FLAGS = {
+    "$1": 0x41, "$2": 0x42, "$3": 0x43, "$4": 0x44, "$5": 0x45, "$6": 0x46, "$7": 0x47,
+    "$u": 0x48, "$u1": 0x49, "$u2": 0x4a, "$u3": 0x4b,
+    "$u+": 0x4c, "$u1+": 0x4d, "$u2+": 0x4e, "$u3+": 0x4f,
+    "$pause": 8, "$strend": 9, "$strend2": 10, "$unstressend": 11,
+    "$accent_before": 12, "$abbrev": 13, "$double": 14,
+    "$alt": 15, "$alt1": 15, "$alt2": 16, "$alt3": 17, "$alt4": 18, "$alt5": 19,
+    "$alt6": 20, "$alt7": 21, "$combine": 23, "$dot": 24, "$hasdot": 25,
+    "$max3": 27, "$brk": 28, "$text": 29,
+    "$verbf": 0x20, "$verbsf": 0x21, "$nounf": 0x22, "$pastf": 0x23,
+    "$verb": 0x24, "$noun": 0x25, "$past": 0x26, "$verbextend": 0x28,
+    "$capital": 0x29, "$allcaps": 0x2a, "$accent": 0x2b, "$sentence": 0x2d,
+    "$only": 0x2e, "$onlys": 0x2f, "$stem": 0x30, "$atend": 0x31, "$atstart": 0x32,
+    "$native": 0x33, "$textmode": 200, "$phonememode": 201,
+}
+
+
+class DictEntry:
+    __slots__ = ("phonemes", "flag_codes", "multiword", "rest")
+
+    def __init__(self, phonemes, flag_codes, multiword=False, rest=""):
+        self.phonemes = phonemes
+        self.flag_codes = flag_codes
+        self.multiword = multiword
+        self.rest = rest
+
+
+class DictList:
+    """Parsed <lang>_list (+_extra): word -> entries, with espeak's selection logic."""
+
+    def __init__(self):
+        self.words = {}     # lowercase word -> list[DictEntry] in file order
+        self.text_mode = False
+
+    @classmethod
+    def load(cls, *paths):
+        dl = cls()
+        for path in paths:
+            if path:
+                dl._parse_file(path)
+        return dl
+
+    def _parse_file(self, path):
+        try:
+            fh = open(path, encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        with fh:
+            for raw in fh:
+                self._parse_line(raw)
+
+    def _parse_line(self, raw):
+        ix = raw.find("//")
+        if ix >= 0:
+            raw = raw[:ix]
+        line = raw.strip()
+        if not line:
+            return
+        flag_codes = []
+        rest_words = ""
+        # multi-word entry "(w1 w2 ...)"
+        if line[0] == "(":
+            close = line.find(")")
+            if close < 0:
+                return
+            inside = line[1:close].split()
+            word = inside[0] if inside else ""
+            rest_words = " ".join(inside[1:])
+            tokens = line[close + 1:].split()
+            multiword = True
+        else:
+            toks = line.split()
+            word = toks[0]
+            tokens = toks[1:]
+            multiword = False
+        phon_tokens = []
+        for tok in tokens:
+            if tok.startswith("?"):
+                neg = tok[1] == "!" if len(tok) > 1 else False
+                num = "".join(ch for ch in tok if ch.isdigit())
+                if num:
+                    flag_codes.append(int(num) + (132 if neg else 100))
+            elif tok.startswith("$"):
+                val = _MNEM_FLAGS.get(tok)
+                if val == 200:
+                    self.text_mode = True
+                elif val == 201:
+                    self.text_mode = False
+                elif val is not None:
+                    flag_codes.append(val)
+            else:
+                phon_tokens.append(tok)
+        phonemes = " ".join(phon_tokens)
+        entry = DictEntry(phonemes, flag_codes, multiword, rest_words)
+        self.words.setdefault(word.lower(), []).append(entry)
+
+    def lookup(self, word, ctx):
+        """Return (phonemes_or_None, flags1) or (None, None) if not found.
+
+        Port of LookupDict2 selection: iterate entries last-in-file first, apply
+        condition/flag checks against the context (an LookupContext). A returned
+        phonemes of "" with flags1!=None means flags-only (use rules).
+        """
+        entries = self.words.get(word.lower())
+        if not entries:
+            return None, None
+        for entry in reversed(entries):
+            ok, flags1, flags2, stress = self._eval(entry, ctx)
+            if not ok:
+                continue
+            flags1 = (flags1 & ~0xf) | stress if stress is not None else flags1
+            return entry.phonemes, flags1
+        return None, None
+
+    def _eval(self, entry, ctx):
+        flags1 = 0
+        flags2 = 0
+        stress = None
+        for flag in entry.flag_codes:
+            if flag >= 100:
+                if flag >= 132:
+                    if (ctx.dict_condition & (1 << (flag - 132))) != 0:
+                        return False, 0, 0, None
+                else:
+                    if (ctx.dict_condition & (1 << (flag - 100))) == 0:
+                        return False, 0, 0, None
+            elif flag > 80:
+                return False, 0, 0, None  # multi-word skipwords: no match for isolated word
+            elif flag > 64:
+                stress = flag & 0xf
+                if (flag & 0xc) == 0xc:
+                    flags1 |= K.FLAG_STRESS_END
+            elif flag >= 32:
+                flags2 |= (1 << (flag - 32))
+            else:
+                flags1 |= (1 << flag)
+        if entry.multiword:
+            return False, 0, 0, None  # following words can't match an isolated word
+        # condition checks (LookupDict2 tail)
+        if (flags2 & K.FLAG_STEM) and not ctx.suffix_removed:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_CAPITAL) and not ctx.first_upper:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_ALLCAPS) and not ctx.all_upper:
+            return False, 0, 0, None
+        if (flags1 & K.FLAG_NEEDS_DOT) and not ctx.has_dot:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_ATEND) and not ctx.at_end:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_ATSTART) and not ctx.first_word:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_SENTENCE) and not ctx.sentence:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_VERB) and not ctx.expect_verb:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_PAST) and not ctx.expect_past:
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_NOUN) and not ctx.expect_noun:
+            return False, 0, 0, None
+        return True, flags1, flags2, stress
+
+
+class LookupContext:
+    """Per-word context for dictionary selection (isolated-word defaults)."""
+
+    def __init__(self, first_upper=False, all_upper=False, has_dot=False,
+                 first_word=True, at_end=True, sentence=True, dict_condition=0,
+                 expect_verb=0, expect_noun=0, expect_past=0, suffix_removed=False):
+        self.first_upper = first_upper
+        self.all_upper = all_upper
+        self.has_dot = has_dot
+        self.first_word = first_word
+        self.at_end = at_end
+        self.sentence = sentence
+        self.dict_condition = dict_condition
+        self.expect_verb = expect_verb
+        self.expect_noun = expect_noun
+        self.expect_past = expect_past
+        self.suffix_removed = suffix_removed
+
+
 def is_digit(c):
     return ord("0") <= c <= ord("9")
 
@@ -792,9 +974,10 @@ def translate_rules(tr, word, mnem_index, word_flags=0):
         found = False
         match1 = None
 
-        # 2-letter group
-        if not found and (c, buf[p + 1]) in rules.groups2:
-            g2 = rules.groups2[(c, buf[p + 1])]
+        # 2-letter group (keyed by the two bytes at this position, as espeak's c12)
+        two = bytes(buf[p:p + 2])
+        if not found and two in rules.groups2:
+            g2 = rules.groups2[two]
             m2, p2 = match_rule(tr, buf, p, 2, g2, word_flags, 0)
             if m2.points > 0:
                 m2.points += 35
