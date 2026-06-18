@@ -437,6 +437,16 @@ class G2P:
         # word-final consonant rule (am: @) ል (_ -> l) can't fire (አስፍረዋል። -> …wal not …walɨ).
         _trans = {0x2019: "'", 0x00B4: "'", 0x2032: "'", 0x0092: "'", 0x200D: "‍ "}
         _trans.update({cp: " " for cp in range(0x1361, 0x1369)})
+        # Myanmar (Burmese) is written without spaces; espeak segments it by isolating the asat
+        # ် (U+103A) and the dot-below ့ (U+1037) as their own tokens (each translates to the
+        # break phoneme _|), and treats ၊ ။ (U+104A/B) as clause punctuation. သီဟိုဠ်မှ ->
+        # သီဟိုဠ ် မှ -> ðˈi1hol  mhˈa.
+        for cp in (0x103A, 0x1037):
+            ch = chr(cp)
+            if ch in text:
+                text = text.replace(ch, " " + ch + " ")
+        _trans[0x104A] = " "
+        _trans[0x104B] = " "
         text = text.translate(_trans)
         words = []
         for raw_tok in text.split():
@@ -498,7 +508,9 @@ class G2P:
                 if en_ph:
                     rendered = "(en)" + en_ph + "(" + self.lang + ")"
             out.append(rendered)
-        return "".join(out)
+        # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
+        # separator space; espeak emits none, so trim it.
+        return "".join(out).rstrip(" ")
 
     _EN_FALLBACK = None
 
