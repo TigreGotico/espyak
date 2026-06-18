@@ -208,6 +208,26 @@ for _l, _off in _INDIC_OFFSETS.items():
     LANGS[_l] = _indic_config(_off)
 
 
+# --- Arabic (tr_languages.c SetArabicLetters, SetLetterBitsUTF8 with offset 0x600) -----
+def _ar_codes(s):
+    return [ord(c) - 0x600 for c in s if not c.isspace()]
+
+
+LANGS["ar"] = {
+    "stress_rule": K.STRESSPOSN_2R, "stress_flags": 0,
+    "letter_bits": {}, "letter_bits_offset": 0x600,
+    "letter_bits_codes": [
+        (K.LETTERGP_A, _ar_codes("َُِ")),       # fatha damma kasra
+        (K.LETTERGP_VOWEL2, _ar_codes("َُِ")),
+        (K.LETTERGP_B, _ar_codes("اوي")),                       # alef waw yeh
+        (K.LETTERGP_C, _ar_codes("بپتةثجحخدذرزسشصضطظعغفقكلمنئؤءأآإه")),
+        (K.LETTERGP_F, _ar_codes("صضطظ")),                      # thick (emphatic)
+        (K.LETTERGP_G, _ar_codes("ّ")), (K.LETTERGP_H, _ar_codes("ّ")),
+        (K.LETTERGP_Y, _ar_codes("ّ")),                    # shadda
+    ],
+}
+
+
 def get_config(lang):
     cfg = dict(DEFAULTS)
     cfg["letter_bits"] = dict(DEFAULTS["letter_bits"])
