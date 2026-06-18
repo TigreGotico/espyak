@@ -415,7 +415,11 @@ class RuleSet:
             if code > 0x100:
                 return bytes([(code >> 8) & 0xff, code & 0xff]).decode("latin-1"), True
             return chr(code), True
-        return name[:2], False  # keep up to 2 characters (espeak truncates to 2 bytes)
+        # espeak truncates group names to 2 bytes; keep a single-byte-pair worth. A 2-byte
+        # accented letter (ä) survives whole; a longer multi-char group keeps its first char.
+        if len(name.encode("utf-8")) > 2:
+            name = name[:1]
+        return name, False
 
     def _store_group(self, name, raw, rules):
         nb = name.encode("latin-1") if raw else name.encode("utf-8")
