@@ -1,0 +1,16 @@
+# oracle build tree (espeak-ng source + compiled binary; not part of the package)
+/oracle/
+# generated test fixtures (regenerated from the oracle binary)
+/test/fixtures/
+/test/report.md
+/test/report.csv
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.tox/
+.venv/

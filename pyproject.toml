@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "espeakng-g2p"
+version = "0.0.0"
+description = "Pure-Python, dependency-free reimplementation of espeak-ng's grapheme-to-phoneme (G2P) engine"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "JarbasAi", email = "jarbasai@mailfence.com" }]
+keywords = ["g2p", "phonemizer", "espeak", "espeak-ng", "ipa", "tts", "grapheme-to-phoneme"]
+# NOTE: license intentionally left unassigned. See NOTICE.md.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+espyak = "espyak.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["espyak*"]
+
+[tool.setuptools.package-data]
+espyak = ["data/**/*"]
