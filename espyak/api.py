@@ -15,6 +15,24 @@ from espyak.dictionary import (
 from espyak import constants as K
 import unicodedata
 
+# UCase_ga (translate.c): Irish eclipsis/lenition prefixes where a lowercase prefix directly
+# before an uppercase letter is NOT a CamelCase word break. "?A" = prefix before any vowel.
+_UCASE_GA = ("bp", "bhf", "dt", "gc", "hA", "mb", "nd", "ng", "ts", "tA", "nA")
+_IRISH_VOWELS = set("aeiouáéíóúàèìòùAEIOUÁÉÍÓÚÀÈÌÒÙ")
+
+
+def _ga_caps_prefix(tok, j):
+    """True if tok[:j] + the uppercase tok[j] is an Irish capitalised-prefix (don't split)."""
+    prefix, trig = tok[:j].lower(), tok[j]
+    for p in _UCASE_GA:
+        if prefix == p[:-1].lower():
+            if p[-1] == "A":
+                if trig in _IRISH_VOWELS:
+                    return True
+            elif trig.lower() == p[-1].lower():
+                return True
+    return False
+
 # combining-mark codepoint -> espeak accent-name dictionary key (accents_tab, numbers.c)
 _ACCENT_NAMES = {
     0x0301: "_acu", 0x0300: "_grv", 0x0302: "_cir", 0x0303: "_tld",
@@ -408,6 +426,8 @@ class G2P:
                 start = 0
                 for j in range(1, len(tok)):
                     if tok[j].isupper() and tok[j - 1].islower():
+                        if start == 0 and self.lang == "ga" and _ga_caps_prefix(tok, j):
+                            continue  # Irish eclipsis/lenition prefix: hÓighe stays one word
                         words.append((tok[start:j], pi > 0 and sub_first))
                         sub_first = False
                         start = j
