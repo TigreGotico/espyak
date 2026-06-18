@@ -332,10 +332,12 @@ class G2P:
                 return ph
         saved = self._tr.dict_condition
         self._tr.dict_condition = saved | self._SPELL_CONDITION
+        self._tr._spelling = True  # enable RULE_SPELLING ('W') context rules
         try:
             ph, _, _ = translate_rules(self._tr, ch, self._mnem)
         finally:
             self._tr.dict_condition = saved
+            self._tr._spelling = False
         return ph
 
     def _translate_with_suffix(self, word, end_type, end_ph, dict_flags=0):

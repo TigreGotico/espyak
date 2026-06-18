@@ -13,7 +13,13 @@ Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 """
 import unicodedata
 from espyak import constants as K
-from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, Phoneme
+
+# A no-tie barrier ('|' in phoneme strings): keep it as a passthrough token through
+# set_word_stress so the downstream phoneme parser doesn't greedily merge the phonemes it
+# separates (pt acronym 's|;' must stay s + ; = sʲ, not the single phoneme 's;' = ʂ). It is
+# type phINVALID, so it is never counted as a vowel or treated as a stress mark.
+_BARRIER = Phoneme("|")
 
 
 def _nfc(s):
@@ -423,7 +429,11 @@ class MnemIndex:
         toks = []
         i, n = 0, len(ph)
         while i < n:
-            if ph[i] in (" ", "\t", "|"):
+            if ph[i] == "|":
+                toks.append(("|", _BARRIER))  # no-tie barrier: preserve through stressing
+                i += 1
+                continue
+            if ph[i] in (" ", "\t"):
                 i += 1
                 continue
             m = None
@@ -977,6 +987,15 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         if not is_alpha(letter_w):
             add_points = 21 - distance_right
             post_ptr += letter_xbytes
+        else:
+            failed = 1
+    elif rb == K.RULE_SPELLING:
+        # 'W': zero-width assertion — matches only while spelling the word letter-by-letter
+        # (pt 'm (_W -> Em;' palatalises a spelled consonant before the next letter). Undo
+        # the speculative letter read since this consumes no input.
+        post_ptr -= (1 + letter_xbytes)
+        if getattr(tr, "_spelling", False):
+            add_points = 20 - distance_right
         else:
             failed = 1
     elif rb == K.RULE_DOUBLE:
