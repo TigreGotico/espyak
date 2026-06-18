@@ -121,12 +121,29 @@ class G2P:
         # rule engine (letter-to-sound). Loaded lazily per language.
         self._config = language_data.get_config(lang)
         self._rules = RuleSet.compile_file(data_paths.rules_path(lang))
+        self._sort_rules_by_phoneme_code()
         self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
         # _listx is the supplementary lexical-stress / vocalized dictionary (ar/ru/it/bg/
         # tr/he/...); espeak compiles it after _list, so later entries win ties.
         self._dict = DictList.load(data_paths.list_path(lang), data_paths.listx_path(lang),
                                    data_paths.extra_path(lang))
+
+    def _sort_rules_by_phoneme_code(self):
+        # espeak sorts each group's rules by the COMPILED phoneme-code string, then the match
+        # string (compiledict.c string_sorter); the matcher's last-best-wins (>=) tie-break
+        # then picks the sort-last equal scorer. The codes are phoneme-table indices, so we
+        # must sort by those, NOT the mnemonic ASCII: tn code(b)<code(B) keeps b->B winning,
+        # while ga code(@)<code(v) makes mh->v win over r)m->@m. (A mnemonic sort gets ga
+        # right but tn wrong, since 'B'<'b' in ASCII but code(b)<code(B).)
+        code = {m: i for i, m in enumerate(self.phoneme_table.phonemes)}
+        tok = self._mnem.tokenize
+
+        def key(rule):
+            return ([code.get(m, 0xffff) for m, _ in tok(rule.phonemes)], rule.match_str)
+        for d in (self._rules.groups1, self._rules.groups2, self._rules.groups3):
+            for rules in d.values():
+                rules.sort(key=key)
 
     def _resolve_phoneme_table(self, lang):
         # voice file `phonemes <table>` line(s), else the lang code, else base1/base.
