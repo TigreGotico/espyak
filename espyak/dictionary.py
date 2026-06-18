@@ -475,7 +475,10 @@ def get_vowel_stress(toks, stressed_syllable=0):
                 if stress > max_stress:
                     max_stress = stress
             continue
-        if _ph_is_vowel(ph):
+        if _ph_is_vowel(ph) and mnem != "@-":
+            # @- is the "very short schwa" (linking/epenthetic, e.g. eo Cr clusters
+            # septemb@-*o); it is not a syllable nucleus, so it must not be counted for
+            # stress placement (else the penult shifts onto it).
             vowel_stress.append(stress)
             if stress >= STRESS_IS_PRIMARY and stress >= max_stress:
                 primary_posn = count
