@@ -469,8 +469,27 @@ class G2P:
             tonic = self._config.get("tonic_stress", 4) if i == len(words) - 1 else -1
             if out and not nospace:
                 out.append(" ")
-            out.append(self._render_word(word.lower(), tonic, ipa, tie, separator))
+            rendered = self._render_word(word.lower(), tonic, ipa, tie, separator)
+            if (not rendered and self.lang != "en" and word.isascii()
+                    and any(c.isalpha() for c in word)):
+                # phonSWITCH (translate.c): a word unpronounceable in the current (non-Latin)
+                # script is re-translated by the Latin default voice (English) and bracketed
+                # with the language switch — bg/fa/ka: foot -> (en)fˈʊt(bg). A Latin-script
+                # language never yields an empty translation for an alphabetic word, so the
+                # empty result self-identifies the foreign word.
+                en_ph = self._en_fallback()._render_word(word.lower(), tonic, ipa, tie, separator)
+                if en_ph:
+                    rendered = "(en)" + en_ph + "(" + self.lang + ")"
+            out.append(rendered)
         return "".join(out)
+
+    _EN_FALLBACK = None
+
+    @classmethod
+    def _en_fallback(cls):
+        if cls._EN_FALLBACK is None:
+            cls._EN_FALLBACK = G2P("en")
+        return cls._EN_FALLBACK
 
     def _render_word(self, word, tonic, ipa, tie, separator):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
