@@ -107,6 +107,11 @@ class Translator:
         for ch in config.get("extra_consonants", ""):
             if ord(ch) < 256:
                 self.letter_bits[ord(ch)] |= (1 << K.LETTERGP_C)
+        # SetLetterBits(group, letters): OR letters into a specific group
+        for group, letters in config.get("set_letter_bits", []):
+            for ch in letters:
+                if ord(ch) < 256:
+                    self.letter_bits[ord(ch)] |= (1 << group)
 
     def is_letter(self, letter, group):
         # port of IsLetter (dictionary.c:770)
@@ -503,11 +508,9 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             if vowel_stress[stressed_syllable] < 0:
                 if (vowel_stress[stressed_syllable - 1] < STRESS_IS_PRIMARY) or (vowel_stress[stressed_syllable + 1] < STRESS_IS_PRIMARY):
                     vowel_stress[stressed_syllable] = max_stress
-    elif tr.stress_rule == K.STRESSPOSN_1L:
-        if stressed_syllable == 0:
-            stressed_syllable = 1
-            vowel_stress[1] = STRESS_IS_PRIMARY
-            max_stress = STRESS_IS_PRIMARY
+    # STRESSPOSN_1L (first syllable) has no case in espeak's switch: the secondary-stress
+    # loop below places the primary on the first eligible vowel (trochaic), so we do
+    # nothing here.
     elif tr.stress_rule == K.STRESSPOSN_1R:
         if stressed_syllable == 0:
             stressed_syllable = vowel_count - 1

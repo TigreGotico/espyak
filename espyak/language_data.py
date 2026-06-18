@@ -35,7 +35,13 @@ DEFAULTS = {
 
 # Per-language overrides (merged onto DEFAULTS). Keyed by language code.
 LANGS = {
-    "en": {},  # English uses the defaults
+    "en": {
+        # tr_languages.c case L('e','n'): first-syllable stress, not the 2R default
+        "stress_rule": K.STRESSPOSN_1L,
+        "stress_flags": 0x08,  # diminish consecutive unstressed syllables (unstressed words)
+        "suffix_add_e": "e",
+        "set_letter_bits": [(K.LETTERGP_Y, "aeiouy")],  # group Y = all vowels incl. y
+    },
     "eo": {
         "stress_rule": K.STRESSPOSN_2R,
         "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
