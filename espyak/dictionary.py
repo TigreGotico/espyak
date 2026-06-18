@@ -531,6 +531,13 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                     break
                 stressed_syllable -= 1
             max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_3R:  # antepenultimate (e.g. Macedonian)
+        if stressed_syllable == 0:
+            stressed_syllable = vowel_count - 3
+            if stressed_syllable < 1:
+                stressed_syllable = 1
+            vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
 
     # guess complete stress pattern (secondary stresses)
     stress = STRESS_IS_PRIMARY if max_stress < STRESS_IS_PRIMARY else STRESS_IS_SECONDARY
