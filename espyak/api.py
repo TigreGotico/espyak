@@ -13,6 +13,16 @@ from espyak.dictionary import (
     remove_ending,
 )
 from espyak import constants as K
+import unicodedata
+
+# combining-mark codepoint -> espeak accent-name dictionary key (accents_tab, numbers.c)
+_ACCENT_NAMES = {
+    0x0301: "_acu", 0x0300: "_grv", 0x0302: "_cir", 0x0303: "_tld",
+    0x0308: "_dia", 0x0327: "_ced", 0x030C: "_hac", 0x0306: "_brv",
+    0x0307: "_dot", 0x0304: "_mcn", 0x0328: "_ogo", 0x030A: "_rng",
+    0x0338: "_stk", 0x0337: "_stk", 0x030B: "_ac2", 0x0331: "_bar",
+    0x0309: "_hok",
+}
 from espyak import language_data
 from espyak.phoneme_program import Interpreter
 
@@ -107,6 +117,10 @@ class G2P:
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
             # $abbrev with no pronunciation -> spell out as individual letter names
             return self._spell_word(word), 0
+        if not dict_ph and len(word) == 1 and not word.isascii():
+            acc = self._spell_accented_letter(word)
+            if acc:
+                return acc, 0
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
             dict_flags=flags)
@@ -130,14 +144,42 @@ class G2P:
         for idx, ch in enumerate(word):
             name = self._lookup_letter(ch, at_end=(idx == n - 1), first=(idx == 0))
             if name:
-                names.append(set_word_stress(self._tr, name, self._mnem, tonic=4))
-        n_stress = len(names)
+                names.append(name)
+        return self._join_spelled(names)
+
+    def _join_spelled(self, names):
+        """Stress each letter/accent name and apply SetSpellingStress's count%3 reduction
+        of non-final primaries to secondary."""
+        stressed = [set_word_stress(self._tr, nm, self._mnem, tonic=4) for nm in names]
+        n_stress = len(stressed)
         out = []
-        for count, part in enumerate(names, 1):
+        for count, part in enumerate(stressed, 1):
             if count != n_stress and (((count % 3) != 0) or (count == n_stress - 1)):
-                part = part.replace("''", "'", 1).replace("'", ",,", 1)  # primary -> secondary
+                part = part.replace("''", "'", 1).replace("'", ",,", 1)
             out.append(part)
         return "".join(out)
+
+    def _spell_accented_letter(self, ch):
+        """Speak an accented letter as base-letter name + accent name(s) ($accent).
+
+        Decomposes via Unicode NFD instead of porting espeak's letter_accents table."""
+        decomp = unicodedata.normalize("NFD", ch)
+        if len(decomp) < 2:
+            return None
+        base, marks = decomp[0], decomp[1:]
+        names = []
+        bn = self._lookup_letter(base, at_end=False, first=True)
+        if bn:
+            names.append(bn)
+        for mk in marks:
+            key = _ACCENT_NAMES.get(ord(mk))
+            if key:
+                ph, _ = self._dict.lookup(key, LookupContext())
+                if ph:
+                    names.append(ph)
+        if len(names) < 2:
+            return None
+        return self._join_spelled(names)
 
     def _lookup_letter(self, ch, at_end, first):
         """Look up a single letter's name: the spelling entry `_X`, else the plain
