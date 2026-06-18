@@ -252,6 +252,13 @@ class Interpreter:
                 if ph is not None:
                     from espyak.render import PhonemeListEntry
                     plist.insert(i + 1, PhonemeListEntry(ph))
+        elif head == "AppendPhoneme":
+            # insert the phoneme right after this one (Slavic vocalic r* renders ɾ via its
+            # `ipa NULL` + AppendPhoneme(*); a diphthong appends a `_|` link before a vowel).
+            ph = self.table.get(arg)
+            if ph is not None:
+                from espyak.render import PhonemeListEntry
+                plist.insert(i + 1, PhonemeListEntry(ph))
         elif head in ("ChangeIfDiminished", "ChangeIfUnstressed",
                       "ChangeIfNotStressed", "ChangeIfStressed"):
             # espeak's StressCondition returns false for SFLAG_DICTIONARY phonemes unless

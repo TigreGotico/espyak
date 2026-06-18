@@ -56,7 +56,7 @@ _TYPE_KEYWORDS = {
 # captured — they don't affect the translation-time phoneme string.
 _PROGRAM_KEYWORDS = {
     "IF", "ELIF", "ELSE", "ENDIF",
-    "ChangePhoneme", "InsertPhoneme", "IfNextVowelAppend",
+    "ChangePhoneme", "InsertPhoneme", "IfNextVowelAppend", "AppendPhoneme",
     "ChangeIfDiminished", "ChangeIfUnstressed", "ChangeIfNotStressed",
     "ChangeIfStressed", "CALL", "RETURN",
 }
