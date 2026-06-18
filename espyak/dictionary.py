@@ -554,6 +554,15 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 stressed_syllable = 1
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
             max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_1RU:  # last syllable, or before an explicit
+        if stressed_syllable == 0:             # unstressed vowel (Turkish/Azerbaijani)
+            stressed_syllable = vowel_count - 1
+            for ix in range(1, vowel_count):
+                if vowel_stress[ix] == STRESS_IS_UNSTRESSED:
+                    stressed_syllable = ix - 1
+                    break
+            vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
 
     # guess complete stress pattern (secondary stresses)
     stress = STRESS_IS_PRIMARY if max_stress < STRESS_IS_PRIMARY else STRESS_IS_SECONDARY
