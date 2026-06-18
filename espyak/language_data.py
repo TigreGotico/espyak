@@ -104,6 +104,11 @@ LANGS = {
     # Ido (constructed, penultimate stress like Esperanto): no final auto-secondary.
     # Without S_FINAL_NO_2 the final vowel got a spurious ˌ (Jun/junio -> dʒˈuniˌo not dʒˈunio).
     "io": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2},
+    # Slovak: fixed initial stress (shares espeak's cs block). No config -> wrong 2R default
+    # (alebo -> alˈebo instead of ˈalebo). Regressive voicing assimilation (však -> fʃak).
+    "sk": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "regression": 0x03,
+           "extra_vowels": "áäéíóôúýyr", "extra_consonants": "čďľĺňŕšťž"},
     "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_NO_AUTO_2
            | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű"},
