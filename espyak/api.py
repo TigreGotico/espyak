@@ -181,13 +181,18 @@ class G2P:
             # sub-word separately, preserving the word break for the renderer. With
             # S_PRIORITY_STRESS (e.g. Italian spelled abbreviations a||bi||tʃ'i) the
             # non-final sub-words stay unstressed instead of taking their own primary.
-            nonfinal = 1 if (self._config.get("stress_flags", 0) & K.S_PRIORITY_STRESS) else 4
+            # With S_PRIORITY_STRESS (Italian spelled abbreviations) a non-final sub-word
+            # stays unstressed UNLESS the dict entry marks it with an explicit primary
+            # stress: fbi -> 'ef||b'i||'ai keeps each letter stressed (ˈef bˈi ˈai), while
+            # a||bi||tʃ'i leaves a/bi unstressed. Honour the entry's own `'` marks.
+            priority = bool(self._config.get("stress_flags", 0) & K.S_PRIORITY_STRESS)
             parts = ph.split("||")
             last = len(parts) - 1
             stressed = [
                 set_word_stress(self._tr, p, self._mnem,
                                 dict_flags=(flags if i == last else 0),
-                                tonic=(tonic if i == last else nonfinal))
+                                tonic=(tonic if i == last else
+                                       (1 if (priority and "'" not in p) else 4)))
                 for i, p in enumerate(parts)
             ]
             return "||".join(stressed)
