@@ -1087,6 +1087,28 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         else:
             post_ptr -= 1
             add_points = 1
+    elif rb == K.RULE_SKIPCHARS:
+        # '(Jxy': skip word characters until the next rule element (xy) matches it
+        # (dictionary.c:1788). The target prog[k] is NOT consumed here — the next iteration
+        # matches it. Used by lv `L25) e (CJL18_` (skip 'tflīģeļ' to the L18 suffix 'u').
+        p = post_ptr - 1            # first byte of the current letter
+        lw = letter_w
+        target = prog[k]
+        is_lg = (target == K.RULE_LETTERGP2)
+        tgroup = _letter_group_no(prog[k + 1]) if is_lg else None
+        while lw != K.RULE_SPACE and lw != 0:
+            if is_lg:
+                if _is_letter_group(tr, buf, p, tgroup, 0) >= 0:
+                    break
+            elif lw == target:
+                break
+            _, nb = _utf8_in(buf, p)
+            p += nb
+            lw, _ = _utf8_in(buf, p)
+        if lw == K.RULE_SPACE or lw == 0:
+            failed = 1
+        else:
+            post_ptr = p            # next iteration reads the match and processes prog[k]
     else:
         if letter == rb:
             if (letter & 0xc0) != 0x80:
