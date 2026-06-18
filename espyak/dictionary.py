@@ -1174,6 +1174,30 @@ def _dollar_rule(tr, command, word_flags, dict_flags):
     return 1, 0
 
 
+def _apply_replacements(reps, word):
+    """Apply the `.replace` table (port of SubstituteChar, translate.c:784) before rule
+    matching: longest source-string first, matched case-insensitively (espeak lowercases
+    the char to look it up), output lowercase. Used for Cyrillic->Latin transliteration in
+    Serbo-Croatian (hr/bs/sr) and digraph normalisation elsewhere."""
+    if not reps:
+        return word
+    rep_sorted = sorted(reps, key=lambda fr: -len(fr[0]))
+    out = []
+    i = 0
+    n = len(word)
+    while i < n:
+        for frm, to in rep_sorted:
+            seg = word[i:i + len(frm)]
+            if seg and seg.lower() == frm.lower():
+                out.append(to)
+                i += len(frm)
+                break
+        else:
+            out.append(word[i])
+            i += 1
+    return "".join(out)
+
+
 def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 
@@ -1184,6 +1208,7 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
     (Accent removal, spell-word fallback, and language-switch are not yet wired.)
     """
     rules = tr.rules
+    word = _apply_replacements(getattr(rules, "replacements", None), word)
     wb = word.encode("utf-8")
     buf = b"\x00 " + wb + b" \x00"
     p = 2                       # index of first letter
