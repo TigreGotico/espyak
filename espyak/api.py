@@ -159,6 +159,7 @@ class G2P:
         )
         self._tr.expect_verb = 0
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
+        self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
         ph, flags = self._translate_core(word.lower(), ctx)
         self._u_out_str = None
         ph_clean = ph.strip("\"'")
@@ -219,6 +220,11 @@ class G2P:
             elif hangul and any("가" <= c <= "힣" for c in nfc_ph):
                 word = nfc_ph  # Korean Hangul respelling without an explicit $text flag
             else:
+                # phonemes come straight from a dict entry (SFLAG_DICTIONARY): espeak skips
+                # the stress-condition reductions (ChangeIfNotStressed/...) on these unless
+                # LOPT_REDUCE&1 (only Italian), so an unstressed long vowel keeps its length
+                # (fo hina -> hiːna).
+                self._from_dict = True
                 return dict_ph, flags
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
             # $abbrev with no pronunciation -> spell out as individual letter names
@@ -410,6 +416,10 @@ class G2P:
 
     def _render_phonemes(self, ph, ipa, tie, separator):
         plist = encode_phoneme_string(ph, self.phoneme_table)
+        if getattr(self, "_from_dict", False) and not self._config.get("reduce_dict_vowels"):
+            # dict-entry phonemes: skip stress-condition reductions (espeak's SFLAG_DICTIONARY)
+            for e in plist:
+                e.dict_no_reduce = True
         reg = self._config.get("regression", 0)
         if reg:
             set_regressive_voicing(plist, self.phoneme_table, reg)

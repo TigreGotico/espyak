@@ -53,7 +53,8 @@ def _is_digit09(c):
 
 
 class PhonemeListEntry:
-    __slots__ = ("ph", "stresslevel", "synthflags", "newword", "ipa_override", "deleted")
+    __slots__ = ("ph", "stresslevel", "synthflags", "newword", "ipa_override", "deleted",
+                 "dict_no_reduce")
 
     def __init__(self, ph):
         self.ph = ph
@@ -62,6 +63,7 @@ class PhonemeListEntry:
         self.newword = 0
         self.ipa_override = None  # set by the phoneme-program interpreter (conditional ipa)
         self.deleted = False      # ChangePhoneme(NULL) deletes the phoneme
+        self.dict_no_reduce = False  # phonemes from a dict entry: skip stress-condition reductions
 
     @property
     def type(self):

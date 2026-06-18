@@ -252,6 +252,10 @@ class Interpreter:
                     plist.insert(i + 1, PhonemeListEntry(ph))
         elif head in ("ChangeIfDiminished", "ChangeIfUnstressed",
                       "ChangeIfNotStressed", "ChangeIfStressed"):
+            # espeak's StressCondition returns false for SFLAG_DICTIONARY phonemes unless
+            # LOPT_REDUCE&1, so dict-entry vowels keep their length/quality (fo hina->hiːna).
+            if getattr(plist[i], "dict_no_reduce", False):
+                return False
             lvl = plist[i].stresslevel
             cond = {
                 "ChangeIfDiminished": lvl == 0,

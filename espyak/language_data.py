@@ -97,7 +97,8 @@ LANGS = {
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM, "extra_vowels": "àèéò"},
     "it": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "àèéìíîòóùú",
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM_ONLY | K.S_PRIORITY_STRESS,
-           "it_lengthen": 2},  # remove length from unstressed/non-penultimate
+           "it_lengthen": 2,  # remove length from unstressed/non-penultimate
+           "reduce_dict_vowels": True},  # LOPT_REDUCE&1: reduce vowels even in it_list entries
     "sl": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž",
            "unstress_u_words": True, "drop_u_length": True},  # $u words: short, open vowels
