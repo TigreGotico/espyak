@@ -392,7 +392,10 @@ class G2P:
                 return ph
         saved = self._tr.dict_condition
         self._tr.dict_condition = saved | self._SPELL_CONDITION
-        self._tr._spelling = True  # enable RULE_SPELLING ('W') context rules
+        # RULE_SPELLING ('W') marks a letter named WITHIN an acronym (connected to the next
+        # letter) — it applies to non-final letters (pt internal s -> sʲ in adsl) but NOT the
+        # last letter, which keeps its full name (pt final g -> ge in ecg, not the (_W -> Ze rule).
+        self._tr._spelling = not at_end
         try:
             ph, _, _ = translate_rules(self._tr, ch, self._mnem)
         finally:
