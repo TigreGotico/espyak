@@ -230,18 +230,30 @@ def _indic_config(offset, stress_rule=K.STRESSPOSN_1L, stress_flags=0):
     }
 
 
-# per-language Indic stress_flags (tr_languages.c); default kn/ta-style.
+# per-language Indic stress_flags (tr_languages.c); default kn/ta/te/ml-style
+# (S_FINAL_DIM_ONLY | S_FINAL_NO_2). The gu/mr/or/pa block uses 1RH + S_MID_DIM|S_FINAL_DIM.
 _INDIC_STRESS = {
     "hi": K.S_MID_DIM | K.S_FINAL_DIM, "mr": K.S_MID_DIM | K.S_FINAL_DIM,
     "ne": K.S_MID_DIM | K.S_FINAL_DIM, "bn": K.S_MID_DIM | K.S_FINAL_DIM,
     "as": K.S_MID_DIM | K.S_FINAL_DIM,
+    "gu": K.S_MID_DIM | K.S_FINAL_DIM, "or": K.S_MID_DIM | K.S_FINAL_DIM,
+    "pa": K.S_MID_DIM | K.S_FINAL_DIM,
 }
-_INDIC_STRESS_RULE = {"hi": K.STRESSPOSN_1RH, "mr": K.STRESSPOSN_1RH}
+_INDIC_STRESS_RULE = {
+    "hi": K.STRESSPOSN_1RH, "mr": K.STRESSPOSN_1RH,
+    "gu": K.STRESSPOSN_1RH, "or": K.STRESSPOSN_1RH, "pa": K.STRESSPOSN_1RH,
+}
 for _l, _off in _INDIC_OFFSETS.items():
     LANGS[_l] = _indic_config(
         _off, stress_rule=_INDIC_STRESS_RULE.get(_l, K.STRESSPOSN_1L),
         stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
 
+
+# Georgian (1L + S_FINAL_NO_2) and Amharic (1L + S_NO_AUTO_2|S_FINAL_DIM): non-Latin
+# scripts whose stress operates on the phoneme vowels, so only the stress config is needed.
+LANGS["ka"] = {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2}
+LANGS["am"] = {"stress_rule": K.STRESSPOSN_1L,
+               "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM}
 
 # --- Arabic (tr_languages.c SetArabicLetters, SetLetterBitsUTF8 with offset 0x600) -----
 def _ar_codes(s):
