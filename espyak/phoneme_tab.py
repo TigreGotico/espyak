@@ -284,6 +284,32 @@ class PhonemeSource:
         for name in raw_by_name:
             flatten(name, set())
 
+        self._resolve_call_types()
+
+    def _resolve_call_types(self):
+        """A phoneme defined only via `CALL X` inherits X's type (e.g. `3` is `CALL @`
+        so it is a vowel). Resolve types for phonemes left as phINVALID."""
+        for table in self.tables.values():
+            for ph in table.phonemes.values():
+                if ph.type != phINVALID:
+                    continue
+                for line in ph.program:
+                    tok = line.split()
+                    if tok and tok[0] == "CALL":
+                        target = self._resolve_call(table, tok[1])
+                        if target is not None and target.type != phINVALID:
+                            ph.type = target.type
+                            ph.flags |= {f for f in target.flags
+                                         if f in ("unstressed", "nonsyllabic", "long")}
+                        break
+
+    def _resolve_call(self, table, ref):
+        if "/" in ref:
+            tname, _, mnem = ref.partition("/")
+            t = self.tables.get(tname)
+            return t.get(mnem) if t else None
+        return table.get(ref)
+
     def table(self, name):
         return self.tables.get(name)
 
