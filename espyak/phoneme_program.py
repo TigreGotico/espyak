@@ -353,20 +353,21 @@ class Interpreter:
                     return plist[j].ph.mnemonic == arg
                 j += step
             return False
-        target_i = {"thisPh": i, "prevPh": i - 1, "nextPh": i + 1,
-                    "prevPhW": i - 1, "nextPhW": i + 1, "next2Ph": i + 2}.get(func)
+        target_i = {"thisPh": i, "prevPh": i - 1, "nextPh": i + 1, "prev2Ph": i - 2,
+                    "prevPhW": i - 1, "nextPhW": i + 1, "prev2PhW": i - 2,
+                    "next2Ph": i + 2, "next2PhW": i + 2}.get(func)
         if target_i is None:
             return False
         # *W variants: treat a word boundary as a pause
-        within = func in ("prevPhW", "nextPhW")
+        within = func in ("prevPhW", "nextPhW", "prev2PhW", "next2PhW")
         if 0 <= target_i < len(plist):
             entry = plist[target_i]
             ph = entry.ph
             if within:
                 # crossing a start-of-word boundary -> pause
-                if func == "nextPhW" and (entry.newword & 1):
+                if func in ("nextPhW", "next2PhW") and (entry.newword & 1):
                     ph, entry = _PAUSE, None
-                elif func == "prevPhW" and (plist[i].newword & 1):
+                elif func in ("prevPhW", "prev2PhW") and (plist[i].newword & 1):
                     ph, entry = _PAUSE, None
         else:
             ph, entry = _PAUSE, None
