@@ -190,6 +190,7 @@ class Interpreter:
             entry = plist[i]
             ph = entry.ph
             if ph.program:
+                self._changed = False  # one ChangePhoneme per phoneme interpretation
                 ctx = self._context(plist, i)
                 self._exec(self._program(ph), plist, i, ctx)
             i += 1
@@ -282,13 +283,21 @@ class Interpreter:
             self._exec(prog, plist, i, ctx)
 
     def _change(self, plist, i, mnem, ctx, _depth=0):
+        # espeak re-interprets a changed phoneme "but it doesn't obey a second
+        # ChangePhoneme()" (synthdata.c). So once a phoneme has been changed in this
+        # interpretation, later ChangePhonemes (e.g. via CALL base1/l) are ignored: uz
+        # l -> L stays L (ɫ) instead of L -> l/2 (which rendered as a plain 'l').
+        if getattr(self, "_changed", False):
+            return False
         if mnem == "NULL":
             # ChangePhoneme(NULL) deletes this phoneme (e.g. linking ; before a consonant)
+            self._changed = True
             plist[i].deleted = True
             return True
         ph = self.table.get(mnem)
         if ph is None:
             return False
+        self._changed = True
         plist[i].ph = ph
         plist[i].ipa_override = None
         # re-run the new phoneme's program so ITS ipa / further changes apply (espeak
@@ -309,7 +318,10 @@ class Interpreter:
         # epenthetic @- before 'r' applies its conditional `ipa NULL` (ru при -> prʲɪ, not
         # pərʲɪ). Inserted phonemes here don't themselves InsertPhoneme, so no recursion.
         if ph.program:
+            saved = getattr(self, "_changed", False)  # inserted phoneme = own interpretation
+            self._changed = False
             self._exec(self._program(ph), plist, i, self._context(plist, i))
+            self._changed = saved
 
     # -- condition evaluation (left-to-right AND/OR, no precedence) --
     def _eval(self, cond, plist, i, ctx):
