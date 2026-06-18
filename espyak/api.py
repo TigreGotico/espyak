@@ -179,22 +179,27 @@ class G2P:
                                               dict_flags=flags, tonic=tonic)
             return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1)
         if "||" in ph:
-            # multi-word dictionary entry (e.g. es "w" -> uβe||doβle): stress each
-            # sub-word separately, preserving the word break for the renderer. With
-            # S_PRIORITY_STRESS (e.g. Italian spelled abbreviations a||bi||tʃ'i) the
-            # non-final sub-words stay unstressed instead of taking their own primary.
-            # With S_PRIORITY_STRESS (Italian spelled abbreviations) a non-final sub-word
-            # stays unstressed UNLESS the dict entry marks it with an explicit primary
-            # stress: fbi -> 'ef||b'i||'ai keeps each letter stressed (ˈef bˈi ˈai), while
-            # a||bi||tʃ'i leaves a/bi unstressed. Honour the entry's own `'` marks.
+            # multi-word dictionary entry: stress each sub-word separately, preserving the
+            # word break for the renderer. A non-final sub-word is unstressed when it has no
+            # explicit `'` AND is either a single vowel (a non-tonic monosyllable: gn
+            # espeak -> i||sp'ik -> i spˈik) or the language is S_PRIORITY_STRESS (it
+            # a||bi||tʃ'i -> a/bi unstressed). Multi-syllable unmarked parts keep their
+            # lexical stress (es uβe||doβle -> uˈβe doˈβle); `'`-marked parts stay primary
+            # (it fbi -> 'ef||b'i||'ai -> ˈef bˈi ˈai).
             priority = bool(self._config.get("stress_flags", 0) & K.S_PRIORITY_STRESS)
             parts = ph.split("||")
             last = len(parts) - 1
+
+            def _nonfinal_tonic(p):
+                if "'" in p:
+                    return 4
+                single = sum(1 for _m, ph_ in self._mnem.tokenize(p)
+                             if ph_.type == phVOWEL and "nonsyllabic" not in ph_.flags) <= 1
+                return 1 if (single or priority) else 4
             stressed = [
                 set_word_stress(self._tr, p, self._mnem,
                                 dict_flags=(flags if i == last else 0),
-                                tonic=(tonic if i == last else
-                                       (1 if (priority and "'" not in p) else 4)))
+                                tonic=(tonic if i == last else _nonfinal_tonic(p)))
                 for i, p in enumerate(parts)
             ]
             return "||".join(stressed)
