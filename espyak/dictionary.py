@@ -129,6 +129,14 @@ class Translator:
             for code in range(first, last + 1):
                 if 0 <= code < 256:
                     self.letter_bits[code] |= (1 << group)
+        # wchar vowel override (SetLetterVowel over a list of >255 codepoints, e.g. the 72
+        # Vietnamese tone-marked vowels): a letter_groups[] entry takes precedence over the
+        # 256-wide letter_bits in is_letter, so vowel groups can hold non-Latin-1 chars.
+        vov = config.get("vowels_override")
+        if vov:
+            vset = frozenset(vov)
+            self.letter_groups[K.LETTERGP_A] = vset
+            self.letter_groups[K.LETTERGP_VOWEL2] = vset
 
     def is_letter(self, letter, group):
         # port of IsLetter (dictionary.c:770)

@@ -123,7 +123,10 @@ LANGS = {
     "eu": {"stress_rule": K.STRESSPOSN_EU,  # Basque: primary 2nd syllable, secondary last
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ"},
     "vi": {"stress_rule": K.STRESSPOSN_1L, "unstressed_wd1": 2, "unstressed_wd2": 2,
-           "tonic_stress": 3, "tone_language": 1},  # secondary stress + default-tone pass
+           "tonic_stress": 3, "tone_language": 1,  # secondary stress + default-tone pass
+           # all tone-marked vowels are vowels (espeak vowels_vi[]) so glide rules fire
+           # (o before a vowel -> w: hoặc -> hwˌa6c)
+           "vowels_override": "aàáảãạăằắẳẵặâầấẩẫậeèéẻẽẹêềếểễệiìíỉĩịoòóỏõọôồốổỗộơờớởỡợuùúủũụưừứửữựyỳýỷỹỵ"},
     "pt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_SPANISH,
            "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú"},
