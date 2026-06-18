@@ -240,10 +240,6 @@ class G2P:
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
             # $abbrev with no pronunciation -> spell out as individual letter names
             return self._spell_word(word), 0
-        if not dict_ph and len(word) == 1 and not word.isascii():
-            acc = self._spell_accented_letter(word)
-            if acc:
-                return acc, 0
         if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in word):
             # syllable -> conjoining jamo (with fillers) for the rules (already NFC above).
             word = _decompose_hangul(word)
@@ -268,6 +264,12 @@ class G2P:
             return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
         if end_type and not (end_type & K.SUFX_P):
             return self._translate_with_suffix(word, end_type, end_ph, flags), flags
+        if not ph.strip() and len(word) == 1 and not word.isascii():
+            # an accented letter the rules can't pronounce: spell it out as "base + accent
+            # name" (fallback only — gd `ì` is a real word -> rules give iː, don't spell it).
+            acc = self._spell_accented_letter(word)
+            if acc:
+                return acc, 0
         return ph, flags
 
     def _spell_word(self, word):
