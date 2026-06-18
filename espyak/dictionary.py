@@ -707,6 +707,15 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             ):
                 if stress == STRESS_IS_SECONDARY and (stressflags & K.S_NO_AUTO_2):
                     continue
+                # S_2_TO_HEAVY (et/fi): don't put secondary on a light syllable if a heavy one
+                # follows (within the word, excluding the last syllable), nor on a light syllable
+                # directly followed by a heavy one (följetonist: light 'o' before heavy 'nist'
+                # -> no ˌo, so fˈøʎjetonist not fˈøʎjetˌonist).
+                if v > 1 and (stressflags & K.S_2_TO_HEAVY) and syllable_weight[v] == 0:
+                    if any(syllable_weight[i] > 0 for i in range(v, vowel_count - 1)):
+                        continue
+                    if syllable_weight[v + 1] > 0:
+                        continue
                 vowel_stress[v] = stress
                 done = True
                 stress = STRESS_IS_SECONDARY
