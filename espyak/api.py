@@ -214,6 +214,11 @@ class G2P:
             return None
         return self._join_spelled(names)
 
+    # spelling sets dict_condition group 1 so the rules' letter-NAME forms (gated `?1`,
+    # e.g. pt "n" -> ɛn) win over the letter's sound. Languages that name letters via the
+    # dict (`_X`) or with unconditional rules are unaffected.
+    _SPELL_CONDITION = 1 << 1
+
     def _lookup_letter(self, ch, at_end, first):
         """Look up a single letter's name: the spelling entry `_X`, else the plain
         letter `X`, else letter-to-sound rules (LookupLetter)."""
@@ -223,7 +228,12 @@ class G2P:
             ph, _ = self._dict.lookup(key, ctx)
             if ph:
                 return ph
-        ph, _, _ = translate_rules(self._tr, ch, self._mnem)
+        saved = self._tr.dict_condition
+        self._tr.dict_condition = saved | self._SPELL_CONDITION
+        try:
+            ph, _, _ = translate_rules(self._tr, ch, self._mnem)
+        finally:
+            self._tr.dict_condition = saved
         return ph
 
     def _translate_with_suffix(self, word, end_type, end_ph, dict_flags=0):
