@@ -192,16 +192,20 @@ class G2P:
             parts = ph.split("||")
             last = len(parts) - 1
 
-            def _nonfinal_tonic(p):
-                if "'" in p:
-                    return 4
+            def _part_tonic(p, is_last):
+                # honour explicit stress marks in the part (gn nvda -> ,ene||B,e||D,e_'a
+                # keeps each letter's secondary, final primary): no forced tonic.
+                if "'" in p or "," in p:
+                    return -1
+                if is_last:
+                    return tonic
                 single = sum(1 for _m, ph_ in self._mnem.tokenize(p)
                              if ph_.type == phVOWEL and "nonsyllabic" not in ph_.flags) <= 1
                 return 1 if (single or priority) else 4
             stressed = [
                 set_word_stress(self._tr, p, self._mnem,
                                 dict_flags=(flags if i == last else 0),
-                                tonic=(tonic if i == last else _nonfinal_tonic(p)))
+                                tonic=_part_tonic(p, i == last))
                 for i, p in enumerate(parts)
             ]
             return "||".join(stressed)
