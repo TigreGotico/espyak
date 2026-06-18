@@ -12,7 +12,7 @@ last-best-wins tie-break are reproduced. Phonemes are accumulated as mnemonic st
 Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 """
 from espyak import constants as K
-from espyak.phoneme_tab import phVOWEL, phSTRESS
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID
 
 REPLACED_E = ord("E")
 
@@ -79,6 +79,11 @@ class Translator:
         self.word_vowel_count = 0
         self.word_stressed_count = 0
         self.phsource = phsource
+        # langopts defaults (tr_languages.c NewTranslator)
+        self.stress_rule = K.STRESSPOSN_2R
+        self.stress_flags = 0
+        self.unstressed_wd1 = 1
+        self.unstressed_wd2 = 3
         self._setup_default_letters()
 
     def _setup_default_letters(self):
@@ -151,11 +156,246 @@ def count_vowels(tr, ph, mnem_index):
 
 
 class MnemIndex:
-    """Greedy mnemonic lookup over a phoneme table (for vowel counting)."""
+    """Greedy mnemonic lookup over a phoneme table (for vowel counting / stress)."""
 
     def __init__(self, phoneme_table):
         self.table = phoneme_table.phonemes
         self.maxlen = max((len(m) for m in self.table), default=1)
+
+    def tokenize(self, ph):
+        """Greedy split of a mnemonic phoneme string into [(mnemonic, Phoneme), ...]."""
+        toks = []
+        i, n = 0, len(ph)
+        while i < n:
+            if ph[i] in (" ", "\t", "|"):
+                i += 1
+                continue
+            m = None
+            for L in range(min(self.maxlen, n - i), 0, -1):
+                cand = ph[i:i + L]
+                if cand in self.table:
+                    m = cand
+                    break
+            if m is None:
+                i += 1
+                continue
+            toks.append((m, self.table[m]))
+            i += len(m)
+        return toks
+
+
+# stress level -> stress mnemonic to insert (stress_phonemes[] indexed by v_stress).
+# 1 (unstressed) is never inserted. Renderer maps these back via stress_type.
+_STRESS_MNEM = {0: "%%", 2: ",", 3: ",,", 4: "'", 5: "''", 6: "'!"}
+
+# synthesize.h stress levels
+STRESS_IS_DIMINISHED = 0
+STRESS_IS_UNSTRESSED = 1
+STRESS_IS_NOT_STRESSED = 2
+STRESS_IS_SECONDARY = 3
+STRESS_IS_PRIMARY = 4
+STRESS_IS_PRIORITY = 5
+
+# stress_rule values
+STRESSPOSN_2R = K.STRESSPOSN_2R
+
+
+def _ph_is_vowel(p):
+    return p.type == phVOWEL and "nonsyllabic" not in p.flags
+
+
+def get_vowel_stress(toks):
+    """Port of GetVowelStress. Returns (vowel_stress list, phonetic toks, count, primary).
+
+    `phonetic` is the token stream with stress markers removed (as ph_out in C).
+    vowel_stress is indexed 1..count-1 (index 0 unused/sentinel).
+    """
+    vowel_stress = [STRESS_IS_UNSTRESSED]  # index 0
+    phonetic = []
+    count = 1
+    max_stress = -1
+    stress = -1
+    primary_posn = 0
+    for mnem, ph in toks:
+        if ph.type == phSTRESS:
+            # stress marker for the following vowel
+            if ph.stress_type < 4 or True:
+                stress = ph.stress_type
+                if stress > max_stress:
+                    max_stress = stress
+            continue
+        if _ph_is_vowel(ph):
+            vowel_stress.append(stress)
+            if stress >= STRESS_IS_PRIMARY and stress >= max_stress:
+                primary_posn = count
+                max_stress = stress
+            if stress < 0 and "unstressed" in ph.flags:
+                vowel_stress[count] = STRESS_IS_UNSTRESSED
+            count += 1
+            stress = -1
+        phonetic.append((mnem, ph))
+    vowel_stress.append(STRESS_IS_UNSTRESSED)
+    return vowel_stress, phonetic, count, primary_posn, max_stress
+
+
+def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control=0):
+    """Port of SetWordStress (dictionary.c:919) for stress_rule=STRESSPOSN_2R and the
+    common path. Returns the phoneme string with stress mnemonics inserted.
+    """
+    toks = mnem_index.tokenize(phoneme_str)
+    if not toks:
+        return phoneme_str
+    stressflags = tr.stress_flags
+
+    unstressed_word = False
+    stressed_syllable = dict_flags & 0x7
+    if dict_flags & 0x8:
+        stressed_syllable = dict_flags & 0x3
+        unstressed_word = True
+
+    vowel_stress, phonetic, vowel_count, primary_posn, max_stress = get_vowel_stress(toks)
+    max_stress_input = max_stress
+    if stressed_syllable > 0:
+        if stressed_syllable >= vowel_count:
+            stressed_syllable = vowel_count - 1
+        vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+        max_stress = STRESS_IS_PRIMARY
+        primary_posn = stressed_syllable
+    if max_stress < 0 and dict_flags is not None:
+        max_stress = STRESS_IS_DIMINISHED
+
+    # syllable weights (heavy/light)
+    consonant_types_set = (phVOWEL,)  # placeholder; weight calc below uses types
+    vowel_length = [0] * (vowel_count + 2)
+    syllable_weight = [0] * (vowel_count + 2)
+    _compute_weights(phonetic, vowel_length, syllable_weight)
+
+    # stress rule
+    if tr.stress_rule == STRESSPOSN_2R:
+        if stressed_syllable == 0:
+            max_stress = STRESS_IS_PRIMARY
+            if vowel_count > 2:
+                stressed_syllable = vowel_count - 2
+                if vowel_stress[stressed_syllable] in (STRESS_IS_DIMINISHED, STRESS_IS_UNSTRESSED):
+                    stressed_syllable = stressed_syllable - 1 if stressed_syllable > 1 else stressed_syllable + 1
+            else:
+                stressed_syllable = 1
+            if vowel_stress[stressed_syllable] < 0:
+                if (vowel_stress[stressed_syllable - 1] < STRESS_IS_PRIMARY) or (vowel_stress[stressed_syllable + 1] < STRESS_IS_PRIMARY):
+                    vowel_stress[stressed_syllable] = max_stress
+    elif tr.stress_rule == K.STRESSPOSN_1L:
+        if stressed_syllable == 0:
+            stressed_syllable = 1
+            vowel_stress[1] = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_1R:
+        if stressed_syllable == 0:
+            stressed_syllable = vowel_count - 1
+            while stressed_syllable > 0:
+                if vowel_stress[stressed_syllable] < STRESS_IS_DIMINISHED:
+                    vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+                    break
+                stressed_syllable -= 1
+            max_stress = STRESS_IS_PRIMARY
+
+    # guess complete stress pattern (secondary stresses)
+    stress = STRESS_IS_PRIMARY if max_stress < STRESS_IS_PRIMARY else STRESS_IS_SECONDARY
+    done = False
+    first_primary = 0
+    for v in range(1, vowel_count):
+        if vowel_stress[v] < STRESS_IS_DIMINISHED:
+            if (stressflags & 0x10) and (stress < STRESS_IS_PRIMARY) and (v == vowel_count - 1):
+                pass  # S_FINAL_NO_2
+            elif (stressflags & 0x8000) and not done:
+                vowel_stress[v] = stress
+                done = True
+                stress = STRESS_IS_SECONDARY
+            elif (vowel_stress[v - 1] <= STRESS_IS_UNSTRESSED) and (
+                (vowel_stress[v + 1] <= STRESS_IS_UNSTRESSED)
+                or (stress == STRESS_IS_PRIMARY and vowel_stress[v + 1] <= STRESS_IS_NOT_STRESSED)
+            ):
+                if stress == STRESS_IS_SECONDARY and (stressflags & K.S_NO_AUTO_2):
+                    continue
+                vowel_stress[v] = stress
+                done = True
+                stress = STRESS_IS_SECONDARY
+        if vowel_stress[v] >= STRESS_IS_PRIMARY:
+            if first_primary == 0:
+                first_primary = v
+            elif stressflags & K.S_FIRST_PRIMARY:
+                vowel_stress[v] = STRESS_IS_SECONDARY
+
+    if unstressed_word and tonic < 0:
+        tonic = tr.unstressed_wd1 if vowel_count <= 2 else tr.unstressed_wd2
+
+    max_stress = STRESS_IS_DIMINISHED
+    max_stress_posn = 0
+    for v in range(1, vowel_count):
+        if vowel_stress[v] >= max_stress:
+            max_stress = vowel_stress[v]
+            max_stress_posn = v
+    if tonic >= 0:
+        if (tonic > max_stress) or (max_stress <= STRESS_IS_PRIMARY):
+            vowel_stress[max_stress_posn] = tonic
+        max_stress = tonic
+
+    # produce output: walk phonetic, insert stress mnemonic before each vowel
+    out = []
+    v = 1
+    for mnem, ph in phonetic:
+        if _ph_is_vowel(ph):
+            v_stress = vowel_stress[v]
+            if v_stress <= STRESS_IS_UNSTRESSED:
+                if (v > 1) and (max_stress >= 2) and (stressflags & K.S_FINAL_DIM) and (v == vowel_count - 1):
+                    v_stress = STRESS_IS_DIMINISHED
+                elif (stressflags & K.S_NO_DIM) or (v == 1) or (v == vowel_count - 1):
+                    v_stress = STRESS_IS_UNSTRESSED
+                elif (v == vowel_count - 2) and (vowel_stress[vowel_count - 1] <= STRESS_IS_UNSTRESSED):
+                    v_stress = STRESS_IS_UNSTRESSED
+                else:
+                    if (vowel_stress[v - 1] < STRESS_IS_DIMINISHED) or ((stressflags & K.S_MID_DIM) == 0):
+                        v_stress = STRESS_IS_DIMINISHED
+                        vowel_stress[v] = v_stress
+            if (v_stress == STRESS_IS_DIMINISHED) or (v_stress > STRESS_IS_UNSTRESSED):
+                out.append(_STRESS_MNEM.get(v_stress, ""))
+            v += 1
+        out.append(mnem)
+    return "".join(out)
+
+
+def _compute_weights(phonetic, vowel_length, syllable_weight):
+    # port of the heavy/light syllable loop (dictionary.c:1002-1026)
+    # consonant_types[16] = {0,0,0,1,1,1,1,1,1,1,0,...}: phVOWEL(3)..phNASAL(9) are consonants
+    consonant_types = {K.phVOWEL, phLIQUID, K.phSTOP, K.phVSTOP,
+                       K.phFRICATIVE, K.phVFRICATIVE, K.phNASAL}
+    ix = 1
+    n = len(phonetic)
+    i = 0
+    while i < n:
+        mnem, ph = phonetic[i]
+        if _ph_is_vowel(ph):
+            weight = 0
+            nxt = phonetic[i + 1][1] if i + 1 < n else None
+            lengthened = nxt is not None and nxt.mnemonic == ":"
+            if lengthened or ("long" in ph.flags):
+                weight += 1
+            vowel_length[ix] = weight
+            j = i + 1
+            if lengthened:
+                j += 1
+            c1 = phonetic[j][1] if j < n else None
+            c2 = phonetic[j + 1][1] if j + 1 < n else None
+            if c1 is not None and c1.type in consonant_types and (
+                (c2 is None or c2.type != phVOWEL) or ("long" in c1.flags)
+            ):
+                weight += 1
+            syllable_weight[ix] = weight
+            ix += 1
+        i += 1
+
+
+def phLIQUID_T():
+    return 4  # phLIQUID
 
 
 class MatchRecord:
