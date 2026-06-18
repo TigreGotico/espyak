@@ -93,14 +93,18 @@ def _normalize_tones(plist, table, insert_default=True):
 
 def _double_long_consonants(plist):
     """phonemelist.c: a length phoneme (`:`) after a fricative/nasal/liquid lengthens by
-    doubling the consonant (it mm/ll/ss), rather than rendering as ː (kept for stops)."""
+    doubling the consonant (it mm/ll/ss); after a DIPHTHONG it repeats the diphthong
+    (af e@: -> iəiə, o@: -> ʊəʊə) — espeak renders a lengthened diphthong by writing it twice,
+    not vowel+ː (which stays for monophthongs: A: -> ɑː)."""
     for i in range(1, len(plist)):
         e = plist[i]
         if e.deleted or e.ph.mnemonic != ":":
             continue
         prev = plist[i - 1].ph
-        if prev.type in _DOUBLE_TYPES:
-            e.ph = prev  # replace the length marker with a copy of the consonant
+        if prev.type in _DOUBLE_TYPES or (
+                prev.type == phVOWEL and prev.starttype != prev.endtype
+                and prev.endtype == "#@"):
+            e.ph = prev  # replace the length marker with a copy of the consonant/diphthong
 
 
 def _decompose_hangul(word):
