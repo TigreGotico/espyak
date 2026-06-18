@@ -119,6 +119,11 @@ LANGS = {
     "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "y"},
     "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},
     "tr": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
+    # Papiamento: stress the last syllable unless the word ends in a vowel (1R +
+    # S_FINAL_VOWEL_UNSTRESSED). No config -> wrong 2R default (algun -> ˈalɡuŋ not alɡˈuŋ).
+    "pap": {"stress_rule": K.STRESSPOSN_1R, "unstressed_wd1": 0, "unstressed_wd2": 2,
+            "stress_flags": (K.S_FINAL_VOWEL_UNSTRESSED | K.S_FINAL_DIM_ONLY
+                             | K.S_FINAL_NO_2 | K.S_NO_AUTO_2)},
     "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_NO_AUTO_2
            | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű"},
