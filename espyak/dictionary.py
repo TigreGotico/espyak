@@ -451,7 +451,9 @@ def get_vowel_stress(toks, stressed_syllable=0):
     stress = -1
     primary_posn = 0
     for mnem, ph in toks:
-        if ph.type == phSTRESS:
+        if ph.type == phSTRESS and not mnem.isdigit():
+            # digit-named phStress phonemes are tone marks (Vietnamese 1-7), not stress
+            # markers — keep them in the phonetic stream rather than consuming them.
             if mnem == "=":
                 # phonSTRESS_PREV: place primary stress on the PRECEDING stressable vowel
                 j = count - 1
