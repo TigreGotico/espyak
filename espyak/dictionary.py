@@ -735,6 +735,13 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             max_stress = vowel_stress[v]
             max_stress_posn = v
     if tonic >= 0:
+        # A first-syllable-stress (1L) CONTENT word with no inherent stress (every vowel
+        # diminished/unstressed, e.g. ga arsa -> @rs@) takes the clause tonic on syllable 1,
+        # following the language's stress direction — not the last syllable max_stress_posn
+        # (last-wins ties) selects. A $u function word (nl onze) keeps the last, so exclude it.
+        if (max_stress <= STRESS_IS_UNSTRESSED and vowel_count > 1
+                and tr.stress_rule == K.STRESSPOSN_1L and not unstressed_word):
+            max_stress_posn = 1
         if (tonic > max_stress) or (max_stress <= STRESS_IS_PRIMARY):
             vowel_stress[max_stress_posn] = tonic
         max_stress = tonic
