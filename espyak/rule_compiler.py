@@ -462,12 +462,13 @@ class RuleSet:
             self.replacements.append((toks[0], toks[1]))
 
     def _sort_groups(self):
-        # output_rule_group sorts each group's rules by (phoneme string, match data).
-        # We approximate espeak's encoded-byte order with the mnemonic phoneme string.
-        for d in (self.groups1, self.groups2, self.groups3):
-            for k in d:
-                d[k].sort(key=lambda r: r.sortkey)
-        self.default.sort(key=lambda r: r.sortkey)
+        # espeak sorts rules by phoneme string only to enable the RULE_PH_COMMON storage
+        # optimisation (shared phoneme strings); the matcher's last-best-wins tie-break among
+        # equal-scoring rules then resolves to the FILE-last rule. We don't implement
+        # RULE_PH_COMMON, so we must NOT reorder: keep file order so the tie-break matches
+        # espeak (tn: b->b then b->B -> B wins). (Different-length matches are separated by
+        # the points score, so their order is irrelevant.)
+        return
 
 
 def _is_latin1_name(name):
