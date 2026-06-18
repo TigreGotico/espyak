@@ -95,6 +95,12 @@ _FEATURES = {
     "isUnstressed": lambda ph, e, ctx: e is None or e.stresslevel <= 1,
     "isDiminished": lambda ph, e, ctx: e is not None and e.stresslevel == 0,
     "isMaxStress": lambda ph, e, ctx: ctx.get("max_stress", False),
+    "isVelar": lambda ph, e, ctx: getattr(ph, "place", None) in ("vel", "lbv"),
+    "isPalatal": lambda ph, e, ctx: getattr(ph, "place", None) in ("pal", "pla", "alp"),
+    "isVStop": lambda ph, e, ctx: ph.type == phVSTOP,
+    "isUStop": lambda ph, e, ctx: ph.type == phSTOP,
+    "isVFricative": lambda ph, e, ctx: ph.type == phVFRICATIVE,
+    "isLong": lambda ph, e, ctx: "long" in ph.flags,
 }
 
 # a synthetic pause phoneme stands in at word boundaries for *W predicates

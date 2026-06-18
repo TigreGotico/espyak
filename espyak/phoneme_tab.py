@@ -62,6 +62,13 @@ _PROGRAM_KEYWORDS = {
 }
 
 
+# place-of-articulation feature keywords (phoneme.h), captured for isVelar/isPalatal/...
+_PLACE_KEYWORDS = {
+    "blb", "lbd", "bld", "dnt", "alv", "rfx", "pla", "alp", "pal",
+    "vel", "lbv", "uvl", "phr", "glt",
+}
+
+
 def _unescape_mnemonic(tok):
     """Phoneme source escapes special chars with backslash (e.g. ``\\,`` -> ``,``)."""
     out = []
@@ -78,7 +85,7 @@ def _unescape_mnemonic(tok):
 
 class Phoneme:
     __slots__ = ("mnemonic", "type", "ipa", "stress_type", "flags", "lengthmod",
-                 "program")
+                 "program", "place")
 
     def __init__(self, mnemonic):
         self.mnemonic = mnemonic
@@ -88,6 +95,7 @@ class Phoneme:
         self.flags = set()     # misc boolean keywords (unstressed, length, nolink, ...)
         self.lengthmod = 0
         self.program = []      # raw program statement lines (IF/ChangePhoneme/CALL/...)
+        self.place = None      # place of articulation (vel, pal, alv, ...) for isVelar etc.
 
     def copy(self, new_mnemonic=None):
         p = Phoneme(new_mnemonic or self.mnemonic)
@@ -97,6 +105,7 @@ class Phoneme:
         p.flags = set(self.flags)
         p.lengthmod = self.lengthmod
         p.program = list(self.program)
+        p.place = self.place
         return p
 
     def __repr__(self):
@@ -257,6 +266,8 @@ class PhonemeSource:
                     cur_ph.type = _TYPE_KEYWORDS[t]
                     if t == "stress":
                         cur_ph.flags.add("stress")
+                elif t in _PLACE_KEYWORDS:
+                    cur_ph.place = t
             if len(tok) == 1:
                 cur_ph.flags.add(head)
 
