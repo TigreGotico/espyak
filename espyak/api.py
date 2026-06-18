@@ -350,7 +350,16 @@ class G2P:
         espeak's single-clause behavior and is what makes an isolated monosyllable like
         "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
         """
-        words = text.split()
+        words = []
+        for tok in text.split():
+            # split mixed/camelCase at a lowercase->uppercase boundary (espeak tokenizer):
+            # mOn -> "m","On" (-> ˈɛm ˈɒn), fooBar -> "foo","Bar".
+            start = 0
+            for j in range(1, len(tok)):
+                if tok[j].isupper() and tok[j - 1].islower():
+                    words.append(tok[start:j])
+                    start = j
+            words.append(tok[start:])
         out = []
         for i, word in enumerate(words):
             # tonic word carries the clause stress; tone languages (vi) reduce it to
