@@ -27,6 +27,23 @@ from espyak import language_data
 from espyak.phoneme_program import Interpreter, set_regressive_voicing
 
 
+from espyak.phoneme_tab import phNASAL, phLIQUID, phFRICATIVE, phVFRICATIVE
+
+_DOUBLE_TYPES = frozenset((phFRICATIVE, phVFRICATIVE, phNASAL, phLIQUID))
+
+
+def _double_long_consonants(plist):
+    """phonemelist.c: a length phoneme (`:`) after a fricative/nasal/liquid lengthens by
+    doubling the consonant (it mm/ll/ss), rather than rendering as ː (kept for stops)."""
+    for i in range(1, len(plist)):
+        e = plist[i]
+        if e.deleted or e.ph.mnemonic != ":":
+            continue
+        prev = plist[i - 1].ph
+        if prev.type in _DOUBLE_TYPES:
+            e.ph = prev  # replace the length marker with a copy of the consonant
+
+
 def _decompose_hangul(word):
     """Break Hangul syllable blocks (U+AC00–D7A3) into conjoining jamo L/V/T, matching
     espeak's translateword.c: lead 11 (ㅇ, silent initial) is dropped; the final is
@@ -312,6 +329,7 @@ class G2P:
         if reg:
             set_regressive_voicing(plist, self.phoneme_table, reg)
         self._interp.run(plist)  # P1b: context-dependent phoneme programs
+        _double_long_consonants(plist)
         return render_phoneme_list(plist, self.phoneme_table,
                                    ipa=ipa, tie=tie, separator=separator)
 
