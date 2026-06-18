@@ -574,6 +574,16 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 stressed_syllable = 1
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
             max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_EU:  # Basque: primary on 2nd syllable, secondary on last
+        if stressed_syllable == 0 and vowel_count > 2:
+            for ix in range(1, vowel_count):
+                vowel_stress[ix] = STRESS_IS_DIMINISHED
+            stressed_syllable = 2
+            if max_stress <= STRESS_IS_DIMINISHED:
+                vowel_stress[2] = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
+            if vowel_count > 3:
+                vowel_stress[vowel_count - 1] = STRESS_IS_SECONDARY
     elif tr.stress_rule == K.STRESSPOSN_SYLCOUNT:  # Russian: guess stress from syllable count
         # port of dictionary.c case STRESSPOSN_SYLCOUNT — for words without an explicit
         # (dictionary) stress, guess from the syllable count and the final phoneme type.
