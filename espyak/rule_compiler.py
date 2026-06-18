@@ -256,7 +256,11 @@ def _flush(sections, text, state):
     if text == "":
         return state
     if state == 4:
-        sections.phonemes = _append_ph(sections.phonemes, text)
+        # espeak reads the phoneme output only up to the first whitespace (compiledict.c:462),
+        # so a second space-separated token is an annotation/variant, not output: tn `_k) g  g x2`
+        # compiles to 'g', not 'gx'. Keep only the first phoneme token.
+        if not sections.phonemes:
+            sections.phonemes = _append_ph(sections.phonemes, text)
         return 4
     if state == 0:
         sections.cond += text
