@@ -239,7 +239,10 @@ def _ar_codes(s):
 
 
 LANGS["ar"] = {
-    "stress_rule": K.STRESSPOSN_2R, "stress_flags": 0,
+    # Arabic stress is antepenultimate with an auto-secondary on the final (ذلك ->
+    # ðˈaːlikˌa, الذين -> ʔallˈaðiːnˌa): STRESSPOSN_3R matches the oracle. (espeak reaches
+    # this via the weight logic inside its default 2R; 3R is the faithful approximation.)
+    "stress_rule": K.STRESSPOSN_3R, "stress_flags": 0,
     "letter_bits": {}, "letter_bits_offset": 0x600,
     "letter_bits_codes": [
         (K.LETTERGP_A, _ar_codes("َُِ")),       # fatha damma kasra
@@ -252,8 +255,8 @@ LANGS["ar"] = {
     ],
 }
 # Sindhi is written in the Arabic script (OFFSET_ARABIC); reuse the Arabic letter bits so
-# vowels are detected and the penultimate-stress rule lands correctly.
-LANGS["sd"] = dict(LANGS["ar"])
+# vowels are detected, but Sindhi stress is penultimate (2R), not Arabic's antepenult (3R).
+LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R)
 
 # --- Armenian (tr_languages.c case L('h','y'), OFFSET_ARMENIAN 0x530) -----------------
 _HY_VOWELS = [0x31, 0x35, 0x37, 0x38, 0x3b, 0x48, 0x55]
