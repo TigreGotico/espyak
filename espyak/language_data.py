@@ -85,7 +85,11 @@ LANGS = {
     "bs": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2,
            "spelling_stress": True, "extra_consonants": "čćšžđ"},
     "cs": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
            "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž"},
+    # Finnish/Estonian: fixed initial stress (espeak's zero-init default 1L; my default is 2R)
+    "fi": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöy"},
+    "et": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöüõ"},
     "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_NO_AUTO_2
            | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű"},
