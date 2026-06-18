@@ -11,8 +11,13 @@ last-best-wins tie-break are reproduced. Phonemes are accumulated as mnemonic st
 
 Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 """
+import unicodedata
 from espyak import constants as K
 from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID
+
+
+def _nfc(s):
+    return unicodedata.normalize("NFC", s)
 
 REPLACED_E = ord("E")
 
@@ -252,7 +257,9 @@ class DictList:
                 phon_tokens.append(tok)
         phonemes = " ".join(phon_tokens)
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words)
-        self.words.setdefault(word.lower(), []).append(entry)
+        # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
+        # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries.
+        self.words.setdefault(_nfc(word.lower()), []).append(entry)
 
     def lookup(self, word, ctx):
         """Return (phonemes_or_None, flags1) or (None, None) if not found.
@@ -261,7 +268,7 @@ class DictList:
         condition/flag checks against the context (an LookupContext). A returned
         phonemes of "" with flags1!=None means flags-only (use rules).
         """
-        entries = self.words.get(word.lower())
+        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
         if not entries:
             return None, None
         for entry in reversed(entries):

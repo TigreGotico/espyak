@@ -160,9 +160,11 @@ class G2P:
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
         if dict_ph:
-            if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in dict_ph):
-                # Korean dict entries are Hangul respellings (sandhi forms); re-translate.
-                word = dict_ph
+            nfc_ph = unicodedata.normalize("NFC", dict_ph) if self._config.get("decompose_hangul") else dict_ph
+            if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in nfc_ph):
+                # Korean dict entries are Hangul respellings (sandhi forms, may be NFD);
+                # re-translate the composed form (decompose -> jamo -> rules).
+                word = nfc_ph
             else:
                 return dict_ph, flags
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
