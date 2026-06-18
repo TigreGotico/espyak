@@ -161,6 +161,38 @@ def _greek_config(stress_rule, stress_flags):
 LANGS["el"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY)
 LANGS["grc"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2)
 
+# --- Indic (Brahmic) scripts: SetIndicLetters with per-script Unicode-block offset -----
+_DEVA_VOWELS2 = [0x60, 0x61, 0x55, 0x56, 0x57, 0x62, 0x63]
+_DEVA_CONSONANTS2 = [0x02, 0x03, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
+                     0x7b, 0x7c, 0x7e, 0x7f]
+_INDIC_OFFSETS = {
+    "hi": 0x900, "mr": 0x900, "ne": 0x900, "sa": 0x900, "sd": 0x900, "bpy": 0x900,
+    "bn": 0x980, "as": 0x980, "pa": 0xa00, "gu": 0xa80, "or": 0xb00, "ta": 0xb80,
+    "te": 0xc00, "kn": 0xc80, "ml": 0xd00, "si": 0xd80,
+}
+
+
+def _indic_config(offset, stress_rule=K.STRESSPOSN_1L):
+    return {
+        "stress_rule": stress_rule, "stress_flags": 0,
+        "letter_bits": {}, "letter_bits_offset": offset,
+        "letter_bits_ranges": [
+            (K.LETTERGP_A, 0x04, 0x14), (K.LETTERGP_A, 0x3e, 0x4d),
+            (K.LETTERGP_VOWEL2, 0x04, 0x14), (K.LETTERGP_VOWEL2, 0x3e, 0x4d),
+            (K.LETTERGP_B, 0x3e, 0x4d), (K.LETTERGP_C, 0x15, 0x39),
+            (K.LETTERGP_Y, 0x04, 0x14), (K.LETTERGP_Y, 0x3e, 0x4c),
+        ],
+        "letter_bits_codes": [
+            (K.LETTERGP_A, _DEVA_VOWELS2), (K.LETTERGP_VOWEL2, _DEVA_VOWELS2),
+            (K.LETTERGP_B, _DEVA_VOWELS2), (K.LETTERGP_C, _DEVA_CONSONANTS2),
+            (K.LETTERGP_Y, _DEVA_VOWELS2),
+        ],
+    }
+
+
+for _l, _off in _INDIC_OFFSETS.items():
+    LANGS[_l] = _indic_config(_off)
+
 
 def get_config(lang):
     cfg = dict(DEFAULTS)

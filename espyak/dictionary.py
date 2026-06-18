@@ -118,6 +118,11 @@ class Translator:
             for code in codes:
                 if 0 <= code < 256:
                     self.letter_bits[code] |= (1 << group)
+        # SetLetterBitsRange(group, first, last): OR a contiguous code range (Indic)
+        for group, first, last in config.get("letter_bits_ranges", []):
+            for code in range(first, last + 1):
+                if 0 <= code < 256:
+                    self.letter_bits[code] |= (1 << group)
 
     def is_letter(self, letter, group):
         # port of IsLetter (dictionary.c:770)
