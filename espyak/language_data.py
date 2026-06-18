@@ -150,6 +150,9 @@ LANGS = {
            "extra_vowels": "əıöü", "extra_consonants": "çğş"},
     "kk": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
     "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş"},
+    # Welsh: $u function words reduce (clear y -> obscure: fy -> vˈø not vˈɨː); default 2R suits
+    # the penultimate stress, so only the $u-reduction flag is needed.
+    "cy": {"unstress_u_words": True},
     "smj": {"stress_rule": K.STRESSPOSN_1L,  # Lule Saami: first syllable
             "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY,
             "spelling_stress": True, "extra_vowels": "áä", "extra_consonants": "ŋđ",
