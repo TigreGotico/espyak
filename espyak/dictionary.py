@@ -462,6 +462,12 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     if max_stress < 0 and dict_flags is not None:
         max_stress = STRESS_IS_DIMINISHED
 
+    # GetVowelStress sets *stressed_syllable = primary_posn: an explicit primary stress
+    # marker (or $N flag) fixes the stressed syllable, so the stress_rule below is
+    # skipped (its guard is `stressed_syllable == 0`). Without this, words with explicit
+    # stress get a second primary from the penultimate rule (méxico -> mˈɛxˈiko).
+    stressed_syllable = primary_posn
+
     # syllable weights (heavy/light)
     consonant_types_set = (phVOWEL,)  # placeholder; weight calc below uses types
     vowel_length = [0] * (vowel_count + 2)
