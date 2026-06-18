@@ -11,6 +11,7 @@ from espyak.rule_compiler import RuleSet
 from espyak.dictionary import (
     Translator, translate_rules, set_word_stress, MnemIndex, DictList, LookupContext,
 )
+from espyak import language_data
 
 
 class G2P:
@@ -25,8 +26,9 @@ class G2P:
         self._ph_table_name = self._resolve_phoneme_table(lang)
         self._mnem = MnemIndex(self.phoneme_table)
         # rule engine (letter-to-sound). Loaded lazily per language.
+        self._config = language_data.get_config(lang)
         self._rules = RuleSet.compile_file(data_paths.rules_path(lang))
-        self._tr = Translator(phsource=self._phsource)
+        self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
         self._dict = DictList.load(data_paths.list_path(lang), data_paths.extra_path(lang))
 

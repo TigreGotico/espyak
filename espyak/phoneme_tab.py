@@ -259,6 +259,8 @@ def _decode_ipa(text):
     """
     if not text:
         return ""
+    if text == "NULL":
+        return ""  # `ipa NULL` means the phoneme produces no IPA output
     out = []
     i = 0
     while i < len(text):

@@ -68,9 +68,9 @@ def _utf8_back(buf, i):
 
 
 class Translator:
-    """Minimal translator state for the rules engine (grows toward tr_languages.c)."""
+    """Translator state for the rules engine, configured per language."""
 
-    def __init__(self, phsource=None):
+    def __init__(self, phsource=None, config=None):
         self.letter_bits = [0] * 256
         self.letter_groups = [None] * 8     # wchar overrides per group (None = use bits)
         self.letter_bits_offset = 0
@@ -79,18 +79,34 @@ class Translator:
         self.word_vowel_count = 0
         self.word_stressed_count = 0
         self.phsource = phsource
-        # langopts defaults (tr_languages.c NewTranslator)
-        self.stress_rule = K.STRESSPOSN_2R
-        self.stress_flags = 0
-        self.unstressed_wd1 = 1
-        self.unstressed_wd2 = 3
-        self._setup_default_letters()
+        if config is None:
+            config = {
+                "stress_rule": K.STRESSPOSN_2R, "stress_flags": 0,
+                "unstressed_wd1": 1, "unstressed_wd2": 3, "translator_name": 0,
+                "letter_bits": dict(_DEFAULT_LETTER_BITS),
+                "extra_vowels": "", "extra_consonants": "",
+            }
+        self.config = config
+        self.stress_rule = config.get("stress_rule", K.STRESSPOSN_2R)
+        self.stress_flags = config.get("stress_flags", 0)
+        self.unstressed_wd1 = config.get("unstressed_wd1", 1)
+        self.unstressed_wd2 = config.get("unstressed_wd2", 3)
+        self.translator_name = config.get("translator_name", 0)
+        self._setup_letters(config)
 
-    def _setup_default_letters(self):
-        for group, letters in _DEFAULT_LETTER_BITS.items():
+    def _setup_letters(self, config):
+        for group, letters in config.get("letter_bits", _DEFAULT_LETTER_BITS).items():
             bits = 1 << group
             for ch in letters:
-                self.letter_bits[ord(ch)] |= bits
+                if ord(ch) < 256:
+                    self.letter_bits[ord(ch)] |= bits
+        # SetLetterVowel: extra vowels go into groups A and VOWEL2
+        for ch in config.get("extra_vowels", ""):
+            if ord(ch) < 256:
+                self.letter_bits[ord(ch)] |= (1 << K.LETTERGP_A) | (1 << K.LETTERGP_VOWEL2)
+        for ch in config.get("extra_consonants", ""):
+            if ord(ch) < 256:
+                self.letter_bits[ord(ch)] |= (1 << K.LETTERGP_C)
 
     def is_letter(self, letter, group):
         # port of IsLetter (dictionary.c:770)
