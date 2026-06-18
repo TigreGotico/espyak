@@ -102,6 +102,8 @@ LANGS = {
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_FINAL_DIM_ONLY,
            "extra_vowels": "ăâîșț"},
     "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ"},  # antepenultimate
+    "eu": {"stress_rule": K.STRESSPOSN_2R,
+           "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ"},
     "pt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_SPANISH,
            "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú"},

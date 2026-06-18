@@ -507,6 +507,8 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     syllable_weight = [0] * (vowel_count + 2)
     _compute_weights(phonetic, vowel_length, syllable_weight)
 
+    max_stress_input = max_stress  # max explicit stress before the stress rule fires
+
     # stress rule
     if tr.stress_rule == STRESSPOSN_2R:
         if stressed_syllable == 0:
@@ -563,6 +565,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                     break
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
             max_stress = STRESS_IS_PRIMARY
+
+    # S_FINAL_VOWEL_UNSTRESSED: don't allow stress on a word-final vowel (eu/ro)
+    if ((stressflags & K.S_FINAL_VOWEL_UNSTRESSED) and (control & 2) == 0
+            and vowel_count > 2 and max_stress_input < STRESS_IS_SECONDARY
+            and vowel_stress[vowel_count - 1] == STRESS_IS_PRIMARY):
+        if phonetic and _ph_is_vowel(phonetic[-1][1]):
+            vowel_stress[vowel_count - 1] = STRESS_IS_UNSTRESSED
+            vowel_stress[vowel_count - 2] = STRESS_IS_PRIMARY
 
     # guess complete stress pattern (secondary stresses)
     stress = STRESS_IS_PRIMARY if max_stress < STRESS_IS_PRIMARY else STRESS_IS_SECONDARY
