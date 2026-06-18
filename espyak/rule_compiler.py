@@ -261,7 +261,7 @@ def _flush(sections, text, state):
     return next_state
 
 
-def compile_rule(line, group_name):
+def compile_rule(line, group_name, group_raw=False):
     """Port of compile_rule. Returns a CompiledRule or None.
 
     The phoneme string is kept as mnemonic text.
@@ -308,7 +308,10 @@ def compile_rule(line, group_name):
 
     # assemble in-group instruction stream: match(minus group name) + cond + pre(rev) + post
     out = bytearray()
-    len_name = 0 if group_name in ("", "9") else len(group_name.encode("utf-8"))
+    if group_name in ("", "9"):
+        len_name = 0
+    else:
+        len_name = len(group_name.encode("latin-1" if group_raw else "utf-8"))
     out += sec.match[len_name:]
 
     if sec.cond:
@@ -361,12 +364,13 @@ class RuleSet:
         rs = cls()
         rs.letter_bits_offset = letter_bits_offset
         group_name = ""
+        group_raw = False
         group_rules = []
         mode = 0  # 0=none, 1=group, 2=replace
 
         def finish_group():
             if group_rules:
-                rs._store_group(group_name, group_rules)
+                rs._store_group(group_name, group_raw, group_rules)
             group_rules.clear()
 
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -385,10 +389,10 @@ class RuleSet:
                         mode = 2
                     elif line.startswith(".group"):
                         mode = 1
-                        group_name = rs._parse_group_name(line[6:])
+                        group_name, group_raw = rs._parse_group_name(line[6:])
                     continue
                 if mode == 1:
-                    cr = compile_rule(line, group_name)
+                    cr = compile_rule(line, group_name, group_raw)
                     if cr is not None:
                         group_rules.append(cr)
                 elif mode == 2:
@@ -398,6 +402,8 @@ class RuleSet:
         return rs
 
     def _parse_group_name(self, rest):
+        """Returns (name, raw). raw=True for 0x..-code names whose chars are raw byte
+        values (latin-1); raw=False for normal UTF-8 group letters (e.g. ä, α)."""
         rest = rest.strip()
         name = ""
         for ch in rest:
@@ -407,17 +413,12 @@ class RuleSet:
         if name.lower().startswith("0x"):
             code = int(name, 16)
             if code > 0x100:
-                return bytes([(code >> 8) & 0xff, code & 0xff]).decode("latin-1")
-            return chr(code)
-        # truncate to 2 bytes (UTF-8) like espeak
-        nb = name.encode("utf-8")
-        if len(nb) > 2:
-            # keep first char (could be multibyte up to 2)
-            return name[:1]
-        return name
+                return bytes([(code >> 8) & 0xff, code & 0xff]).decode("latin-1"), True
+            return chr(code), True
+        return name[:2], False  # keep up to 2 characters (espeak truncates to 2 bytes)
 
-    def _store_group(self, name, rules):
-        nb = name.encode("utf-8") if not _is_latin1_name(name) else name.encode("latin-1")
+    def _store_group(self, name, raw, rules):
+        nb = name.encode("latin-1") if raw else name.encode("utf-8")
         rules = list(rules)
         if name == "":
             self.default.extend(rules)
