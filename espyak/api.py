@@ -79,17 +79,32 @@ class G2P:
             all_upper=word.isupper() and any(c.isalpha() for c in word),
             dict_condition=self._tr.dict_condition,
         )
+        self._tr.expect_verb = 0
+        ph, flags = self._translate_core(word.lower(), ctx)
+        ph = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
+        return ph
+
+    def _translate_core(self, word, ctx, word_flags=0):
+        """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
+
+        Returns (phonemes, dict_flags). Handles one prefix (recursing on the stem) or
+        one suffix per call (TranslateWord3's prefix/suffix branches)."""
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
         if dict_ph:
-            ph = dict_ph
-        else:
-            ph, end_type, end_ph = translate_rules(
-                self._tr, word.lower(), self._mnem, want_endings=True)
-            if end_type and not (end_type & K.SUFX_P):
-                ph = self._translate_with_suffix(word.lower(), end_type, end_ph)
-        ph = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
-        return ph
+            return dict_ph, flags
+        ph, end_type, end_ph = translate_rules(
+            self._tr, word, self._mnem, word_flags=word_flags, want_endings=True)
+        if end_type and (end_type & K.SUFX_P) and not (word_flags & K.FLAG_NO_PREFIX):
+            # prefix: remove it, translate the remaining stem, prepend the prefix phonemes
+            prefix_len = end_type & 0x3f
+            rest = word[prefix_len:]
+            rctx = LookupContext(dict_condition=self._tr.dict_condition)
+            rest_ph, _ = self._translate_core(rest, rctx)
+            return end_ph + rest_ph, flags
+        if end_type and not (end_type & K.SUFX_P):
+            return self._translate_with_suffix(word, end_type, end_ph), flags
+        return ph, flags
 
     def _translate_with_suffix(self, word, end_type, end_ph):
         """Remove a standard suffix, (re)translate the stem, append the suffix phonemes.
