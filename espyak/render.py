@@ -86,9 +86,10 @@ def encode_phoneme_string(s, table):
     while i < n:
         c = s[i]
         if c in (" ", "\t"):
-            # word boundary
+            # Within a word's phoneme string, a single space is just a phoneme
+            # separator (no output). True word boundaries are "||" (handled below)
+            # or come from multi-word translation (P5).
             i += 1
-            first_word_done = True
             continue
         if c == "|":  # morpheme/tie barrier in phoneme strings — not a phoneme
             i += 1
