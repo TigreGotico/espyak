@@ -103,6 +103,9 @@ LANGS = {
            "extra_vowels": "əıöü", "extra_consonants": "çğş"},
     "kk": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
     "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş"},
+    "smj": {"stress_rule": K.STRESSPOSN_1L,  # Lule Saami: first syllable
+            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY,
+            "spelling_stress": True, "extra_vowels": "áä", "extra_consonants": "ŋđ"},
     "ro": {"stress_rule": K.STRESSPOSN_1R,
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_FINAL_DIM_ONLY,
            "extra_vowels": "ăâîșț"},
