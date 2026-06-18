@@ -155,10 +155,16 @@ class G2P:
 
         Returns (phonemes, dict_flags). Handles one prefix (recursing on the stem) or
         one suffix per call (TranslateWord3's prefix/suffix branches)."""
+        if self._config.get("decompose_hangul"):
+            word = unicodedata.normalize("NFC", word)
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
         if dict_ph:
-            return dict_ph, flags
+            if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in dict_ph):
+                # Korean dict entries are Hangul respellings (sandhi forms); re-translate.
+                word = dict_ph
+            else:
+                return dict_ph, flags
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
             # $abbrev with no pronunciation -> spell out as individual letter names
             return self._spell_word(word), 0
@@ -167,6 +173,7 @@ class G2P:
             if acc:
                 return acc, 0
         if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in word):
+            # syllable -> conjoining jamo (with fillers) for the rules (already NFC above).
             word = _decompose_hangul(word)
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
