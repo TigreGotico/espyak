@@ -1397,6 +1397,13 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                                     + buf[p_start + wc_bytes:end]).decode("utf-8", "replace")
                         return translate_rules(tr, new_word, mnem_index, word_flags,
                                                want_endings, dict_flags)
+                    # unrecognised ASCII letter in a multi-letter word: espeak sets
+                    # FLAG_SPELLWORD and re-translates as individual letters (dictionary.c:2274).
+                    # mto foreign names (no rule for 'd' in amsterdam). Scoped to ASCII so non-ASCII
+                    # special letters (es ª ordinal) take their own path instead.
+                    if any_alpha > 1 and is_alpha(wc) and wc < 0x80:
+                        tr._spell_word = True
+                        return phonemes, 0, ""
                     # unrecognised character: skip it
                     p += (wc_bytes - 1)
 

@@ -342,9 +342,13 @@ class G2P:
         if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in word):
             # syllable -> conjoining jamo (with fillers) for the rules (already NFC above).
             word = _decompose_hangul(word)
+        self._tr._spell_word = False
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
             dict_flags=flags)
+        if getattr(self._tr, "_spell_word", False):
+            self._spelled = True
+            return self._spell_letters(word), 0
         if end_type and (end_type & K.SUFX_P) and not (word_flags & K.FLAG_NO_PREFIX):
             # prefix: remove it, translate the remaining stem, prepend the prefix phonemes
             prefix_len = end_type & 0x3f
@@ -370,6 +374,19 @@ class G2P:
             if acc:
                 return acc, 0
         return ph, flags
+
+    def _spell_letters(self, word):
+        """FLAG_SPELLWORD: re-translate the word as individual letters, each its OWN primary
+        word (mto amsterdam -> ˈa ˈm̩ s tʰ ˈe ɾ dˈe ˈa ˈm̩): the letter's SOUND via the rules,
+        falling back to its spelled NAME only when the rules give nothing (mto 'd' -> de)."""
+        parts = []
+        for ch in word:
+            ph, _, _ = translate_rules(self._tr, ch, self._mnem)
+            if not ph.strip():
+                ph = self._lookup_letter(ch, False, False)
+            if ph:
+                parts.append(set_word_stress(self._tr, ph, self._mnem, tonic=4))
+        return "||".join(parts)
 
     def _spell_word(self, word):
         """Spell a word as individual letter names (SpeakIndividualLetters +
