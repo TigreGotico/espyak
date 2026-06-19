@@ -325,6 +325,11 @@ class G2P:
             word = unicodedata.normalize("NFC", word)
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
+        if not dict_ph and getattr(self._dict, "_last_accent", False):
+            # $accent entry (en á -> "a acute"): spell the letter as base + accent name(s).
+            acc = self._spell_accented_letter(word.lstrip("_"))
+            if acc:
+                return acc, 0
         if dict_ph:
             hangul = self._config.get("decompose_hangul")
             nfc_ph = unicodedata.normalize("NFC", dict_ph) if hangul else dict_ph

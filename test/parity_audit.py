@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Full headword parity audit: espyak vs the espeak-ng oracle, ALL headwords, every language.
+
+Unlike sweep.py (which samples alphabetic len>=3 headwords and prints only rates), this tests
+*every* dictionary headword (the edge cases — single accented letters, ordinal suffixes,
+U+ names — are where parity actually breaks) and dumps every mismatch for fixing.
+
+    python3 test/parity_audit.py [--cap N] [--langs en,es,..] [--out NAME]
+
+Oracle calls run one-word-per-process (newline-batching misaligns when espeak splits clauses)
+but are fanned out across threads, so a full run is minutes, not an hour.
+Writes test/<out>.jsonl (mismatches) + test/<out>.md (per-language table + category counts).
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+sys.path.insert(0, REPO)
+ORACLE_BIN = os.path.join(REPO, "oracle", "espeak-ng", "src", "espeak-ng")
+ORACLE_ROOT = os.path.join(REPO, "oracle", "espeak-ng")
+DICTSOURCE = os.path.join(REPO, "espyak", "data", "dictsource")
+ENV = dict(os.environ, ESPEAK_DATA_PATH=ORACLE_ROOT)
+
+
+def oracle_one(word, lang):
+    try:
+        r = subprocess.run([ORACLE_BIN, "-q", "--ipa", "-v", lang], input=word,
+                           capture_output=True, text=True, env=ENV, timeout=30)
+        return r.stdout.strip()
+    except Exception:
+        return None
+
+
+def headwords(lang, cap):
+    """Every distinct first-token headword from <lang>_list (no alpha/length filter)."""
+    out, seen = [], set()
+    path = os.path.join(DICTSOURCE, "%s_list" % lang)
+    if not os.path.isfile(path):
+        return out
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            s = line.strip()
+            if not s or s.startswith("//"):
+                continue
+            tok = s.split()[0]
+            if not tok or tok.startswith(("_", "$")) or tok in seen:
+                continue
+            seen.add(tok)
+            out.append(tok)
+            if cap and len(out) >= cap:
+                break
+    return out
+
+
+def categorize(word):
+    if len(word) == 1:
+        return "single-char" if word.isalpha() else "single-symbol"
+    if not word.isalpha():
+        return "non-alpha"
+    if len(word) == 2:
+        return "two-letter"
+    return "word"
+
+
+def main(argv):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cap", type=int, default=0, help="max headwords per lang (0 = all)")
+    ap.add_argument("--langs", default="", help="comma-separated subset")
+    ap.add_argument("--out", default="parity_headwords")
+    ap.add_argument("--workers", type=int, default=16)
+    args = ap.parse_args(argv)
+    if not os.path.isfile(ORACLE_BIN):
+        print("oracle binary not built:", ORACLE_BIN, file=sys.stderr)
+        return 2
+    from espyak.api import G2P
+
+    if args.langs:
+        langs = args.langs.split(",")
+    else:
+        langs = sorted(f[:-6] for f in os.listdir(DICTSOURCE) if f.endswith("_rules"))
+
+    rows, mismatches, cats = [], [], {}
+    pool = ThreadPoolExecutor(max_workers=args.workers)
+    for lang in langs:
+        words = headwords(lang, args.cap)
+        if not words:
+            continue
+        try:
+            g = G2P(lang)
+        except Exception as e:
+            rows.append((lang, 0, 0, "load-error:%s" % type(e).__name__))
+            continue
+        exp = list(pool.map(lambda w: oracle_one(w, lang), words))
+        ok = err = 0
+        for w, e in zip(words, exp):
+            if e is None:
+                err += 1
+                continue
+            try:
+                m = g.phonemize(w)
+            except Exception:
+                err += 1
+                continue
+            if m == e:
+                ok += 1
+            else:
+                c = categorize(w)
+                cats[c] = cats.get(c, 0) + 1
+                if sum(1 for x in mismatches if x["lang"] == lang) < 40:
+                    mismatches.append({"lang": lang, "word": w, "espyak": m,
+                                       "oracle": e, "cat": c})
+        n = len(words)
+        rows.append((lang, ok, n, "%.1f%%" % (100.0 * ok / max(n, 1)) + (" err=%d" % err if err else "")))
+        print("%-8s %5d/%-5d %s" % (lang, ok, n, rows[-1][3]), flush=True)
+
+    rows.sort(key=lambda r: (r[1] / max(r[2], 1), r[2]))
+    with open(os.path.join(HERE, args.out + ".jsonl"), "w", encoding="utf-8") as fh:
+        for m in mismatches:
+            fh.write(json.dumps(m, ensure_ascii=False) + "\n")
+    tot_ok = sum(r[1] for r in rows)
+    tot_n = sum(r[2] for r in rows)
+    lines = ["# Full-headword parity vs espeak-ng 1.52.0 (cap=%s)" % (args.cap or "all"), "",
+             "Overall **%d/%d = %.2f%%** across %d languages." % (tot_ok, tot_n, 100.0 * tot_ok / max(tot_n, 1), len(rows)), "",
+             "Mismatch categories: " + ", ".join("%s=%d" % kv for kv in sorted(cats.items(), key=lambda x: -x[1])), "",
+             "| lang | pass | n | rate |", "| --- | --- | --- | --- |"]
+    for lang, ok, n, note in rows:
+        lines.append("| %s | %d | %d | %s |" % (lang, ok, n, note))
+    with open(os.path.join(HERE, args.out + ".md"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    print("=" * 60)
+    print("OVERALL %d/%d = %.2f%%  | %d langs | cats=%s" %
+          (tot_ok, tot_n, 100.0 * tot_ok / max(tot_n, 1), len(rows), cats))
+    print("worst 20:", [(r[0], r[3]) for r in rows[:20]])
+    print("mismatches dumped:", len(mismatches), "->", args.out + ".jsonl")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

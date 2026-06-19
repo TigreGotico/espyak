@@ -324,6 +324,7 @@ class DictList:
         condition/flag checks against the context (an LookupContext). A returned
         phonemes of "" with flags1!=None means flags-only (use rules).
         """
+        self._last_accent = False
         entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
         if not entries:
             return None, None
@@ -332,6 +333,11 @@ class DictList:
             if not ok:
                 continue
             flags1 = (flags1 & ~0xf) | stress if stress is not None else flags1
+            # $accent on a phoneme-less entry (en á `$accent $atend`): LookupDict2 spells the
+            # letter via LookupAccentedLetter (base-letter name + accent name) instead of the
+            # rules. FLAG_ACCENT lives in flags2, which we don't return, so signal it here.
+            if (flags2 & K.FLAG_ACCENT) and not entry.phonemes:
+                self._last_accent = True
             return entry.phonemes, flags1
         return None, None
 
