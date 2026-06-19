@@ -36,8 +36,13 @@ def oracle_one(word, lang):
         return None
 
 
+import re
+_COND = re.compile(r"^\?!?\d+")  # leading dict-condition prefix: "?3 z", "?3_.p"
+
+
 def headwords(lang, cap):
-    """Every distinct first-token headword from <lang>_list (no alpha/length filter)."""
+    """Distinct real headwords from <lang>_list: strip a leading ?N condition, skip the
+    internal keys (_punct, $directives, %stress, U+codepoint) — keep words/letters/numbers."""
     out, seen = [], set()
     path = os.path.join(DICTSOURCE, "%s_list" % lang)
     if not os.path.isfile(path):
@@ -47,11 +52,20 @@ def headwords(lang, cap):
             s = line.strip()
             if not s or s.startswith("//"):
                 continue
-            tok = s.split()[0]
-            if not tok or tok.startswith(("_", "$")) or tok in seen:
+            toks = s.split()
+            first = toks[0]
+            m = _COND.match(first)
+            if m:
+                rest = first[m.end():]
+                hw = rest if rest else (toks[1] if len(toks) > 1 else "")
+            else:
+                hw = first
+            if not hw or hw[0] in "_$%@&" or hw[:2].lower() == "u+":
                 continue
-            seen.add(tok)
-            out.append(tok)
+            if not (hw[0].isalpha() or hw[0].isdigit()) or hw in seen:
+                continue
+            seen.add(hw)
+            out.append(hw)
             if cap and len(out) >= cap:
                 break
     return out
