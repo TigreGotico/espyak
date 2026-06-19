@@ -248,6 +248,12 @@ class G2P:
             self._u_out_str = set_word_stress(self._tr, ph, self._mnem,
                                               dict_flags=flags, tonic=tonic)
             return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1)
+        if "||" in ph and "|" in ph.replace("||", ""):
+            # the value contains a `|` MORPHEME barrier (one multi-morpheme sub-word, ar صلعم
+            # s[alla:|?allahu|Alajhi||wa||sallam): espeak treats the WHOLE thing as ONE word for
+            # stress (a single SetWordStress over all 11 vowels; the || only break the rendering),
+            # so the language stress rule (ar 3R) lands the primary near the antepenult -> wˈa.
+            return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
         if "||" in ph:
             # multi-word dictionary entry: stress each sub-word separately, preserving the
             # word break for the renderer. A non-final sub-word is unstressed when it has no
