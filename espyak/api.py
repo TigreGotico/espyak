@@ -102,8 +102,13 @@ def _double_long_consonants(plist):
             continue
         prev = plist[i - 1].ph
         if prev.type in _DOUBLE_TYPES or (
-                prev.type == phVOWEL and prev.starttype != prev.endtype
-                and prev.endtype == "#@"):
+                prev.type == phVOWEL and (
+                    # a MONOPHTHONG with an explicit ipa string (mto i/a/o/e, af a) is lengthened
+                    # by repeating it (i: -> ii); one rendered via its mnemonic (ipa None: mto u,
+                    # af i) and a CLOSING diphthong (aɪ) take ː instead
+                    (prev.starttype == prev.endtype and prev.ipa is not None)
+                    # a CENTRING diphthong (endtype #@: e@ -> iə) also repeats (e@: -> iəiə)
+                    or (prev.starttype != prev.endtype and prev.endtype == "#@"))):
             e.ph = prev  # replace the length marker with a copy of the consonant/diphthong
 
 
