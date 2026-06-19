@@ -12,9 +12,8 @@ configuration) — under `espyak/data/`, pinned to tag **1.52.0**
 ## Provenance
 
 `espyak` is an AI-assisted port. The Python implementation was written by an AI coding
-assistant that read and instrumented espeak-ng's C source to reproduce its behavior
-byte-for-byte against a pinned build; human review has been minimal. It is not an
-independent clean-room implementation.
+assistant that read and instrumented espeak-ng's C source; human review has been minimal.
+It is not an independent clean-room implementation.
 
 ## License
 
