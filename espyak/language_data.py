@@ -367,6 +367,9 @@ LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R)
 # excluding the final) — the Hindi/Urdu weight-based stress. Default 2R put the accent on the wrong
 # syllable for words whose final syllable is heavy (انھوں UnHo:n -> ʊnhˈoːn, the long oː).
 LANGS["ur"] = {"stress_rule": K.STRESSPOSN_1RH, "unstress_u_words": True}
+# Hawaiian: a macron (long vowel) holding the lexical primary on a non-final syllable
+# demotes to secondary, the clause nucleus moving to the final syllable (kākou -> kˌaːkoˈu).
+LANGS["haw"] = {"macron_clause_final": True}
 # Voice-file stressRule overrides that the tr_languages.c port lacked (lang/.../<code>):
 # chr Cherokee stressRule 9 (mark all stressed), piqd Klingon & quc K'iche' stressRule 3 (final),
 # py Pyash stressRule 0 (first). Default 2R was wrong for rules-based words.

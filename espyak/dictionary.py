@@ -777,6 +777,16 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             vowel_stress[max_stress_posn] = STRESS_IS_SECONDARY
             vowel_stress[vowel_count - 1] = tonic
             max_stress_posn = vowel_count - 1
+        # haw (Hawaiian): a long (macron) vowel carrying the lexical primary on a NON-final
+        # syllable drops to secondary and the clause nucleus moves to the final syllable
+        # (kākou: k'a:kou -> kˌaːkoˈu, the long ā demoted, primary on the final u).
+        if (tr.config.get("macron_clause_final") and tonic >= STRESS_IS_PRIMARY
+                and max_stress_posn != vowel_count - 1
+                and 1 <= max_stress_posn < len(vowel_length)
+                and vowel_length[max_stress_posn] > 0):
+            vowel_stress[max_stress_posn] = STRESS_IS_SECONDARY
+            vowel_stress[vowel_count - 1] = tonic
+            max_stress_posn = vowel_count - 1
 
     # produce output: walk phonetic, insert stress mnemonic before each vowel
     opt_length = getattr(tr, "it_lengthen", 0)  # LOPT_IT_LENGTHEN
