@@ -596,9 +596,12 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     vowel_stress, phonetic, vowel_count, primary_posn, max_stress = get_vowel_stress(
         toks, stressed_syllable)
     max_stress_input = max_stress
-    if unstressed_word and tonic >= STRESS_IS_PRIMARY and max_stress >= STRESS_IS_PRIMARY:
-        # a $u function word that IS the clause nucleus and carries its own lexical stress keeps it
-        # (el θαείμαι -> θaˈime, not demoted to θaˌimˈe): the $u unstressing doesn't apply here.
+    if (unstressed_word and tonic >= STRESS_IS_PRIMARY and max_stress >= STRESS_IS_PRIMARY
+            and primary_posn >= vowel_count - 2):
+        # a $u function word that IS the clause nucleus keeps its own lexical stress only when that
+        # accent is on the penult or last syllable (el θαείμαι -> θaˈime). With the accent further
+        # back (είμαστε, accent on the antepenult) the clause tonic instead moves to the final
+        # syllable (-> ˌimastˈe), left to the u_clause_final block below.
         unstressed_word = False
     if stressed_syllable > 0:
         if stressed_syllable >= vowel_count:
