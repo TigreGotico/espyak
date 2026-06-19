@@ -181,6 +181,26 @@ def write_ph_mnemonic(ph, use_ipa, plist_entry=None):
     return "".join(out)
 
 
+def _reorder_tones(plist):
+    """Tone phonemes (digit-named phSTRESS, the cmn/yue Chao contours) attach to the syllable
+    nucleus: espeak emits the tone right after the vowel, before the coda, but the rules append it
+    at the syllable end. Move each tone to just after its preceding vowel (cmn fan3 -> fˈa2n, not
+    fˈan2). Only tonal languages have digit-named phonemes, so this is a no-op elsewhere."""
+    out = list(plist)
+    i = 0
+    while i < len(out):
+        ph = out[i].ph
+        if ph.type == phSTRESS and ph.mnemonic.isdigit():
+            j = i - 1
+            while j >= 0 and out[j].ph.type != phVOWEL:
+                j -= 1
+            if 0 <= j < i - 1:
+                out.insert(j + 1, out.pop(i))
+                continue
+        i += 1
+    return out
+
+
 def render_phoneme_list(plist, table, ipa=True, tie=None, separator=None):
     """Port of GetTranslatedPhonemeString (dictionary.c:560).
 
@@ -188,6 +208,7 @@ def render_phoneme_list(plist, table, ipa=True, tie=None, separator=None):
     character) separates phonemes. They are mutually exclusive, matching the
     espeakPHONEMES_TIE / separator semantics.
     """
+    plist = _reorder_tones(plist)
     use_ipa = ipa
     use_tie = tie if tie else None
     separate = separator if (separator and not tie) else None
