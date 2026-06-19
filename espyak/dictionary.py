@@ -1302,7 +1302,11 @@ def _dollar_rule(tr, command, word_flags, dict_flags):
         return 0, 1
     if command == K.DOLLAR_UNPR:
         return 0, 0
-    if (command & 0xf0) == 0x10:  # $w_alt / $w_alt1..6
+    if (command & 0xf0) in (0x10, 0x20):  # $w_alt / $p_alt (+1..6)
+        # $w_alt gates on the word's own dict $alt flag. $p_alt is espeak's DollarRule: it looks
+        # up the word-up-to-the-match in *_list and checks ITS $alt flag — for whole-word $alt
+        # entries (da loanwords bagage/-ant/-ab/-age) the part IS the word, so the dict $alt flag
+        # we already hold gives the same result.
         if dict_flags & (1 << (K.BITNUM_FLAG_ALT + (command & 0xf))):
             return 0, 23
         return 1, 0
