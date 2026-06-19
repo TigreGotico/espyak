@@ -271,6 +271,11 @@ class G2P:
                 if (any("'" in parts[j] for j in range(idx))
                         and any("'" in parts[j] for j in range(idx + 1, len(parts)))):
                     return 3  # STRESS_IS_SECONDARY
+                # a 3+-word phrase with NO lexical accent gets clause intonation: onset (first)
+                # secondary, interior bare, nucleus (last) primary (ku hwd hEr||wEki||dIn ->
+                # hˌɛr wɛki dˈɪn). A 2-word phrase keeps both accented (es uβe||doβle).
+                if not has_primary and len(parts) >= 3:
+                    return 3 if idx == 0 else 1
                 single = sum(1 for _m, ph_ in self._mnem.tokenize(p)
                              if ph_.type == phVOWEL and "nonsyllabic" not in ph_.flags) <= 1
                 return 1 if (single or priority) else 4
