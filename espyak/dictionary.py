@@ -1363,8 +1363,16 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
             any_alpha += 1
         c = buf[p]
 
-        # digit -> look up "_<digit>" in the list (minimal; falls back to nothing)
         if is_digit(wc):
+            # tonal languages map a tone digit to a tone phoneme via the rules (cmn 3 -> 214 in the
+            # default `.group`). Try the rules first; only fall back to the digit-name number lookup
+            # if nothing matches (so en `mp3` still says "three").
+            tm, tp = match_rule(tr, buf, p, 0, rules.default, word_flags, dict_flags)
+            if tm.points > 0:
+                if tm.phonemes:
+                    phonemes = _append(tr, phonemes, tm.phonemes, mnem_index)
+                p = tp
+                continue
             num_ph = tr.lookup_num_digit(chr(wc)) if hasattr(tr, "lookup_num_digit") else ""
             phonemes = _append(tr, phonemes, num_ph, mnem_index)
             p += wc_bytes
