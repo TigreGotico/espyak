@@ -305,7 +305,10 @@ class DictList:
                     flag_codes.append(val)
             else:
                 phon_tokens.append(tok)
-        phonemes = " ".join(phon_tokens)
+        # espeak's _list value is a SINGLE phoneme string (word breaks use ||, not spaces); a second
+        # whitespace-separated token is a separate field that EncodePhonemes does not consume (mt
+        # `lil hinn<TAB>lil:in:` -> lil maps to `hinn`, the trailing `lil:in:` dropped, not hinnlilin).
+        phonemes = phon_tokens[0] if phon_tokens else ""
         if self.text_mode:
             flag_codes.append(_MNEM_FLAGS["$text"])  # within a $textmode section -> FLAG_TEXTMODE
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words)
