@@ -10,7 +10,7 @@ from espyak.render import render_phoneme_list, encode_phoneme_string
 from espyak.rule_compiler import RuleSet
 from espyak.dictionary import (
     Translator, translate_rules, set_word_stress, MnemIndex, DictList, LookupContext,
-    remove_ending,
+    remove_ending, _apply_replacements,
 )
 from espyak import constants as K
 import unicodedata
@@ -323,6 +323,11 @@ class G2P:
         one suffix per call (TranslateWord3's prefix/suffix branches)."""
         if self._config.get("decompose_hangul"):
             word = unicodedata.normalize("NFC", word)
+        # espeak's SubstituteChar (.replace table) normalises the source BEFORE the dict lookup,
+        # not just for rule matching: da/sv/no map ä->æ, ö->ø, ü->y so a foreign accented letter
+        # is pronounced as its native equivalent and never reaches its `$accent` dict entry, while
+        # letters with no mapping (é) still hit `$accent` and get spelled.
+        word = _apply_replacements(getattr(self._rules, "replacements", None), word)
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
         accent_entry = not dict_ph and getattr(self._dict, "_last_accent", False)
@@ -380,12 +385,11 @@ class G2P:
             return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
         if end_type and not (end_type & K.SUFX_P):
             return self._translate_with_suffix(word, end_type, end_ph, flags), flags
-        # $accent entry ($accent in *_list): spell the letter as base + accent name(s) — but
-        # only when the language has no real rule for it. espeak spells (found==0) en á/ç/ñ and
-        # fr é/ç, yet PRONOUNCES da ä/ö, whose conditional rule the matcher leaves as `?E`; that
-        # `?` marks the real rule, so don't spell then. Also covers the rules-give-nothing case.
-        if (accent_entry and "?" not in ph) or (
-                not ph.strip() and len(word) == 1 and not word.isascii()):
+        # $accent entry ($accent in *_list): spell the letter as base + accent name(s). espeak
+        # spells these (found==0); the letters a language pronounces instead are normalised away
+        # by .replace above (da ä->æ) before they ever reach their $accent entry, so no extra
+        # guard is needed here. Also covers the rules-give-nothing fallback.
+        if accent_entry or (not ph.strip() and len(word) == 1 and not word.isascii()):
             acc = self._spell_accented_letter(word.lstrip("_"))
             if acc:
                 return acc, 0
