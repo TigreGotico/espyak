@@ -784,9 +784,20 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 and max_stress_posn != vowel_count - 1
                 and 1 <= max_stress_posn < len(vowel_length)
                 and vowel_length[max_stress_posn] > 0):
-            vowel_stress[max_stress_posn] = STRESS_IS_SECONDARY
-            vowel_stress[vowel_count - 1] = tonic
-            max_stress_posn = vowel_count - 1
+            # only a long MONOPHTHONG (macron, kākou a:) demotes; a DIPHTHONG carrying the
+            # primary (maila ai, also vowel_length>0) keeps its accent (mˈaila, not mˌailˈa).
+            _vi = 0
+            _msp_ph = None
+            for _m, _p in phonetic:
+                if _ph_is_vowel(_p) and _m != "@-":
+                    _vi += 1
+                    if _vi == max_stress_posn:
+                        _msp_ph = _p
+                        break
+            if _msp_ph is not None and _msp_ph.starttype == _msp_ph.endtype:
+                vowel_stress[max_stress_posn] = STRESS_IS_SECONDARY
+                vowel_stress[vowel_count - 1] = tonic
+                max_stress_posn = vowel_count - 1
 
     # produce output: walk phonetic, insert stress mnemonic before each vowel
     opt_length = getattr(tr, "it_lengthen", 0)  # LOPT_IT_LENGTHEN
