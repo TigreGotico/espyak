@@ -444,10 +444,12 @@ class G2P:
         stem = stem.strip()
         self._tr.expect_verb = 0
         sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True)
-        # A vowelless stem (e.g. eu gara - 'ara' suffix -> 'g') is not a real word stem;
-        # skipping the dict avoids matching single-letter *name* entries (eu 'g'->'ge'),
-        # which would inject a spurious vowel (gara -> gea**a instead of gaɾa).
-        has_vowel = any(self._tr.is_letter(ord(c), 0) for c in stem)
+        # A SINGLE-letter vowelless stem (e.g. eu gara - 'ara' suffix -> 'g') is not a real word
+        # stem; skipping the dict avoids matching single-letter *name* entries (eu 'g'->'ge'),
+        # which would inject a spurious vowel (gara -> gea**a instead of gaɾa). A MULTI-letter
+        # stem is looked up even if vowelless — Arabic script writes no short vowels, so the
+        # consonantal stem رض ($u pronoun ه removed) is the real, vocalized dict entry RadHdH.
+        has_vowel = len(stem) > 1 or any(self._tr.is_letter(ord(c), 0) for c in stem)
         sdict_ph, sdict_flags = self._dict.lookup(stem, sctx) if has_vowel else (None, None)
         if sdict_ph:
             stem_ph = sdict_ph
