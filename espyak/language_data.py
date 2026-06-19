@@ -191,7 +191,8 @@ LANGS = {
            "vowels_override": "aàáảãạăằắẳẵặâầấẩẫậeèéẻẽẹêềếểễệiìíỉĩịoòóỏõọôồốổỗộơờớởỡợuùúủũụưừứửữựyỳýỷỹỵ"},
     "pt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_SPANISH, "lopt_alt": True,
            "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
-    "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú"},
+    "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
+           "regression": 0x100},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
            "regression": 0x9},  # LOPT_REGRESSIVE_VOICING (usb -> uɛzbɛ)
 }

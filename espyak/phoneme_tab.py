@@ -350,6 +350,9 @@ class PhonemeSource:
         for name in raw_by_name:
             flatten(name, set())
 
+        # derive voiced types FIRST so a `CALL base1/b`-style phoneme inherits the upgraded
+        # VSTOP (not the pre-upgrade STOP); resolve CALL types; derive again for any new vcd.
+        self._derive_voiced_types()
         self._resolve_call_types()
         self._derive_voiced_types()
 
@@ -378,6 +381,15 @@ class PhonemeSource:
                             ph.type = target.type
                             ph.flags |= {f for f in target.flags
                                          if f in ("unstressed", "nonsyllabic", "long")}
+                            # ph_dutch b/d/z are an assimilation program + `CALL base1/b`; inherit
+                            # the called phoneme's voicing-switch/place/ipa so b stays a voiced stop
+                            # with switch p -> nl word-final devoicing (heb->hɛp) works.
+                            if ph.voicing_switch is None:
+                                ph.voicing_switch = target.voicing_switch
+                            if ph.place is None:
+                                ph.place = target.place
+                            if ph.ipa is None:
+                                ph.ipa = target.ipa
                         break
 
     def _resolve_call(self, table, ref):
