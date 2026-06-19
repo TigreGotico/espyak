@@ -62,6 +62,17 @@ LANGS = {
         "numbers": K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
         | K.NUM_OMIT_1_THOUSAND | K.NUM_DECIMAL_COMMA,
     },
+    # Catalan shares the es (Spanish) Translator block but the 'ca' voice adds S_NO_AUTO_2
+    # (no automatic secondary stress — biocomsc -> biokˈɔmsk, no ˌi) and S_FIRST_PRIMARY
+    # (reduce primaries after the first to secondary). tr_languages.c case L('c','a'),
+    # name2==L('c','a').
+    "ca": {
+        "stress_rule": K.STRESSPOSN_2R,
+        "stress_flags": (K.S_FINAL_SPANISH | K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2
+                         | K.S_NO_AUTO_2 | K.S_FIRST_PRIMARY),
+        "unstressed_wd1": 0,
+        "unstressed_wd2": 2,
+    },
     "de": {
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)
         "stress_flags": 0,
