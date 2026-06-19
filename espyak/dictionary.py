@@ -734,6 +734,18 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             vowel_stress[vowel_count - 1] = STRESS_IS_UNSTRESSED
             vowel_stress[vowel_count - 2] = STRESS_IS_PRIMARY
 
+    if not unstressed_word:
+        if (stressflags & K.S_2_SYL_2) and vowel_count == 3:
+            # two-syllable word: if one syllable has primary stress, give the other secondary
+            if vowel_stress[1] == STRESS_IS_PRIMARY:
+                vowel_stress[2] = STRESS_IS_SECONDARY
+            if vowel_stress[2] == STRESS_IS_PRIMARY:
+                vowel_stress[1] = STRESS_IS_SECONDARY
+        if (stressflags & K.S_INITIAL_2) and vowel_stress[1] < STRESS_IS_DIMINISHED:
+            # only one syllable before the primary -> give it secondary (pt aquele -> ˌɐkˈelɨ)
+            if vowel_count > 3 and vowel_stress[2] >= STRESS_IS_PRIMARY:
+                vowel_stress[1] = STRESS_IS_SECONDARY
+
     # guess complete stress pattern (secondary stresses)
     stress = STRESS_IS_PRIMARY if max_stress < STRESS_IS_PRIMARY else STRESS_IS_SECONDARY
     done = False
