@@ -186,6 +186,7 @@ class Interpreter:
     def run(self, plist):
         """Run each phoneme's program over the list, applying ChangePhoneme/InsertPhoneme."""
         # precompute vowel positions for first/final-vowel predicates
+        self._insert_done = set()  # phoneme id -> already inserted before itself this pass
         i = 0
         while i < len(plist):
             entry = plist[i]
@@ -326,6 +327,12 @@ class Interpreter:
         ph = self.table.get(mnem)
         if ph is None:
             return
+        # Bound insertion to once per phoneme per pass. The inserting phoneme is re-processed by
+        # the main loop (load-bearing for acronym schwa reduction, ms klci), but without this it
+        # re-inserts every pass forever when its condition stays true (lt raj -> rajonas hang).
+        if id(plist[i]) in self._insert_done:
+            return
+        self._insert_done.add(id(plist[i]))
         from espyak.render import PhonemeListEntry
         from espyak.phoneme_tab import phVOWEL
         entry = PhonemeListEntry(ph)
