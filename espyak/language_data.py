@@ -366,7 +366,7 @@ LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R)
 # Urdu: the voice file (lang/.../ur) sets `stressRule 6` = STRESSPOSN_1RH (last heaviest syllable,
 # excluding the final) — the Hindi/Urdu weight-based stress. Default 2R put the accent on the wrong
 # syllable for words whose final syllable is heavy (انھوں UnHo:n -> ʊnhˈoːn, the long oː).
-LANGS["ur"] = {"stress_rule": K.STRESSPOSN_1RH}
+LANGS["ur"] = {"stress_rule": K.STRESSPOSN_1RH, "unstress_u_words": True}
 # Voice-file stressRule overrides that the tr_languages.c port lacked (lang/.../<code>):
 # chr Cherokee stressRule 9 (mark all stressed), piqd Klingon & quc K'iche' stressRule 3 (final),
 # py Pyash stressRule 0 (first). Default 2R was wrong for rules-based words.
