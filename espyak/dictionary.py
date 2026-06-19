@@ -1383,6 +1383,57 @@ def _apply_replacements(reps, word):
     return "".join(out)
 
 
+_ACCENTED_VOWELS = set("àáâãäåæāăąèéêëēĕėęěìíîïĩīĭįòóôõöøœōŏőùúûüũūŭůűųýÿ")
+
+
+def _is_vowel_letter(tr, ch):
+    """espeak IsVowel: the letter belongs to the language's vowel set (letter_bits group 0 plus
+    extra_vowels), treating accented Latin vowels as vowels too."""
+    c = ch.lower()
+    lb = tr.config.get("letter_bits", {})
+    vowels = lb.get(0, "aeiou") if isinstance(lb, dict) else "aeiou"
+    extra = tr.config.get("extra_vowels", "") or ""
+    # 'y' is a syllable nucleus in nearly every language that uses it (pl ty/czy, en my); espeak's
+    # per-language vowel bits include it, but the bundled letter_bits[0] often omits it.
+    return c == "y" or c in vowels or c in extra or c in _ACCENTED_VOWELS
+
+
+def _unpronounceable(tr, word):
+    """Port of Unpronouncable (translateword.c:1114): True if `word` should be spelled out letter by
+    letter — its first vowel letter falls past max_initial_consonants, or it has no vowel at all
+    (ca Mgfc -> "eme ge efe ce", en th -> "tee aitch"). Dictionary words bypass this upstream (psst),
+    languages with a non-Latin alphabet exempt their Latin words, and LOPT_UNPRONOUNCABLE==1 disables
+    it entirely (ar/am/chr)."""
+    if not word or len(word) < 2:
+        return False
+    lopt = tr.config.get("lopt_unpronounceable", 0)
+    if lopt == 1:
+        return False
+    if tr.config.get("letter_bits_offset", 0) and ord(word[0]) < 0x241:
+        return False  # Latin char in a non-Latin language: re-translate, don't spell
+    if word[0] in (" ", "'"):
+        return False
+    vowel_posn = 9
+    count = 0
+    for ch in word:
+        if ch == " ":
+            break
+        if ch == "'" and count > 1:
+            break
+        if not (ch == "'" and lopt == 3):
+            count += 1
+        if _is_vowel_letter(tr, ch):
+            vowel_posn = count
+            break
+        if ch != "'" and not ch.isalpha():
+            return False
+    # espeak also spells words whose first vowel is merely past max_initial_consonants, but that
+    # needs each language's exact max_initial_consonants/Unpronouncable2 config; restrict to the
+    # robust case — a word with NO vowel letter at all (ca Mgfc, en th) — to avoid spelling the
+    # long initial-cluster words (pl wstrząs, nl schrander) those languages pronounce normally.
+    return vowel_posn == 9
+
+
 def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 
