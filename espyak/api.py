@@ -222,6 +222,7 @@ class G2P:
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
         self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
         self._spelled = False     # set by _translate_core for a $abbrev spelled-out word
+        self._textmode_empty = False  # a $text->spell word that loops to '' (mto english)
         ph, flags = self._translate_core(word.lower(), ctx)
         if self._spelled:
             # a spelled-out abbreviation is already stressed by _join_spelled (SetSpellingStress);
@@ -348,6 +349,12 @@ class G2P:
             dict_flags=flags)
         if getattr(self._tr, "_spell_word", False):
             self._spelled = True
+            if flags & K.FLAG_TEXTMODE:
+                # a $text-replaced word that then needs spelling re-reads the ORIGINAL word, which
+                # replaces again and loops -> espeak yields nothing (mto english -> ínglish -> '').
+                # This empty is intentional: it must NOT trigger the foreign-word en-switch.
+                self._textmode_empty = True
+                return "", 0
             return self._spell_letters(word), 0
         if end_type and (end_type & K.SUFX_P) and not (word_flags & K.FLAG_NO_PREFIX):
             # prefix: remove it, translate the remaining stem, prepend the prefix phonemes
@@ -587,7 +594,8 @@ class G2P:
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
                                          caps_stress=caps_stress)
             if (not rendered and self.lang != "en" and word.isascii()
-                    and any(c.isalpha() for c in word)):
+                    and any(c.isalpha() for c in word)
+                    and not getattr(self, "_textmode_empty", False)):
                 # phonSWITCH (translate.c): a word unpronounceable in the current (non-Latin)
                 # script is re-translated by the Latin default voice (English) and bracketed
                 # with the language switch — bg/fa/ka: foot -> (en)fˈʊt(bg). A Latin-script
