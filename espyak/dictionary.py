@@ -581,6 +581,10 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     vowel_stress, phonetic, vowel_count, primary_posn, max_stress = get_vowel_stress(
         toks, stressed_syllable)
     max_stress_input = max_stress
+    if unstressed_word and tonic >= STRESS_IS_PRIMARY and max_stress >= STRESS_IS_PRIMARY:
+        # a $u function word that IS the clause nucleus and carries its own lexical stress keeps it
+        # (el θαείμαι -> θaˈime, not demoted to θaˌimˈe): the $u unstressing doesn't apply here.
+        unstressed_word = False
     if stressed_syllable > 0:
         if stressed_syllable >= vowel_count:
             stressed_syllable = vowel_count - 1
