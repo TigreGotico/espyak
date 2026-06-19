@@ -258,20 +258,26 @@ class G2P:
             # dˈɔt kɔm, the kɔm bare, not dˈɔt kˈɔm).
             has_primary = any("'" in p for p in parts)
 
-            def _part_tonic(p, is_last):
+            def _part_tonic(p, is_last, idx):
                 # honour explicit stress marks in the part (gn nvda -> ,ene||B,e||D,e_'a
                 # keeps each letter's secondary, final primary): no forced tonic.
                 if "'" in p or "," in p:
                     return -1
                 if is_last and not has_primary:
                     return tonic
+                # an unmarked part FLANKED by explicit primaries takes a secondary (ms dymm
+                # d'uli||jang||mah'a||m'uli@ -> the bare jang -> jˌanɡ); an EDGE unmarked part
+                # (gn i before the only primary) stays bare.
+                if (any("'" in parts[j] for j in range(idx))
+                        and any("'" in parts[j] for j in range(idx + 1, len(parts)))):
+                    return 3  # STRESS_IS_SECONDARY
                 single = sum(1 for _m, ph_ in self._mnem.tokenize(p)
                              if ph_.type == phVOWEL and "nonsyllabic" not in ph_.flags) <= 1
                 return 1 if (single or priority) else 4
             stressed = [
                 set_word_stress(self._tr, p, self._mnem,
                                 dict_flags=(flags if i == last else 0),
-                                tonic=_part_tonic(p, i == last))
+                                tonic=_part_tonic(p, i == last, i))
                 for i, p in enumerate(parts)
             ]
             return "||".join(stressed)
