@@ -325,11 +325,7 @@ class G2P:
             word = unicodedata.normalize("NFC", word)
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
-        if not dict_ph and getattr(self._dict, "_last_accent", False):
-            # $accent entry (en á -> "a acute"): spell the letter as base + accent name(s).
-            acc = self._spell_accented_letter(word.lstrip("_"))
-            if acc:
-                return acc, 0
+        accent_entry = not dict_ph and getattr(self._dict, "_last_accent", False)
         if dict_ph:
             hangul = self._config.get("decompose_hangul")
             nfc_ph = unicodedata.normalize("NFC", dict_ph) if hangul else dict_ph
@@ -384,10 +380,13 @@ class G2P:
             return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
         if end_type and not (end_type & K.SUFX_P):
             return self._translate_with_suffix(word, end_type, end_ph, flags), flags
-        if not ph.strip() and len(word) == 1 and not word.isascii():
-            # an accented letter the rules can't pronounce: spell it out as "base + accent
-            # name" (fallback only — gd `ì` is a real word -> rules give iː, don't spell it).
-            acc = self._spell_accented_letter(word)
+        # $accent entry ($accent in *_list): spell the letter as base + accent name(s) — but
+        # only when the language has no real rule for it. espeak spells (found==0) en á/ç/ñ and
+        # fr é/ç, yet PRONOUNCES da ä/ö, whose conditional rule the matcher leaves as `?E`; that
+        # `?` marks the real rule, so don't spell then. Also covers the rules-give-nothing case.
+        if (accent_entry and "?" not in ph) or (
+                not ph.strip() and len(word) == 1 and not word.isascii()):
+            acc = self._spell_accented_letter(word.lstrip("_"))
             if acc:
                 return acc, 0
         return ph, flags
