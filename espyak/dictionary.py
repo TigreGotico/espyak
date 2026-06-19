@@ -341,6 +341,21 @@ class DictList:
             return entry.phonemes, flags1
         return None, None
 
+    def lookup_flags(self, word, dict_condition=0):
+        """Flags-only lookup (port of LookupFlags): return flags1 for `word`, with FLAG_FOUND set
+        if any entry matched (0 if absent). No phoneme translation, so the matcher's DollarRule can
+        call it without recursing back into translation."""
+        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+        if not entries:
+            return 0
+        ctx = LookupContext(dict_condition=dict_condition)
+        for entry in reversed(entries):
+            ok, flags1, flags2, stress = self._eval(entry, ctx)
+            if ok:
+                flags1 = (flags1 & ~0xf) | stress if stress is not None else flags1
+                return flags1 | K.FLAG_FOUND
+        return 0
+
     def _eval(self, entry, ctx):
         flags1 = 0
         flags2 = 0
@@ -1095,7 +1110,7 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
     elif rb == K.RULE_DOLLAR:
         post_ptr -= 1
         command = prog[k]; k += 1
-        failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags)
+        failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, post_ptr)
     elif rb == ord("-"):
         if letter == ord("-") or (letter == ord(" ") and (word_flags & K.FLAG_HYPHEN_AFTER)):
             add_points = 22 - distance_right
@@ -1238,7 +1253,7 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         pre_ptr += 1
         command = prog[k]; k += 1
         if (command == K.DOLLAR_LIST) or ((command & 0xf0) == 0x20):
-            failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags)
+            failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, post_ptr)
     elif rb == K.RULE_SYLLABLE:
         syllable_count = 1
         while k < len(prog) and prog[k] == K.RULE_SYLLABLE:
@@ -1296,7 +1311,7 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
     return failed, add_points, pre_ptr, k
 
 
-def _dollar_rule(tr, command, word_flags, dict_flags):
+def _dollar_rule(tr, command, word_flags, dict_flags, buf=None, part_end=None):
     # Port of the RULE_DOLLAR branch of MatchRule. $w_alt is gated on the word's dict
     # $alt flags. $p_alt / $list need a part-word *_list lookup (DollarRule) and are not
     # yet wired, so they fail (rare in core words).
@@ -1306,12 +1321,27 @@ def _dollar_rule(tr, command, word_flags, dict_flags):
         return 0, 1
     if command == K.DOLLAR_UNPR:
         return 0, 0
-    if (command & 0xf0) in (0x10, 0x20):  # $w_alt / $p_alt (+1..6)
-        # $w_alt gates on the word's own dict $alt flag. $p_alt is espeak's DollarRule: it looks
-        # up the word-up-to-the-match in *_list and checks ITS $alt flag — for whole-word $alt
-        # entries (da loanwords bagage/-ant/-ab/-age) the part IS the word, so the dict $alt flag
-        # we already hold gives the same result.
+    if (command & 0xf0) == 0x10:  # $w_alt: gate on the WHOLE word's dict $alt flag
         if dict_flags & (1 << (K.BITNUM_FLAG_ALT + (command & 0xf))):
+            return 0, 23
+        return 1, 0
+    if (command & 0xf0) == 0x20 or command == K.DOLLAR_LIST:  # $p_alt / $list: espeak's DollarRule
+        # Look up the word UP TO (and including) the match in *_list and check ITS $alt flag — NOT
+        # the whole word's. For a suffix rule the part is the whole word (da bagage/-ant/-ab/-age,
+        # so those still fire); for a mid-word match (da 'digital' at 'it', part 'digit') it fails,
+        # which stops the spurious '' stress that the whole-word approximation produced.
+        d = getattr(tr, "dict", None)
+        if d is None or buf is None or part_end is None:
+            if dict_flags & (1 << (K.BITNUM_FLAG_ALT + (command & 0xf))):
+                return 0, 23
+            return 1, 0
+        part = bytes(buf[2:part_end]).decode("utf-8", "replace").strip()
+        pflags = d.lookup_flags(part, tr.dict_condition) if part else 0
+        if command == K.DOLLAR_LIST:
+            if (pflags & K.FLAG_FOUND) and not (pflags & K.FLAG_ONLY):
+                return 0, 23
+            return 1, 0
+        if pflags & (1 << (K.BITNUM_FLAG_ALT + (command & 0xf))):
             return 0, 23
         return 1, 0
     return 1, 0
