@@ -212,7 +212,18 @@ class Interpreter:
 
     # -- execution --
     def _exec(self, block, plist, i, ctx):
+        target = plist[i] if i < len(plist) else None
         for stmt in block:
+            # An InsertPhoneme in an earlier statement inserts a new entry at our index, pushing the
+            # phoneme whose program is running one slot right. The remaining statements (e.g. the
+            # Indonesian a's ChangeIfUnstressed(a/) after InsertPhoneme(_|) for an a|a hiatus) must
+            # still act on that phoneme, not on the freshly-inserted one — re-find it.
+            if target is not None and (i >= len(plist) or plist[i] is not target):
+                j = i
+                while j < len(plist) and plist[j] is not target:
+                    j += 1
+                if j < len(plist):
+                    i = j
             if isinstance(stmt, _If):
                 ran = False
                 for cond, inner in stmt.branches:
