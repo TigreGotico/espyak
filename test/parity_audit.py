@@ -14,9 +14,14 @@ Writes test/<out>.jsonl (mismatches) + test/<out>.md (per-language table + categ
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+
+
+def _alarm(sig, frame):
+    raise TimeoutError("phonemize timed out")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -92,6 +97,7 @@ def main(argv):
         print("oracle binary not built:", ORACLE_BIN, file=sys.stderr)
         return 2
     from espyak.api import G2P
+    signal.signal(signal.SIGALRM, _alarm)  # guard against any single-input phonemize hang
 
     if args.langs:
         langs = args.langs.split(",")
@@ -115,11 +121,14 @@ def main(argv):
             if e is None:
                 err += 1
                 continue
+            signal.alarm(10)
             try:
                 m = g.phonemize(w)
-            except Exception:
+            except BaseException:  # TimeoutError or any engine error: count, don't abort the run
                 err += 1
                 continue
+            finally:
+                signal.alarm(0)
             if m == e:
                 ok += 1
             else:
