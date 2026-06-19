@@ -14,13 +14,11 @@ Python ≥ 3.9, no runtime dependencies.
 ```python
 from espyak import G2P
 
-g2p = G2P(lang="en", force_compat=True)
+g2p = G2P(lang="en")
 ```
 
 - **`lang`** — an espeak-ng language/voice code (`"en"`, `"es"`, `"ru"`, `"hi"`, `"ar"`, …).
   See `espyak/data/dictsource/*_rules` for the full list (117 languages).
-- **`force_compat`** — `True` (default) = bit-identical to espeak-ng, bugs included.
-  `False` = opt into the documented fixes in [`divergences.md`](divergences.md).
 
 Construct one `G2P` per language and reuse it — construction parses that language's rule
 data, so it is not free.

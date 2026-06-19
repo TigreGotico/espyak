@@ -4,7 +4,7 @@ The suite validates `espyak` against the pinned **espeak-ng 1.52.0** oracle. The
 used only to *generate* fixtures — the engine never calls it at runtime.
 
 ```bash
-pytest -q                       # unit + fixture tests (164)
+pytest -q                       # unit + fixture tests
 python test/sweep.py 25         # per-language _list-headword sweep vs the oracle
 python test/corpus_sweep.py     # real-sentence corpus vs the oracle
 ```
@@ -23,10 +23,13 @@ python test/corpus_sweep.py     # real-sentence corpus vs the oracle
 | `corpus_sweep.py` | runs a hand-built real-sentence corpus across 31 languages |
 | `report.md` | generated per-language pass rate (regenerate with `sweep.py`) |
 
-## Current parity
+## Parity
 
-- `sweep.py` (N=25): **1703/1703 = 100.0%** across 86 languages.
-- `corpus_sweep.py`: **438/438 = 100.0%** across 31 languages.
+- `sweep.py` (N=25): **1703/1703** across 86 languages.
+- `corpus_sweep.py`: **438/438** across 31 languages.
 
-> Note: this is the **single** test directory for the repo (`test/`, not `tests/`). Keeping
-> one avoids the trap where CI silently collects only one of two directories.
+Inputs outside the sweep's sample (alphabetic, length ≥ 3 headwords) can still differ from
+the oracle — see the README's Coverage section.
+
+> This is the **single** test directory for the repo (`test/`, not `tests/`); keeping one
+> avoids CI silently collecting only one of two directories.

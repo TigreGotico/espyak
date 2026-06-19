@@ -133,9 +133,8 @@ def _decompose_hangul(word):
 class G2P:
     """Grapheme-to-phoneme translator for one language."""
 
-    def __init__(self, lang="en", force_compat=True):
+    def __init__(self, lang="en"):
         self.lang = lang
-        self.force_compat = force_compat
         self._phsource = get_source()
         self._voice = data_paths.voice_path(lang)
         # phoneme table name defaults to the language code; voice file may override.
