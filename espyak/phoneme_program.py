@@ -327,8 +327,18 @@ class Interpreter:
         if ph is None:
             return
         from espyak.render import PhonemeListEntry
+        from espyak.phoneme_tab import phVOWEL
         entry = PhonemeListEntry(ph)
         plist.insert(i, entry)
+        # espeak (phonemelist.c ~309: "if we insert a phoneme before a vowel then we loose the
+        # stress"): the inserted phoneme takes the vowel's stress slot, and since it is
+        # non-syllabic the stress no longer renders — the vowel is effectively diminished. In a
+        # spelled acronym the 'i' name aɪ inserts _| after the preceding letter's final vowel and
+        # so drops its secondary (ms cimb -> sˌiːaɪˌɛmbˈiː, the aɪ bare, not sˌiːˌaɪˌɛmbˈiː).
+        orig = plist[i + 1]
+        if orig.ph.type == phVOWEL:
+            entry.stresslevel = orig.stresslevel
+            orig.stresslevel = 0
         # The main loop already passed index i (the inserting phoneme is now at i+1), so the
         # inserted phoneme would never get its own program run. Run it now so e.g. the
         # epenthetic @- before 'r' applies its conditional `ipa NULL` (ru при -> prʲɪ, not
@@ -396,9 +406,24 @@ class Interpreter:
                     return plist[j].ph.mnemonic == arg
                 j += step
             return False
-        target_i = {"thisPh": i, "prevPh": i - 1, "nextPh": i + 1, "prev2Ph": i - 2,
-                    "prevPhW": i - 1, "nextPhW": i + 1, "prev2PhW": i - 2,
-                    "next2Ph": i + 2, "next2PhW": i + 2}.get(func)
+        # espeak merges a length marker (:) into the preceding vowel (SFLAG_LENGTHEN), so it is
+        # not a separate phoneme at program time and prev*/next* step over it to the real
+        # neighbour. A spelled letter ending in i: then lets the next letter's vowel (aɪ) see a
+        # vowel via prevPh — the aɪ's InsertPhoneme(_|) fires and it loses its secondary.
+        def _back(k):
+            while 1 <= k and plist[k].ph.mnemonic == ":":
+                k -= 1
+            return k
+
+        def _fwd(k):
+            while k < len(plist) and plist[k].ph.mnemonic == ":":
+                k += 1
+            return k
+        target_i = {"thisPh": i, "prevPh": _back(i - 1), "nextPh": _fwd(i + 1),
+                    "prev2Ph": _back(_back(i - 1) - 1), "prevPhW": _back(i - 1),
+                    "nextPhW": _fwd(i + 1), "prev2PhW": _back(_back(i - 1) - 1),
+                    "next2Ph": _fwd(_fwd(i + 1) + 1),
+                    "next2PhW": _fwd(_fwd(i + 1) + 1)}.get(func)
         if target_i is None:
             return False
         # *PhW variants do NOT cross a word boundary: espeak (synthdata.c:497-516) returns
