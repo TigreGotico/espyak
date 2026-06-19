@@ -400,7 +400,7 @@ class G2P:
             sdict_ph, _ = self._dict.lookup(stem.strip(), sctx)
             return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
         if end_type and not (end_type & K.SUFX_P):
-            return self._translate_with_suffix(word, end_type, end_ph, flags), flags
+            return self._translate_with_suffix(word, end_type, end_ph, flags, ph), flags
         # $accent entry ($accent in *_list): spell the letter as base + accent name(s). espeak
         # spells these (found==0); the letters a language pronounces instead are normalised away
         # by .replace above (da ä->æ) before they ever reach their $accent entry, so no extra
@@ -507,7 +507,7 @@ class G2P:
             self._tr._spelling = False
         return ph
 
-    def _translate_with_suffix(self, word, end_type, end_ph, dict_flags=0):
+    def _translate_with_suffix(self, word, end_type, end_ph, dict_flags=0, incontext_ph=None):
         """Remove a standard suffix, (re)translate the stem, append the suffix phonemes.
 
         Port of the suffix branch of TranslateWord3 (single-suffix; SUFX_M multiple
@@ -524,7 +524,13 @@ class G2P:
         # consonantal stem رض ($u pronoun ه removed) is the real, vocalized dict entry RadHdH.
         has_vowel = len(stem) > 1 or any(self._tr.is_letter(ord(c), 0) for c in stem)
         sdict_ph, sdict_flags = self._dict.lookup(stem, sctx) if has_vowel else (None, None)
-        if sdict_ph:
+        if (end_type & K.SUFX_E) and not (end_flags & K.FLAG_SUFX_E_ADDED) \
+                and incontext_ph and incontext_ph.strip():
+            # SUFX_E ("double the vowel") rules already lengthened the stem in context (nl deze ->
+            # de:z); re-translating the bare stem loses it (dez -> dEs). espeak keeps the in-context
+            # match. (English re-adds an 'e' instead, so FLAG_SUFX_E_ADDED gates this off there.)
+            stem_ph = incontext_ph
+        elif sdict_ph:
             stem_ph = sdict_ph
         else:
             stem_ph, _, _ = translate_rules(

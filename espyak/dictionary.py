@@ -1471,20 +1471,27 @@ def remove_ending(tr, word, end_type):
     if (end_type & K.SUFX_I) and stem and stem[-1] == "i":
         stem[-1] = "y"
 
-    if end_type & K.SUFX_E and tr.translator_name == K.L("e", "n"):
-        last = ord(stem[-1]) if stem else 0
-        prev = ord(stem[-2]) if len(stem) >= 2 else 0
-        added = False
-        if tr.is_letter(prev, K.LETTERGP_VOWEL2) and tr.is_letter(last, 1):
-            tail = "".join(stem[-3:])
-            if not any(tail.endswith(ex) for ex in _ADD_E_EXCEPTIONS):
-                added = True
-        else:
-            tail = "".join(stem)
-            if any(tail.endswith(a) for a in _ADD_E_ADDITIONS):
-                added = True
-        if added:
-            stem.append("e")
+    if end_type & K.SUFX_E:
+        if tr.translator_name == K.L("e", "n"):
+            last = ord(stem[-1]) if stem else 0
+            prev = ord(stem[-2]) if len(stem) >= 2 else 0
+            added = False
+            if tr.is_letter(prev, K.LETTERGP_VOWEL2) and tr.is_letter(last, 1):
+                tail = "".join(stem[-3:])
+                if not any(tail.endswith(ex) for ex in _ADD_E_EXCEPTIONS):
+                    added = True
+            else:
+                tail = "".join(stem)
+                if any(tail.endswith(a) for a in _ADD_E_ADDITIONS):
+                    added = True
+            if added:
+                stem.append("e")
+                end_flags |= K.FLAG_SUFX_E_ADDED
+        elif tr.config.get("suffix_add_e"):
+            # other langs (nl/de/af): espeak unconditionally re-adds suffix_add_e to the stem so
+            # the re-translated stem keeps its open-syllable vowel length (nl deze: stem dez+e ->
+            # de:z, not closed-short dEz). The S?e suffix rules mean "double the vowel".
+            stem.append(tr.config["suffix_add_e"])
             end_flags |= K.FLAG_SUFX_E_ADDED
 
     if (end_type & K.SUFX_V) and tr.expect_verb == 0:
