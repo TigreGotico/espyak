@@ -279,6 +279,11 @@ class DictList:
             word = toks[0]
             tokens = toks[1:]
             multiword = False
+        # a standalone `$textmode` / `$phonememode` line is a SECTION directive (ro abbreviations:
+        # etc -> etcetera, udmr -> udemere are replacement text, not phonemes), not a word entry.
+        if word in ("$textmode", "$phonememode") and not tokens:
+            self.text_mode = (word == "$textmode")
+            return
         phon_tokens = []
         for tok in tokens:
             # a condition marker is "?N" or "?!N" (? + digit); a token like "?ila:h" is
@@ -301,6 +306,8 @@ class DictList:
             else:
                 phon_tokens.append(tok)
         phonemes = " ".join(phon_tokens)
+        if self.text_mode:
+            flag_codes.append(_MNEM_FLAGS["$text"])  # within a $textmode section -> FLAG_TEXTMODE
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words)
         # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
         # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries.
