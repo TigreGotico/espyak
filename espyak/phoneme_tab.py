@@ -226,8 +226,17 @@ class PhonemeSource:
                 imported = None
                 if "/" in ref:
                     src_table, _, src_mnem = ref.partition("/")
-                    src = raw_index.get(src_table)
-                    src_phonemes = src[2] if src else None
+                    # walk the source table AND its parent chain: the phoneme is often inherited,
+                    # not defined directly in the named table (pt-pt imports pt/r, but `r` lives in
+                    # the pt table's base, so R was coming out empty -> pt cluster r rendered ʀ not ɹ).
+                    src_phonemes = None
+                    pname, seen = src_table, set()
+                    while src_phonemes is None and pname and pname not in seen:
+                        seen.add(pname)
+                        entry = raw_index.get(pname)
+                        if entry and src_mnem in entry[2]:
+                            src_phonemes = entry[2]
+                        pname = entry[1] if entry else None
                 else:
                     src_mnem = ref
                     # current table, then its parent chain (espeak compiles the inherited
