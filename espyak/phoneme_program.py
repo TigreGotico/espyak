@@ -337,8 +337,17 @@ class Interpreter:
         # so drops its secondary (ms cimb -> sˌiːaɪˌɛmbˈiː, the aɪ bare, not sˌiːˌaɪˌɛmbˈiː).
         orig = plist[i + 1]
         if orig.ph.type == phVOWEL:
-            entry.stresslevel = orig.stresslevel
+            was = orig.stresslevel
+            entry.stresslevel = was
             orig.stresslevel = 0
+            if was >= 4:
+                # the diminished vowel carried the PRIMARY — promote it back to the previous
+                # syllabic vowel (MakePhonemeList promotion): ms klci, the final aɪ tonic moves
+                # to the c's iː -> kˌeəlsˈiːaɪ, not a primary-less kˌeəlsˌiːaɪ.
+                for j in range(i - 1, -1, -1):
+                    if plist[j].ph.type == phVOWEL:
+                        plist[j].stresslevel = was
+                        break
         # The main loop already passed index i (the inserting phoneme is now at i+1), so the
         # inserted phoneme would never get its own program run. Run it now so e.g. the
         # epenthetic @- before 'r' applies its conditional `ipa NULL` (ru при -> prʲɪ, not
