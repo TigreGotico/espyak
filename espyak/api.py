@@ -635,13 +635,18 @@ class G2P:
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
         dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
-        if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and word[:-2].isdigit()):
+        # NB: str.isdigit() is True for superscripts/other Unicode digits ('²') that int() rejects,
+        # so require ASCII before routing to the (int-based) number path — '²' falls through to
+        # normal translation instead of crashing.
+        def _dig(s):
+            return s.isascii() and s.isdigit()
+        if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and _dig(word[:-2])):
             ph = translate_ordinal(self._dict, word[:-2], word[-2:], flags=num_flags)
             if ph:
                 return self._render_phonemes(ph, ipa, tie, separator)
-        if word and (word.isdigit() or (word.replace(dsep, "", 1).isdigit()
-                                        and dsep in word and not word.startswith(dsep)
-                                        and not word.endswith(dsep))):
+        if word and (_dig(word) or (_dig(word.replace(dsep, "", 1))
+                                    and dsep in word and not word.startswith(dsep)
+                                    and not word.endswith(dsep))):
             ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
             if ph:
                 return self._render_phonemes(ph, ipa, tie, separator)
