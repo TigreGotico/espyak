@@ -253,13 +253,17 @@ class G2P:
             priority = bool(self._config.get("stress_flags", 0) & K.S_PRIORITY_STRESS)
             parts = ph.split("||")
             last = len(parts) - 1
+            # If a part already carries an explicit primary (`'`), the clause accent is placed
+            # there — an unmarked LAST part is NOT forced to the tonic (ms com = d'Ot||kOm ->
+            # dˈɔt kɔm, the kɔm bare, not dˈɔt kˈɔm).
+            has_primary = any("'" in p for p in parts)
 
             def _part_tonic(p, is_last):
                 # honour explicit stress marks in the part (gn nvda -> ,ene||B,e||D,e_'a
                 # keeps each letter's secondary, final primary): no forced tonic.
                 if "'" in p or "," in p:
                     return -1
-                if is_last:
+                if is_last and not has_primary:
                     return tonic
                 single = sum(1 for _m, ph_ in self._mnem.tokenize(p)
                              if ph_.type == phVOWEL and "nonsyllabic" not in ph_.flags) <= 1
