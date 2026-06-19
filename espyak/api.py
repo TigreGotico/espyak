@@ -143,6 +143,10 @@ class G2P:
         self._interp = Interpreter(self._phsource, self.phoneme_table)
         # rule engine (letter-to-sound). Loaded lazily per language.
         self._config = language_data.get_config(lang)
+        if self._voice_dictrules:
+            # voice-file `dictrules` are authoritative; union with any hardcoded config value.
+            merged = sorted(set(self._config.get("dictrules", ())) | set(self._voice_dictrules))
+            self._config = {**self._config, "dictrules": merged}
         self._rules = RuleSet.compile_file(data_paths.rules_path(lang))
         self._sort_rules_by_phoneme_code()
         self._tr = Translator(phsource=self._phsource, config=self._config)
@@ -174,13 +178,25 @@ class G2P:
         # "phonemes pt"); a later line overrides, so try them last-first, falling back to
         # earlier ones when a name isn't a real table (pt-br -> pt).
         voiced = []
+        self._voice_dictrules = []
         if self._voice:
             try:
                 with open(self._voice, encoding="utf-8") as fh:
                     for line in fh:
                         parts = line.split()
-                        if parts and parts[0] == "phonemes" and len(parts) > 1:
+                        if not parts:
+                            continue
+                        if parts[0] == "phonemes" and len(parts) > 1:
                             voiced.append(parts[1])
+                        elif parts[0] == "dictrules":
+                            # `dictrules N M ...` permanently sets those numbered ?-conditions
+                            # (pt/ca/es/fr final-s->ʃ etc. are gated on ?1). Numbers up to a
+                            # trailing comment.
+                            for p in parts[1:]:
+                                if p.isdigit():
+                                    self._voice_dictrules.append(int(p))
+                                else:
+                                    break
             except OSError:
                 pass
         candidates = list(reversed(voiced)) + [lang, "base1", "base"]
