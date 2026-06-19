@@ -313,9 +313,14 @@ class DictList:
             flag_codes.append(_MNEM_FLAGS["$text"])  # within a $textmode section -> FLAG_TEXTMODE
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words)
         # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
-        # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries.
-        self.words.setdefault(_nfc(word.lower()), []).append(entry)
-        self.cased_keys.add(_nfc(word))
+        # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries. EXCEPTION: polytonic
+        # Greek (U+1F00–U+1FFF) is canonically equivalent under NFC to the monotonic letters
+        # (ή U+1F75 ≡ U+03AE), which would merge ancient-Greek polytonic entries (oxia) with the
+        # modern-Greek monotonic ones (tonos); keep those keys raw so they stay distinct.
+        _lw = word.lower()
+        _key = _lw if (_lw and 0x1F00 <= ord(_lw[0]) <= 0x1FFF) else _nfc(_lw)
+        self.words.setdefault(_key, []).append(entry)
+        self.cased_keys.add(_key if (word and 0x1F00 <= ord(word[0]) <= 0x1FFF) else _nfc(word))
 
     def lookup(self, word, ctx):
         """Return (phonemes_or_None, flags1) or (None, None) if not found.
