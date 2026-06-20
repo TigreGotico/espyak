@@ -322,7 +322,7 @@ for _l, _off in _INDIC_OFFSETS.items():
         stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
 # Indic $u function words reduce their schwa despite carrying the clause accent (pa ਤੱਕ -> tˈək,
 # hi तक -> tˈək): the phoneme programs must see the un-tonic stress so the inherent vowel V laxes to ə.
-for _l in ("pa", "ne"):
+for _l in ("pa", "ne", "hi"):
     LANGS[_l]["unstress_u_words"] = True
 
 

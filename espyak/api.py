@@ -780,14 +780,17 @@ class G2P:
         out_str = getattr(self, "_u_out_str", None)
         if out_str is not None:
             # reduced-$u word: programs ran on the un-tonic levels (vowels laxed correctly);
-            # overlay the clause-accent stress marks from the tonic version onto the vowels
-            # in order (laxing is ChangePhoneme, so the vowel count is preserved).
+            # overlay the clause-accent stress marks from the tonic version onto the vowels in
+            # order. out_str and ph come from the same phoneme string (only the stress differs), so
+            # their vowels align 1:1 by position — advance the index for EVERY vowel, including ones
+            # a program deleted (indic_schwa ChangePhoneme(NULL)), so a deletion doesn't shift the
+            # overlay (hi आपको: schwa deleted -> oː still gets the tonic primary, not the schwa level).
             out_levels = [e.stresslevel for e in encode_phoneme_string(out_str, self.phoneme_table)
                           if e.ph.type == phVOWEL]
             vi = 0
             for e in plist:
-                if e.ph.type == phVOWEL and not e.deleted:
-                    if vi < len(out_levels):
+                if e.ph.type == phVOWEL:
+                    if not e.deleted and vi < len(out_levels):
                         e.stresslevel = out_levels[vi]
                     vi += 1
             # sl additionally shortens these program-unstressed vowels: drop the rule-emitted
