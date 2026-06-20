@@ -62,6 +62,18 @@ LANGS = {
         "numbers": K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
         | K.NUM_OMIT_1_THOUSAND | K.NUM_DECIMAL_COMMA,
     },
+    # Aragonese shares the es (Spanish) Translator block (tr_languages.c case L('a','n')):
+    # same stress_rule (2R) and stress_flags as es/ia — S_FINAL_SPANISH | S_FINAL_DIM_ONLY |
+    # S_FINAL_NO_2 (no S_NO_AUTO_2, unlike ca). Without this an fell to DEFAULTS (flags=0,
+    # unstressed_wd 1/3) which mis-placed the primary/secondary on 16 headwords.
+    "an": {"spirantize": True,
+        "stress_rule": K.STRESSPOSN_2R,
+        "stress_flags": K.S_FINAL_SPANISH | K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
+        "unstressed_wd1": 0,
+        "unstressed_wd2": 2,
+        "extra_vowels": "áéíóúü",
+        "encoding": "iso-8859-1",
+    },
     # Catalan shares the es (Spanish) Translator block but the 'ca' voice adds S_NO_AUTO_2
     # (no automatic secondary stress — biocomsc -> biokˈɔmsk, no ˌi) and S_FIRST_PRIMARY
     # (reduce primaries after the first to secondary). tr_languages.c case L('c','a'),
