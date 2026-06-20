@@ -105,10 +105,13 @@ LANGS = {
     # spelling stress on the first letter. ph_croatian laxes a/i/u via ChangeIfNotStressed,
     # so $u function words reduce despite carrying the clause accent (li->lˈɪ, ili->ˈɪlɪ).
     "sr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [2, 4],
+           "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "hr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [1],
+           "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "bs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [3, 4],
+           "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "cs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
@@ -226,10 +229,33 @@ LANGS = {
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
            "regression": 0x100, "lopt_prefixes": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
+           "stress_flags": K.S_FINAL_DIM_ONLY,  # mark unstressed final syllables diminished (tr_languages.c L('p','l'))
            # SetLetterVowel(tr,'y') (tr_languages.c): Polish puts 'y' in vowel group A too
            # (default A = "aeiou", except y), so `A) ł (_` fires after y: był -> bˈɨw, not bˈɨ.
            "set_letter_bits": [(K.LETTERGP_A, "y"), (K.LETTERGP_VOWEL2, "y")],
            "regression": 0x9},  # LOPT_REGRESSIVE_VOICING (usb -> uɛzbɛ)
+    # Norwegian Bokmål (tr_languages.c case L('n','b')): first-syllable stress, 'y' a vowel.
+    # No config -> wrong 2R default for rules-based words.
+    "nb": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},  # SetLetterVowel(tr,'y')
+    # Indonesian (tr_languages.c case L('i','d'), shares the ms/Malay block): 2R +
+    # S_FINAL_DIM_ONLY | S_FINAL_NO_2 (suppress final auto-secondary). Without it -> DEFAULTS.
+    "id": {"stress_rule": K.STRESSPOSN_2R,
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
+           "numbers": K.NUM_DECIMAL_COMMA | K.NUM_ALLOW_SPACE | K.NUM_ROMAN},
+    # Interlingua (tr_languages.c case L('i','a'), shares the es/Spanish block): 2R +
+    # S_FINAL_SPANISH | S_FINAL_DIM_ONLY | S_FINAL_NO_2, unstressed_wd 0/2 (like an).
+    "ia": {"stress_rule": K.STRESSPOSN_2R,
+           "stress_flags": K.S_FINAL_SPANISH | K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
+           "unstressed_wd1": 0, "unstressed_wd2": 2},
+    # Oromo (tr_languages.c case L('o','m')): 2R + S_FINAL_DIM_ONLY | S_FINAL_NO_2 | S_FINAL_LONG.
+    "om": {"stress_rule": K.STRESSPOSN_2R,
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_FINAL_LONG},
+    # Swahili / Setswana (tr_languages.c case L('s','w'), shared by tn): 2R +
+    # S_FINAL_DIM_ONLY | S_FINAL_NO_2. Stress already 2R-default; the flags suppress final auto-2.
+    "sw": {"stress_rule": K.STRESSPOSN_2R,
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "max_initial_consonants": 4},
+    "tn": {"stress_rule": K.STRESSPOSN_2R,
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "max_initial_consonants": 4},
 }
 
 # --- Cyrillic-script setup (tr_languages.c SetCyrillicLetters, offset 0x420) ----------
