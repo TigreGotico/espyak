@@ -51,11 +51,14 @@ from espyak.render import PhonemeListEntry
 _DOUBLE_TYPES = frozenset((phFRICATIVE, phVFRICATIVE, phNASAL, phLIQUID))
 
 
-def _normalize_tones(plist, table, insert_default=True):
+def _normalize_tones(plist, table, insert_default=True, force_default=False):
     """Tone language (vi): every syllable carries a tone immediately after its vowel.
     Move an existing tone (digit phoneme) to right after the vowel, or insert the default
     tone '1' (phonDEFAULTTONE) if the syllable has none. With ``insert_default=False`` (my:
-    Burmese) only the per-syllable tone collapse runs — toneless syllables stay toneless."""
+    Burmese) only the per-syllable tone collapse runs — toneless syllables stay toneless.
+    With ``force_default=True`` (shn: Shan) espeak IGNORES the tone-mark phonemes its own rules
+    produce and gives EVERY syllable the default tone 1 — ၵႃႇ/ၵႃႈ/ၵႃႉ all render kˈa1, not kˈa2/3/5.
+    We replicate that (parity, bug included): drop the mark-derived tones, insert default 1."""
     default = table.get("1")
     # A tone that is the word's FIRST phoneme is orphaned — a Burmese visarga split from its
     # syllable by the asat word-break (း…စာကို -> 2stskˈo). Move it to after the word's last
@@ -79,7 +82,12 @@ def _normalize_tones(plist, table, insert_default=True):
                 if plist[j].ph.mnemonic.isdigit():
                     tones.append(j)
                 j += 1
-            if tones:
+            if force_default:
+                for t in reversed(tones):
+                    plist.pop(t)  # shn: discard every mark-derived tone (espeak ignores the marks)
+                if default is not None:
+                    plist.insert(i + 1, PhonemeListEntry(default))  # then default tone 1 per syllable
+            elif tones:
                 for t in reversed(tones[:-1]):
                     plist.pop(t)  # drop the earlier (default) tones
                 tone_at = tones[-1] - (len(tones) - 1)
@@ -848,9 +856,12 @@ class G2P:
                     if plist[k].ph.mnemonic == ":" and plist[k - 1].ph.type == phVOWEL:
                         plist[k].deleted = True
         _double_long_consonants(plist)
-        if self._config.get("tone_language") or self._config.get("tone_collapse"):
+        if (self._config.get("tone_language") or self._config.get("tone_collapse")
+                or self._config.get("force_tone1")):
             _normalize_tones(plist, self.phoneme_table,
-                             insert_default=bool(self._config.get("tone_language")))
+                             insert_default=bool(self._config.get("tone_language")
+                                                 or self._config.get("force_tone1")),
+                             force_default=bool(self._config.get("force_tone1")))
         # a PRIORITY stress (level 5, from a '' mark in the rules) dominates the word: the other
         # primaries reduce to secondary (da debutant d?eb'y''?&nt: y primary + ant priority ->
         # dʔebˌyˈant). Words with only ordinary primaries (eremitage 4,4) keep them all.
