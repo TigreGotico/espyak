@@ -1,8 +1,11 @@
 # Justified divergences from espeak-ng
 
-`espyak` aims to reproduce espeak-ng's grapheme-to-phoneme output. Where espeak-ng is
-**demonstrably wrong** (it contradicts its own data, or produces linguistically incorrect
-output), the default engine does the **correct** thing instead and records the deviation here.
+`espyak` aims to reproduce espeak-ng's grapheme-to-phoneme output. The default engine may
+deviate from espeak-ng **only when espeak-ng is linguistically wrong** — its output contradicts
+the documented phonology or orthography of the language. A purely code-internal inconsistency
+("espeak contradicts its own data") is **not** sufficient: the divergence must correct a genuine
+**linguistic** error, and must cite an **authoritative external source** (the Unicode Standard, a
+reference grammar/phonology, or a recognised standards body) for that linguistic claim.
 
 Two modes:
 
@@ -12,7 +15,9 @@ Two modes:
   audit (`test/parity_audit.py`) runs in this mode, so "parity %" measures bug-exact fidelity.
 
 Every deviation must: (1) be gated on `force_compat` so the bug-exact path still matches espeak,
-(2) name the espeak mechanism that is wrong, (3) show the evidence, (4) be listed here.
+(2) rest on a **linguistic** basis (espeak's output is wrong *about the language*), (3) cite an
+**authoritative external source** for that linguistic claim, (4) name the espeak mechanism that is
+wrong, (5) show the evidence, (6) be listed here.
 
 ---
 
@@ -30,6 +35,22 @@ Every deviation must: (1) be gated on `force_compat` so the bug-exact path still
 | ၵႃႇ  (mark ႇ)  | `kˈa2` | `kˈa1` |
 
 **Who is correct:** espyak (default). The Shan tone marks carry phonemic tone.
+
+**Linguistic basis (authoritative sources):**
+
+- The **Unicode Standard** names these four characters as *tone marks*, not punctuation:
+  U+1087 `MYANMAR SIGN SHAN TONE-2`, U+1088 `MYANMAR SIGN SHAN TONE-3`,
+  U+1089 `MYANMAR SIGN SHAN TONE-5`, U+108A `MYANMAR SIGN SHAN TONE-6` — Myanmar block
+  (U+1000–U+109F), <https://www.unicode.org/charts/PDF/U1000.pdf> (per-character refs e.g.
+  <https://www.compart.com/en/unicode/U+1087>). Treating them as clause separators directly
+  contradicts their normative Unicode identity as spacing combining **tone** marks.
+- **Shan is a tonal language** with five phonemic tones (a sixth used for emphasis / in the north);
+  syllable tone is contrastive (minimal pairs differ by tone alone). Wikipedia, *Shan language*
+  <https://en.wikipedia.org/wiki/Shan_language>; Omniglot, *Shan* <https://www.omniglot.com/writing/shan.htm>;
+  R. Ishida (W3C i18n), *Shan orthography notes* <https://r12a.github.io/scripts/mymr/shn.html>.
+
+Dropping a tone mark therefore loses phonemic information (a different word), so reproducing
+espeak's drop is only justified under `force_compat` (bug-exact mode), never by default.
 
 **Why espeak is wrong (evidence):** espeak mis-classifies four of the five tone marks —
 ႇ/ႈ/ႉ/ႊ (U+1087-108A) — as clause **separators**, not syllable marks. `espeak-ng -X` on ၵေႇ

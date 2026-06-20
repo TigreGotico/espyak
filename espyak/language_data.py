@@ -122,7 +122,8 @@ LANGS = {
     # case sets no stress_flags (flags=0) yet never auto-secondaries the final vowel —
     # it relies on the uninitialised vowel_stress[] sentinel (UB we can't reproduce without
     # regressing langs that DO take a trochaic final-2, e.g. bn/ko/ro/ar). S_FINAL_NO_2 is a
-    # documented, behaviour-faithful divergence that suppresses it cleanly for fi/et only
+    # behaviour-faithful implementation choice (NOT a default-vs-compat divergence: the OUTPUT
+    # matches espeak; it just reaches espeak's result via a flag instead of its UB) for fi/et only
     # (pieneksi -> pˈieneksɪ not pˈieneksˌi; meie -> mˈeije not mˈeijˌe).
     # fi/et stress_flags come from the VOICE file (stressOpt): S_FINAL_DIM_ONLY | S_FINAL_NO_2 |
     # S_2_TO_HEAVY — the last keeps secondary stress off light syllables (et följetonist ->
