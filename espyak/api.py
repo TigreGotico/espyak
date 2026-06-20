@@ -714,6 +714,23 @@ class G2P:
             ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
             if ph:
                 return self._render_phonemes(ph, ipa, tie, separator)
+        if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
+            # a mixed digit/letter token that is neither a pure number nor an ordinal (handled above)
+            # is split at the digit<->letter boundaries and each run spoken separately (en co2 -> ko
+            # two, h2o -> h two o, or ୧ম -> eko mo).
+            _parts, _cur, _cd = [], "", None
+            for _c in word:
+                _is = _c.isdigit()
+                if _cur and _is != _cd:
+                    _parts.append(_cur)
+                    _cur = ""
+                _cur += _c
+                _cd = _is
+            if _cur:
+                _parts.append(_cur)
+            if len(_parts) > 1:
+                _r = [self._render_word(p, tonic, ipa, tie, separator) for p in _parts]
+                return " ".join(x for x in _r if x)
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress)
         if ph.startswith("_^_"):
             # foreign word: re-translate in the named language and wrap (lang)...(orig)
