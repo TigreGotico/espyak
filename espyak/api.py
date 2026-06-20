@@ -728,6 +728,11 @@ class G2P:
             # it is the trill r (ধর্ম -> dʰɔrmɔ). Promote ɾ -> r only when a consonant follows.
             import re as _re
             result = _re.sub(r"ɾ(?=[ˈˌ]?[mnŋɲsʃʒhvzflrɾɽjw])", "r", result)
+        if ipa and self._config.get("geminate_r_trill"):
+            # fo: a geminate rr renders r + approximant ɹ (the first segment of the cluster trills);
+            # espyak gives ɹɹ, oracle rɹ. Promote the first ɹ of an ɹɹ cluster to the trill r.
+            import re as _re
+            result = _re.sub(r"ɹ(?=ɹ)", "r", result)
         return result
 
     _EN_FALLBACK = None

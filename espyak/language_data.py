@@ -330,6 +330,9 @@ for _l in ("pa", "ne", "hi"):
 # before a stop it stays the tap (bn দরকার -> dɔːɾkɑɾ).
 for _l in ("bn", "mr", "hi"):
     LANGS[_l]["coda_trill_r"] = True
+# fo: a geminate rr is the trill r + approximant ɹ (rɹ), not ɹɹ — the first r of the cluster trills
+# (fyrri -> fɪrɹˈɪ, verri -> ʋɛrɹˈɪ, teirri -> taɟrɹˈɪ).
+LANGS.setdefault("fo", {})["geminate_r_trill"] = True
 
 
 # Georgian (1L + S_FINAL_NO_2) and Amharic (1L + S_NO_AUTO_2|S_FINAL_DIM): non-Latin
