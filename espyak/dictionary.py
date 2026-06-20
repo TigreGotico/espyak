@@ -13,7 +13,7 @@ Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 """
 import unicodedata
 from espyak import constants as K
-from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, Phoneme
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, Phoneme
 
 # A no-tie barrier ('|' in phoneme strings): keep it as a passthrough token through
 # set_word_stress so the downstream phoneme parser doesn't greedily merge the phonemes it
@@ -728,10 +728,28 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 # S_FINAL_SPANISH (dictionary.c:1055): a word ending in a consonant other than -s/-n
                 # takes final stress (ca/es animal -> animˈal, papel -> papˈel); a -Vs/-Vn ending
                 # (plurals, verb forms) keeps the penult, but -Cs/-Cn (consonant before) goes final.
-                if (stressflags & K.S_FINAL_SPANISH) and phonetic and not _ph_is_vowel(phonetic[-1][1]):
+                # espeak branches on the translator: an/ca (the s+n form), ia (s only), and the
+                # generic else-arm with its -ns (s after a nasal) penult special-case.
+                if (stressflags & K.S_FINAL_SPANISH) and phonetic and phonetic[-1][1].type != phVOWEL:
+                    final_ph = phonetic[-1][1]
                     last_mnem = phonetic[-1][0]
-                    pre_vowel = len(phonetic) >= 2 and _ph_is_vowel(phonetic[-2][1])
-                    if (last_mnem not in ("s", "n")) or not pre_vowel:
+                    final_ph2 = phonetic[-2][1] if len(phonetic) >= 2 else final_ph
+                    pre_vowel = final_ph2.type == phVOWEL
+                    if tr.translator_name in (K.L("a", "n"), K.L("c", "a")):
+                        if (last_mnem not in ("s", "n")) or not pre_vowel:
+                            stressed_syllable = vowel_count - 1
+                    elif tr.translator_name == K.L("i", "a"):
+                        if (last_mnem != "s") or not pre_vowel:
+                            stressed_syllable = vowel_count - 1
+                    else:
+                        if (last_mnem == "s") and (final_ph2.type == phNASAL):
+                            pass  # -ns: stress stays on the penultimate syllable
+                        elif ((final_ph.type != phNASAL) and (last_mnem != "s")) or not pre_vowel:
+                            stressed_syllable = vowel_count - 1
+                # S_FINAL_LONG (dictionary.c:1075, LANG=om): stress the last syllable when it
+                # has a long vowel but the penult is short (vowel_length[n-1] > vowel_length[n-2]).
+                if stressflags & K.S_FINAL_LONG:
+                    if vowel_length[vowel_count - 1] > vowel_length[vowel_count - 2]:
                         stressed_syllable = vowel_count - 1
                 if vowel_stress[stressed_syllable] in (STRESS_IS_DIMINISHED, STRESS_IS_UNSTRESSED):
                     stressed_syllable = stressed_syllable - 1 if stressed_syllable > 1 else stressed_syllable + 1
@@ -797,14 +815,20 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 stressed_syllable = 1
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
             max_stress = STRESS_IS_PRIMARY
-    elif tr.stress_rule == K.STRESSPOSN_2LLH:  # Korean: 1st if heavy, else 2nd
-        # port of dictionary.c case STRESSPOSN_2LLH -> STRESSPOSN_2L: keep stress on the
-        # first syllable unless it is light and the second is heavy, then move to the second.
-        if stressed_syllable == 0:
-            if not (syllable_weight[1] > 0 or syllable_weight[2] == 0) and vowel_count > 2:
-                stressed_syllable = 2
+    elif tr.stress_rule in (K.STRESSPOSN_2LLH, K.STRESSPOSN_2L):  # Korean (2LLH) / 2L
+        # port of dictionary.c case STRESSPOSN_2LLH -> STRESSPOSN_2L: 2LLH keeps stress on the
+        # first syllable when it is heavy or the second is light; otherwise (light-then-heavy) it
+        # falls through to the plain 2L arm, which stresses the second syllable. Plain 2L always
+        # falls through. The marked-stress guard (only force PRIMARY when nothing else is marked)
+        # mirrors the C `max_stress == STRESS_IS_DIMINISHED` check.
+        fall_through = tr.stress_rule == K.STRESSPOSN_2L
+        if tr.stress_rule == K.STRESSPOSN_2LLH:
+            fall_through = not (syllable_weight[1] > 0 or syllable_weight[2] == 0)
+        if fall_through and stressed_syllable == 0 and vowel_count > 2:
+            stressed_syllable = 2
+            if max_stress == STRESS_IS_DIMINISHED:
                 vowel_stress[2] = STRESS_IS_PRIMARY
-                max_stress = STRESS_IS_PRIMARY
+            max_stress = STRESS_IS_PRIMARY
     elif tr.stress_rule == K.STRESSPOSN_1RH:  # last heaviest syllable, excl. final (hi/mr)
         if stressed_syllable == 0:
             max_weight = -1
@@ -829,6 +853,26 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                     break
             vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
             max_stress = STRESS_IS_PRIMARY
+    elif tr.stress_rule == K.STRESSPOSN_GREENLANDIC:  # kl (Greenlandic)
+        # port of dictionary.c case STRESSPOSN_GREENLANDIC: demote any marked (consonant-cluster)
+        # primary to secondary and give every long vowel secondary stress, then place the primary
+        # on the last long vowel; with none, the penult (or, for >4 syllables, the antepenult).
+        long_vowel = 0
+        for ix in range(1, vowel_count):
+            if vowel_stress[ix] == STRESS_IS_PRIMARY:
+                vowel_stress[ix] = STRESS_IS_SECONDARY
+            if vowel_length[ix] > 0:
+                long_vowel = ix
+                vowel_stress[ix] = STRESS_IS_SECONDARY
+        if stressed_syllable == 0:
+            if long_vowel > 0:
+                stressed_syllable = long_vowel
+            elif vowel_count > 5:
+                stressed_syllable = vowel_count - 3
+            else:
+                stressed_syllable = vowel_count - 1
+        vowel_stress[stressed_syllable] = STRESS_IS_PRIMARY
+        max_stress = STRESS_IS_PRIMARY
 
     # S_FINAL_VOWEL_UNSTRESSED: don't allow stress on a word-final vowel (eu/ro)
     if ((stressflags & K.S_FINAL_VOWEL_UNSTRESSED) and (control & 2) == 0

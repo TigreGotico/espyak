@@ -266,6 +266,9 @@ LANGS = {
     # Oromo (tr_languages.c case L('o','m')): 2R + S_FINAL_DIM_ONLY | S_FINAL_NO_2 | S_FINAL_LONG.
     "om": {"stress_rule": K.STRESSPOSN_2R,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_FINAL_LONG},
+    # Greenlandic (tr_languages.c case L('k','l')): the GREENLANDIC stress rule (primary on the
+    # last long vowel, else penult/antepenult by syllable count) + S_NO_AUTO_2 (no auto-secondary).
+    "kl": {"stress_rule": K.STRESSPOSN_GREENLANDIC, "stress_flags": K.S_NO_AUTO_2},
     # Swahili / Setswana (tr_languages.c case L('s','w'), shared by tn): 2R +
     # S_FINAL_DIM_ONLY | S_FINAL_NO_2. Stress already 2R-default; the flags suppress final auto-2.
     "sw": {"stress_rule": K.STRESSPOSN_2R,
