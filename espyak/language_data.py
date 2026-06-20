@@ -319,6 +319,10 @@ for _l, _off in _INDIC_OFFSETS.items():
     LANGS[_l] = _indic_config(
         _off, stress_rule=_INDIC_STRESS_RULE.get(_l, K.STRESSPOSN_1L),
         stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
+# Indic $u function words reduce their schwa despite carrying the clause accent (pa ਤੱਕ -> tˈək,
+# hi तक -> tˈək): the phoneme programs must see the un-tonic stress so the inherent vowel V laxes to ə.
+for _l in ("pa", "ne"):
+    LANGS[_l]["unstress_u_words"] = True
 
 
 # Georgian (1L + S_FINAL_NO_2) and Amharic (1L + S_NO_AUTO_2|S_FINAL_DIM): non-Latin
