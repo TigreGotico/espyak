@@ -604,6 +604,9 @@ class G2P:
         _trans[0x104A] = " "
         _trans[0x104B] = " "
         _trans[0x1039] = " "   # Myanmar virama (stacked consonants): a plain word break
+        # a '/' is a word break that is itself spoken as its character name (ca a/e -> a barra e,
+        # en a/b -> a slash b), so isolate it as its own token.
+        _trans[ord("/")] = " / "
         text = text.translate(_trans)
         words = []
         for raw_tok in text.split():
@@ -677,7 +680,17 @@ class G2P:
             out.append(rendered)
         # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
         # separator space; espeak emits none, so trim it.
-        return "".join(out).rstrip(" ")
+        result = "".join(out).rstrip(" ")
+        if ipa and self._config.get("spirantize"):
+            # ca/es voiced stops b/d/ɡ spirantize to β/ð/ɣ after a vowel — INCLUDING across a word
+            # break, which the per-word render misses (ca a/e -> ə βˈarə ˈɛ). Within-word cases are
+            # already handled by the rules, so this only patches a word-initial stop after a vowel.
+            import re
+            result = re.sub(
+                r"([aeiouɛɔəɐ])( [ˈˌ]?)([bdɡg])",
+                lambda m: m.group(1) + m.group(2) + {"b": "β", "d": "ð", "g": "ɣ", "ɡ": "ɣ"}[m.group(3)],
+                result)
+        return result
 
     _EN_FALLBACK = None
 
