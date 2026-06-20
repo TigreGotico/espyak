@@ -192,6 +192,7 @@ class Interpreter:
         """Run each phoneme's program over the list, applying ChangePhoneme/InsertPhoneme."""
         # precompute vowel positions for first/final-vowel predicates
         self._insert_done = set()  # phoneme id -> already inserted before itself this pass
+        self._ipa_only = False
         i = 0
         while i < len(plist):
             entry = plist[i]
@@ -201,6 +202,22 @@ class Interpreter:
                 ctx = self._context(plist, i)
                 self._exec(self._program(ph), plist, i, ctx)
             i += 1
+        # espeak re-evaluates context-dependent ipa overrides AFTER all ChangePhonemes are
+        # applied (it re-interprets the final list for --ipa rendering). A phoneme whose ipa
+        # depends on a NEIGHBOUR that got ChangePhoneme'd must see the new mnemonic: da @-'s
+        # `IF nextPhW(r) THEN ipa NULL` must NOT fire once its 'r' neighbour became 'R', so the
+        # schwa is kept (operab opəʁ, not opʁ). Second pass re-runs each program applying ONLY
+        # ipa statements against the now-final list.
+        self._ipa_only = True
+        i = 0
+        while i < len(plist):
+            entry = plist[i]
+            if entry.ph.program and not getattr(entry, "deleted", False):
+                self._changed = False
+                ctx = self._context(plist, i)
+                self._exec(self._program(entry.ph), plist, i, ctx)
+            i += 1
+        self._ipa_only = False
         return plist
 
     def _context(self, plist, i):
@@ -253,6 +270,10 @@ class Interpreter:
     def _exec_simple(self, line, plist, i, ctx):
         tok = line.split()
         head = tok[0].split("(")[0]  # `ChangePhoneme(D)` is one token
+        if getattr(self, "_ipa_only", False) and head not in ("ipa", "RETURN", "CALL"):
+            # second (ipa-only) pass: re-evaluate ipa overrides against the post-ChangePhoneme
+            # list without re-applying structural ops (ChangePhoneme/Insert/Append/length/FMT).
+            return False
         if head == "RETURN":
             return True
         if head == "CALL":
