@@ -125,6 +125,11 @@ class Translator:
         self.u_clause_final = config.get("u_clause_final", False)
         self.it_lengthen = config.get("it_lengthen", 0)  # LOPT_IT_LENGTHEN
         self.translator_name = config.get("translator_name", 0)
+        # GetVowelStress priority-stress demotion (dictionary.c:889). Universal in espeak,
+        # but enabled per-language here: a faithful port interacts with the `=` phonSTRESS_PREV
+        # handling in ways still being reconciled for languages whose dict entries combine `''`
+        # and `=` markers (da seminarium), so it is gated to the languages it is verified on.
+        self.priority_stress_demote = config.get("priority_stress_demote", False)
         # voice `dictrules N M ...` permanently set those numbered conditions, so `?N`-gated
         # dict entries match (sr `?2 w -> duplo` for the W letter name needs condition 2).
         for _n in config.get("dictrules", ()):
@@ -645,6 +650,25 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
 
     vowel_stress, phonetic, vowel_count, primary_posn, max_stress = get_vowel_stress(
         toks, stressed_syllable)
+
+    if max_stress == STRESS_IS_PRIORITY and tr.priority_stress_demote:
+        # GetVowelStress (dictionary.c:889): a priority marker ('') replaces every other
+        # primary marker in the word, then the priority itself becomes the primary. With
+        # S_PRIORITY_STRESS the demoted primaries go UNSTRESSED, else SECONDARY. In C this
+        # runs inside GetVowelStress, so its result is the max_stress captured below.
+        # pt aníbal (&n''ib'Al): the priority í wins, so the rule-emitted primary on the
+        # final -al is dropped (force_compat -> ɐnˈibɑl, not ɐnˈibˌɑl).
+        for ix in range(1, vowel_count):
+            if vowel_stress[ix] == STRESS_IS_PRIMARY:
+                if tr.stress_flags & K.S_PRIORITY_STRESS:
+                    vowel_stress[ix] = STRESS_IS_UNSTRESSED
+                else:
+                    vowel_stress[ix] = STRESS_IS_SECONDARY
+            if vowel_stress[ix] == STRESS_IS_PRIORITY:
+                vowel_stress[ix] = STRESS_IS_PRIMARY
+                primary_posn = ix
+        max_stress = STRESS_IS_PRIMARY
+
     max_stress_input = max_stress
     if (unstressed_word and tonic >= STRESS_IS_PRIMARY and max_stress >= STRESS_IS_PRIMARY
             and primary_posn >= vowel_count - 2):

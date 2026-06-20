@@ -211,7 +211,8 @@ LANGS = {
            "vowels_override": "aàáảãạăằắẳẵặâầấẩẫậeèéẻẽẹêềếểễệiìíỉĩịoòóỏõọôồốổỗộơờớởỡợuùúủũụưừứửữựyỳýỷỹỵ"},
     "pt": {"unstress_u_words": True, "stress_rule": K.STRESSPOSN_1R,  # final syllable (tr_languages.c L('p','t'))
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_INITIAL_2 | K.S_PRIORITY_STRESS,
-           "lopt_alt": True, "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
+           "lopt_alt": True, "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1",
+           "priority_stress_demote": True},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
            "regression": 0x100, "lopt_prefixes": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
