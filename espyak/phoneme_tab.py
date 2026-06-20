@@ -313,6 +313,12 @@ class PhonemeSource:
                         cur_ph.flags.add("stress")
                 elif t in _PLACE_KEYWORDS:
                     cur_ph.place = t
+                    # phoneme.c: pal and alp (pla+pzd) also raise the phPALATAL flag
+                    # (phFLAGBIT_PALATAL=9); isPalatal tests the flag, not the place.
+                    if t in ("pal", "alp"):
+                        cur_ph.flags.add("palatal")
+                elif t == "pzd":
+                    cur_ph.flags.add("palatal")  # phoneme.c: pzd (palatalized) raises phPALATAL
                 elif t in ("vcd", "vls"):
                     cur_ph.flags.add(t)
                 elif t == "lng":
@@ -384,7 +390,8 @@ class PhonemeSource:
                         if target is not None and target.type != phINVALID:
                             ph.type = target.type
                             ph.flags |= {f for f in target.flags
-                                         if f in ("unstressed", "nonsyllabic", "long")}
+                                         if f in ("unstressed", "nonsyllabic", "long",
+                                                  "palatal")}
                             # ph_dutch b/d/z are an assimilation program + `CALL base1/b`; inherit
                             # the called phoneme's voicing-switch/place/ipa so b stays a voiced stop
                             # with switch p -> nl word-final devoicing (heb->hɛp) works.

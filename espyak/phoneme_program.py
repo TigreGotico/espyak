@@ -144,8 +144,11 @@ _FEATURES = {
     "isUnstressed": lambda ph, e, ctx: e is None or e.stresslevel <= 1,
     "isDiminished": lambda ph, e, ctx: e is not None and e.stresslevel == 0,
     "isMaxStress": lambda ph, e, ctx: ctx.get("max_stress", False),
-    "isVelar": lambda ph, e, ctx: getattr(ph, "place", None) in ("vel", "lbv"),
-    "isPalatal": lambda ph, e, ctx: getattr(ph, "place", None) in ("pal", "pla", "alp"),
+    # isVelar tests phPLACE_VELAR (==8), set only by the `vel` keyword (lbv is phPLACE_LABIO_VELAR,
+    # a different place). isPalatal tests the phPALATAL phflag (bit 9), set by pal/alp/pzd —
+    # independent of the place string (e.g. `liquid pzd` is palatal with no place keyword).
+    "isVelar": lambda ph, e, ctx: getattr(ph, "place", None) == "vel",
+    "isPalatal": lambda ph, e, ctx: "palatal" in ph.flags,
     "isVStop": lambda ph, e, ctx: ph.type == phVSTOP,
     "isUStop": lambda ph, e, ctx: ph.type == phSTOP,
     "isVFricative": lambda ph, e, ctx: ph.type == phVFRICATIVE,
@@ -222,20 +225,50 @@ class Interpreter:
 
     def _context(self, plist, i):
         entry = plist[i]
-        # word membership: previous/next entries until a start-of-word boundary
-        word_end = (i + 1 >= len(plist)) or bool(plist[i + 1].newword & 1)
-        # first/final vowel within the word
-        vowels = [j for j in range(len(plist)) if plist[j].ph.type == phVOWEL]
+        # isWordEnd (synthdata.c:611-612): next phoneme starts a word (sourceix) OR is a pause.
+        # End-of-list counts (espeak pads a trailing pause).
+        word_end = (i + 1 >= len(plist)) or bool(plist[i + 1].newword & 1) \
+            or plist[i + 1].ph.type == phPAUSE
+        # isFirstVowel/isSecondVowel/isFinalVowel/isAfterStress are scoped to the current WORD
+        # (synthdata.c CountVowelPosition stops at sourceix; isFinalVowel/isAfterStress walk to
+        # the next/previous word boundary). Use newword&1 marks as the sourceix equivalent.
+        ws, we = self._word_bounds(plist, i)
+        vowels = [j for j in range(ws, we) if plist[j].ph.type == phVOWEL]
         first_vowel = bool(vowels and vowels[0] == i)
         second_vowel = bool(len(vowels) > 1 and vowels[1] == i)
         final_vowel = bool(vowels and vowels[-1] == i)
-        max_stress = entry.stresslevel >= 4
-        stressed_v = next((j for j in vowels if plist[j].stresslevel >= 4), None)
-        after_stress = stressed_v is not None and i > stressed_v
+        # isMaxStress (synthdata.c:440-441): stress_level >= pl->wordstress, where wordstress
+        # is the max stresslevel in THIS word (phonemelist.c:227-239) and stress_level is this
+        # vowel's level (or the FOLLOWING vowel's if this is a consonant; StressCondition).
+        word_max = max((plist[j].stresslevel & 0xf for j in range(ws, we)), default=0)
+        if entry.ph.type == phVOWEL:
+            sl = entry.stresslevel & 0xf
+        elif i + 1 < len(plist) and plist[i + 1].ph.type == phVOWEL:
+            sl = plist[i + 1].stresslevel & 0xf
+        else:
+            sl = -1  # no stress level for this consonant -> StressCondition returns false
+        max_stress = sl >= word_max if sl >= 0 else False
+        # isAfterStress (synthdata.c:613-622): false at the word-start phoneme; else walk back
+        # within the word, true if any prior phoneme carries stresslevel>=4.
+        if i <= ws:
+            after_stress = False
+        else:
+            after_stress = any((plist[j].stresslevel & 0xf) >= 4 for j in range(ws, i))
         return {"word_end": word_end, "first_vowel": first_vowel,
                 "second_vowel": second_vowel, "after_stress": after_stress,
                 "final_vowel": final_vowel, "max_stress": max_stress,
                 "translation_given": getattr(self, "_translation_given", False)}
+
+    @staticmethod
+    def _word_bounds(plist, i):
+        """[start, end) index range of the word containing index i, using newword&1 marks."""
+        start = i
+        while start > 0 and not (plist[start].newword & 1):
+            start -= 1
+        end = i + 1
+        while end < len(plist) and not (plist[end].newword & 1):
+            end += 1
+        return start, end
 
     # -- execution --
     def _exec(self, block, plist, i, ctx):
