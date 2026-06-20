@@ -189,7 +189,7 @@ LANGS = {
            # all tone-marked vowels are vowels (espeak vowels_vi[]) so glide rules fire
            # (o before a vowel -> w: hoặc -> hwˌa6c)
            "vowels_override": "aàáảãạăằắẳẵặâầấẩẫậeèéẻẽẹêềếểễệiìíỉĩịoòóỏõọôồốổỗộơờớởỡợuùúủũụưừứửữựyỳýỷỹỵ"},
-    "pt": {"stress_rule": K.STRESSPOSN_1R,  # final syllable (tr_languages.c L('p','t'))
+    "pt": {"unstress_u_words": True, "stress_rule": K.STRESSPOSN_1R,  # final syllable (tr_languages.c L('p','t'))
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_INITIAL_2 | K.S_PRIORITY_STRESS,
            "lopt_alt": True, "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
