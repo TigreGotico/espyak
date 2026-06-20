@@ -131,7 +131,15 @@ def encode_phoneme_string(s, table):
                 m = cand
                 break
         if m is None:
-            # unknown char; skip it (espeak marks 255/unrecognised)
+            # A literal digit with no phoneme (fa 'ARoq1' for ق/غ) renders as itself — espeak keeps
+            # it in -x/--ipa (ɑroq1). Synthesize an inert phINVALID entry whose ipa is the digit;
+            # non-tonal tables have no real digit phonemes so _reorder_tones leaves it in place.
+            if c.isdigit():
+                from espyak.phoneme_tab import Phoneme
+                lit = Phoneme(c)
+                lit.ipa = c
+                entries.append(PhonemeListEntry(lit))
+            # other unknown chars are skipped (espeak marks 255/unrecognised)
             i += 1
             continue
         ph = table.phonemes[m]

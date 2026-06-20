@@ -21,6 +21,16 @@ from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, Phoneme
 # type phINVALID, so it is never counted as a vowel or treated as a stress mark.
 _BARRIER = Phoneme("|")
 
+# A literal digit in a dict/rule phoneme string that maps to no phoneme (fa _list 'ARoq1' for the
+# uvular ق/غ) is kept as an inert phINVALID token whose ipa is the digit, so it survives stressing and
+# renders literally (espeak: ɑroq1). Tonal tables that define real digit phonemes (vi/cmn 1-7) match
+# those first, so this only triggers where the digit is genuinely unmapped.
+_LITERAL_DIGITS = {}
+for _d in "0123456789":
+    _dp = Phoneme(_d)
+    _dp.ipa = _d
+    _LITERAL_DIGITS[_d] = _dp
+
 
 def _nfc(s):
     return unicodedata.normalize("NFC", s)
@@ -502,6 +512,8 @@ class MnemIndex:
                     m = cand
                     break
             if m is None:
+                if ph[i] in _LITERAL_DIGITS:
+                    toks.append((ph[i], _LITERAL_DIGITS[ph[i]]))
                 i += 1
                 continue
             toks.append((m, self.table[m]))
