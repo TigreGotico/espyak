@@ -111,7 +111,9 @@ def main(argv):
         if not words:
             continue
         try:
-            g = G2P(lang)
+            # parity is measured against espeak byte-for-byte, so run in force_compat mode (bugs
+            # included); the default G2P is the linguistically correct engine (see docs/divergences.md)
+            g = G2P(lang, force_compat=True)
         except Exception as e:
             rows.append((lang, 0, 0, "load-error:%s" % type(e).__name__))
             continue

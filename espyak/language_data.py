@@ -274,9 +274,11 @@ LANGS["jbo"] = {"stress_rule": K.STRESSPOSN_2R, "caps_in_word": True, "extra_vow
 # one (ī gives i1, visarga း gives 2 -> i2, not i12).
 LANGS["my"] = {"tone_collapse": True}
 LANGS["cmn"] = {"palatal_u_to_y": True}  # pinyin ü: 'u' after a palatal initial j/q/x is /y/
-# Shan (shn): espeak's own rules map the tone marks ႇ/ႈ/း/ႉ/ႊ to tones 2-6, but espeak then ignores
-# them and renders EVERY syllable with the default tone 1 (ၵႃ/ၵႃႇ/ၵႃႈ all -> kˈa1). Replicate for parity.
-LANGS["shn"] = {"force_tone1": True}
+# Shan (shn): a tone language — every syllable carries a tone (default 1 if unmarked). espyak applies
+# the tone marks ႇ/ႈ/း/ႉ/ႊ (tones 2-6) per shn_rules: the linguistically correct G2P. espeak's binary
+# DISCARDS them and emits tone 1 for every syllable — an espeak bug (its own rules produce the tones).
+# Default = correct (deviates, see docs/divergences.md shn-tone-marks); force_compat mirrors the bug.
+LANGS["shn"] = {"tone_language": 1, "compat_force_tone1": True}
 
 # --- Indic (Brahmic) scripts: SetIndicLetters with per-script Unicode-block offset -----
 _DEVA_VOWELS2 = [0x60, 0x61, 0x55, 0x56, 0x57, 0x62, 0x63]

@@ -51,14 +51,14 @@ from espyak.render import PhonemeListEntry
 _DOUBLE_TYPES = frozenset((phFRICATIVE, phVFRICATIVE, phNASAL, phLIQUID))
 
 
-def _normalize_tones(plist, table, insert_default=True, force_default=False, clause_final_tone=None):
+def _normalize_tones(plist, table, insert_default=True, clause_final_tone=None, force_default=False):
     """Tone language (vi): every syllable carries a tone immediately after its vowel.
     Move an existing tone (digit phoneme) to right after the vowel, or insert the default
     tone '1' (phonDEFAULTTONE) if the syllable has none. With ``insert_default=False`` (my:
     Burmese) only the per-syllable tone collapse runs — toneless syllables stay toneless.
-    With ``force_default=True`` (shn: Shan) espeak IGNORES the tone-mark phonemes its own rules
-    produce and gives EVERY syllable the default tone 1 — ၵႃႇ/ၵႃႈ/ၵႃႉ all render kˈa1, not kˈa2/3/5.
-    We replicate that (parity, bug included): drop the mark-derived tones, insert default 1."""
+    ``force_default=True`` is a BUG-REPLICATION path (shn, force_compat only): espeak discards the
+    tone-mark phonemes its own rules produce and emits tone 1 for every syllable — we mirror that only
+    when bug-exact output is requested. The default behaviour keeps the (correct) marked tones."""
     default = table.get("1")
     # vi: the LAST vowel of the clause (here, the word) carries the end-of-clause ngang tone 7 when
     # it would otherwise take the default tone 1 (ba -> bˈaː7, but ba ba -> bˈaː1 bˈaː7).
@@ -87,11 +87,11 @@ def _normalize_tones(plist, table, insert_default=True, force_default=False, cla
                 if plist[j].ph.mnemonic.isdigit():
                     tones.append(j)
                 j += 1
-            if force_default:
+            if force_default:  # bug-exact: drop the marked tones, force the default tone (shn)
                 for t in reversed(tones):
-                    plist.pop(t)  # shn: discard every mark-derived tone (espeak ignores the marks)
+                    plist.pop(t)
                 if default is not None:
-                    plist.insert(i + 1, PhonemeListEntry(default))  # then default tone 1 per syllable
+                    plist.insert(i + 1, PhonemeListEntry(default))
             elif tones:
                 for t in reversed(tones[:-1]):
                     plist.pop(t)  # drop the earlier (default) tones
@@ -150,8 +150,12 @@ def _decompose_hangul(word):
 class G2P:
     """Grapheme-to-phoneme translator for one language."""
 
-    def __init__(self, lang="en"):
+    def __init__(self, lang="en", force_compat=False):
+        # force_compat=True reproduces espeak-ng byte-for-byte, BUGS INCLUDED (e.g. shn discards its
+        # own tone marks). The default (False) is the linguistically correct G2P; every place it
+        # deviates from espeak is gated on this flag and recorded in docs/divergences.md.
         self.lang = lang
+        self.force_compat = force_compat
         self._phsource = get_source()
         self._voice = data_paths.voice_path(lang)
         # phoneme table name defaults to the language code; voice file may override.
@@ -870,13 +874,12 @@ class G2P:
                     if plist[k].ph.mnemonic == ":" and plist[k - 1].ph.type == phVOWEL:
                         plist[k].deleted = True
         _double_long_consonants(plist)
-        if (self._config.get("tone_language") or self._config.get("tone_collapse")
-                or self._config.get("force_tone1")):
+        if self._config.get("tone_language") or self._config.get("tone_collapse"):
             _normalize_tones(plist, self.phoneme_table,
-                             insert_default=bool(self._config.get("tone_language")
-                                                 or self._config.get("force_tone1")),
-                             force_default=bool(self._config.get("force_tone1")),
-                             clause_final_tone=self._config.get("clause_final_tone"))
+                             insert_default=bool(self._config.get("tone_language")),
+                             clause_final_tone=self._config.get("clause_final_tone"),
+                             force_default=bool(self.force_compat
+                                                and self._config.get("compat_force_tone1")))
         # a PRIORITY stress (level 5, from a '' mark in the rules) dominates the word: the other
         # primaries reduce to secondary (da debutant d?eb'y''?&nt: y primary + ant priority ->
         # dʔebˌyˈant). Words with only ordinary primaries (eremitage 4,4) keep them all.
