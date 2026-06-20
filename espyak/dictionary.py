@@ -868,6 +868,13 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 vowel_stress[vowel_count - 1] = tonic
                 max_stress_posn = vowel_count - 1
 
+    # A $u (unstressed function word, dict flag 0x8) that carries the clause accent (so it was
+    # un-diminished to tonic above) keeps ONLY its primary: drop the auto-secondary espeak never adds
+    # to a function word (pt aquela ,,ak'el%%& -> ak'el%%&, estivemos; aquele=$alt2/menina keep theirs).
+    if (dict_flags & 0x8) and not unstressed_word:
+        for _v in range(1, vowel_count + 1):
+            if vowel_stress[_v] == STRESS_IS_SECONDARY:
+                vowel_stress[_v] = STRESS_IS_UNSTRESSED
     # produce output: walk phonetic, insert stress mnemonic before each vowel
     opt_length = getattr(tr, "it_lengthen", 0)  # LOPT_IT_LENGTHEN
     out = []
