@@ -913,10 +913,43 @@ class G2P:
             tg = self._switch_g2p(target)
             if tg is not None:
                 inner = tg._render_word(word, tonic, ipa, tie, separator)
+                # TranslateLetter (translateword.c): an isolated letter from a foreign alphabet that
+                # the current language neither owns (our_alphabet) nor aliases (alt_alphabet) and that
+                # isn't AL_DONT_NAME is preceded by the alphabet's spoken name (it cirillico: а ->
+                # tʃɪrˈillɪko(ru)ˈɑ(it)). Italian names Cyrillic but not Greek (AL_DONT_NAME); the name
+                # phonemes come from the language's own `_cyr` *_list entry.
+                prefix = self._foreign_alphabet_name(word, ipa, tie, separator)
                 # the return tag is the phoneme-table language (ms uses `phonemes id` -> (id))
-                return "(%s)%s(%s)" % (target, inner, self._ph_table_name)
+                return "%s(%s)%s(%s)" % (prefix, target, inner, self._ph_table_name)
             ph = ""
         return self._render_phonemes(ph, ipa, tie, separator)
+
+    # Foreign alphabets named before an isolated letter (TranslateLetter): map the unicode block to
+    # the *_list mnemonic key holding the spoken name. Only blocks WITHOUT AL_DONT_NAME are listed,
+    # since espeak skips the name for the others (it Greek = AL_DONT_NAME -> α stays ˈalfa).
+    _ALPHABET_NAME_KEY = ((0x400, 0x52f, "_cyr"),)
+
+    def _foreign_alphabet_name(self, word, ipa, tie, separator):
+        """The rendered alphabet-name prefix for an all-foreign-script word, or "". Gated to
+        languages whose config opts in (name_foreign_alphabet) and that own a matching *_list
+        name entry; Italian names Cyrillic letters (а -> tʃɪrˈillɪko(ru)…)."""
+        if not self._config.get("name_foreign_alphabet") or not word:
+            return ""
+        c = ord(word[0])
+        key = next((k for lo, hi, k in self._ALPHABET_NAME_KEY if lo <= c <= hi), None)
+        if key is None:
+            return ""
+        # only when the WHOLE token is in that one foreign block (a mixed token is handled elsewhere)
+        if not all(lo <= ord(ch) <= hi for ch in word for lo, hi, k in self._ALPHABET_NAME_KEY
+                   if k == key):
+            return ""
+        ctx = LookupContext(dict_condition=self._tr.dict_condition)
+        name_ph, _ = self._dict.lookup(key, ctx)
+        if not name_ph:
+            return ""
+        # render with the dict-entry flag reset: the name is its own little word
+        self._from_dict = False
+        return self._render_phonemes(name_ph, ipa=ipa, tie=tie, separator=separator)
 
     def _render_phonemes(self, ph, ipa, tie, separator):
         plist = encode_phoneme_string(ph, self.phoneme_table)

@@ -169,6 +169,7 @@ LANGS = {
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM_ONLY | K.S_PRIORITY_STRESS,
            "it_lengthen": 2,  # remove length from unstressed/non-penultimate
            "lopt_alt": True,  # ApplySpecialAttribute2: $alt/$alt2 shift the post-stress e<->E o<->O
+           "name_foreign_alphabet": True,  # TranslateLetter: name Cyrillic before the letter (cirillico)
            "reduce_dict_vowels": True},  # LOPT_REDUCE&1: reduce vowels even in it_list entries
     "sl": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž", "lopt_alt": True,
