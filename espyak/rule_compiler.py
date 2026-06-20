@@ -49,13 +49,15 @@ def _isspace2(c):
 
 
 class CompiledRule:
-    __slots__ = ("prog", "phonemes", "match_str", "sortkey")
+    __slots__ = ("prog", "phonemes", "match_str", "sortkey", "group_seq")
 
     def __init__(self, prog, phonemes, match_str):
         self.prog = prog            # bytes: instruction stream MatchRule walks
         self.phonemes = phonemes    # str: mnemonic phoneme string
         self.match_str = match_str  # str: the match letters incl. group name (debug/sort)
         self.sortkey = (phonemes, match_str)
+        self.group_seq = 0          # which .group block this rule came from (set by compile_file);
+        # a later block wins a same-match/context tie over an earlier one (bn's two .group এ)
 
     def __repr__(self):
         return "CompiledRule(match=%r, ph=%r)" % (self.match_str, self.phonemes)
@@ -382,6 +384,7 @@ class RuleSet:
         group_raw = False
         group_rules = []
         mode = 0  # 0=none, 1=group, 2=replace
+        group_seq = 0  # incremented per .group declaration (later block wins same-trigger ties)
 
         def finish_group():
             if group_rules:
@@ -411,11 +414,13 @@ class RuleSet:
                         mode = 2
                     elif line.startswith(".group"):
                         mode = 1
+                        group_seq += 1
                         group_name, group_raw = rs._parse_group_name(line[6:])
                     continue
                 if mode == 1:
                     cr = compile_rule(line, group_name, group_raw)
                     if cr is not None:
+                        cr.group_seq = group_seq
                         group_rules.append(cr)
                 elif mode == 2:
                     rs._parse_replace(line)

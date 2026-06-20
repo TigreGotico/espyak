@@ -168,8 +168,11 @@ class G2P:
         code = {m: i for i, m in enumerate(self.phoneme_table.phonemes)}
         tok = self._mnem.tokenize
 
+        # group_seq leads the key: it's constant within a single .group block (so this is identical
+        # to the plain code sort there), but when one match group is fed by TWO .group blocks (bn's
+        # duplicate .group এ: এ->& then এ->e), the later block sorts last and wins the >= tie-break.
         def key(rule):
-            return ([code.get(m, 0xffff) for m, _ in tok(rule.phonemes)], rule.match_str)
+            return (rule.group_seq, [code.get(m, 0xffff) for m, _ in tok(rule.phonemes)], rule.match_str)
         for d in (self._rules.groups1, self._rules.groups2, self._rules.groups3):
             for rules in d.values():
                 rules.sort(key=key)
