@@ -188,6 +188,15 @@ LANGS = {
            "extra_vowels": "əıöü", "extra_consonants": "çğş"},
     "kk": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
     "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş"},
+    # Farsi keeps the 2R default stress/flags, but tr_languages.c case L('f','a') swaps the
+    # default chars_ignore table for chars_ignore_zwnj_hyphen (readclause.c IgnoreOrReplaceChar):
+    # U+0640 TATWEEL is dropped, and — unlike every other language, which deletes it — U+200C
+    # ZERO WIDTH NON-JOINER is rewritten to '-'. The hyphen then splits the run (translate.c:
+    # "'-' between two letters is a hyphen, treat as a space"), so an abbreviation written with a
+    # ZWNJ (ق‌ظ) is spelled letter-by-letter (qˈɑf zˈɑ) rather than matching the dictionary alias
+    # — only the dot-spelled form (ق.ظ) hits the alias. `chars_ignore` maps codepoint -> "" (drop)
+    # or replacement string, applied to the input text in phonemize().
+    "fa": {"chars_ignore": {0x00AD: "", 0x0640: "", 0x200C: "-"}},
     # Welsh: $u function words reduce (clear y -> obscure: fy -> vˈø not vˈɨː); default 2R suits
     # the penultimate stress, so only the $u-reduction flag is needed.
     "cy": {"unstress_u_words": True, "extra_vowels": "wy"},  # Welsh: w and y are vowels

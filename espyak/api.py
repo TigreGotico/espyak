@@ -748,6 +748,10 @@ class G2P:
         # a '/' is a word break that is itself spoken as its character name (ca a/e -> a barra e,
         # en a/b -> a slash b), so isolate it as its own token.
         _trans[ord("/")] = " / "
+        # language chars_ignore table (tr_languages.c / readclause.c IgnoreOrReplaceChar): drop or
+        # replace input codepoints before tokenising. fa rewrites U+200C (ZWNJ) to '-' and drops
+        # U+0640 (TATWEEL); this is espeak's real behaviour, so it applies in both modes.
+        _trans.update(self._config.get("chars_ignore", {}))
         text = text.translate(_trans)
         words = []
         for raw_tok in text.split():
