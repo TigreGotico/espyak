@@ -723,6 +723,11 @@ class G2P:
             import re as _re
             result = _re.sub(r"([jɕ]h?[ˈˌ]?)ua", r"\1yæ", result)
             result = _re.sub(r"([jɕ]h?[ˈˌ]?)u", r"\1y", result)
+        if ipa and self._config.get("coda_trill_r"):
+            # bn র is the tap ɾ prevocalically and word-finally; before a consonant (syllable coda)
+            # it is the trill r (ধর্ম -> dʰɔrmɔ). Promote ɾ -> r only when a consonant follows.
+            import re as _re
+            result = _re.sub(r"ɾ(?=[ˈˌ]?m)", "r", result)
         return result
 
     _EN_FALLBACK = None
