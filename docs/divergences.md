@@ -42,7 +42,12 @@ keeps the marks and applies their tones. The bug is reproduced only under `force
 `compat_separators: "ႇႈႉႊ"`, which turns those four chars into word separators before
 tokenization, so the syllable splits and the bare vowel drops.
 
-**Not yet replicable (separate espeak shn quirk):** espeak renders some long vowels (ɛ, ɔ —
-phonemes with an explicit `ipa` and `length 200`) as a doubled vowel with the tone absorbed
-(ၵႄ → `kɛɛ`, not `kˈɛ1`). That `--ipa` length/tone rendering is not yet mirrored; those remain
-`force_compat` mismatches.
+**Long-vowel tone rendering (replicated):** espeak's `--ipa` renders the tone after a vowel
+that has an explicit `ipa` string as a COPY of that vowel — ၵႄ → `kˈɛɛ`, ၵၢ → `kaːaː`,
+ၵႆ → `kˈəiəi` — while short/mnemonic vowels (no ipa: a/i/u) keep the tone digit (ၵႃ → `kˈa1`).
+`force_compat` reproduces this via `compat_long_vowel_tone` (`_shn_long_vowel_tone_copy`); the
+default engine keeps the correct tone digit.
+
+**Not yet replicable (remaining shn quirk):** some shn words trigger an English language-switch
+in espeak, producing garbled mixed output (e.g. ၵိုဝ်း → a long spurious English run). That is
+not mirrored; those remain `force_compat` mismatches.
