@@ -642,6 +642,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             max_stress = STRESS_IS_PRIMARY
             if vowel_count > 2:
                 stressed_syllable = vowel_count - 2
+                # S_FINAL_SPANISH (dictionary.c:1055): a word ending in a consonant other than -s/-n
+                # takes final stress (ca/es animal -> animˈal, papel -> papˈel); a -Vs/-Vn ending
+                # (plurals, verb forms) keeps the penult, but -Cs/-Cn (consonant before) goes final.
+                if (stressflags & K.S_FINAL_SPANISH) and phonetic and not _ph_is_vowel(phonetic[-1][1]):
+                    last_mnem = phonetic[-1][0]
+                    pre_vowel = len(phonetic) >= 2 and _ph_is_vowel(phonetic[-2][1])
+                    if (last_mnem not in ("s", "n")) or not pre_vowel:
+                        stressed_syllable = vowel_count - 1
                 if vowel_stress[stressed_syllable] in (STRESS_IS_DIMINISHED, STRESS_IS_UNSTRESSED):
                     stressed_syllable = stressed_syllable - 1 if stressed_syllable > 1 else stressed_syllable + 1
             else:
