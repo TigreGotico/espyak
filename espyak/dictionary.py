@@ -331,6 +331,11 @@ class DictList:
         """
         self._last_accent = False
         entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+        if not entries and len(word) == 2 and word[1] == ":":
+            # smj writes long-vowel letter names with a redundant length colon (A: is the long-A
+            # letter name ɑː); the dict keys it under the bare letter (A -> A:). A CamelCase split
+            # yields the bare "A:" token, which otherwise misses the dict and reads as a short vowel.
+            entries = self.words.get(word[0].lower()) or self.words.get(_nfc(word[0].lower()))
         if not entries:
             return None, None
         for entry in reversed(entries):
