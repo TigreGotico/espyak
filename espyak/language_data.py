@@ -352,6 +352,7 @@ def _ar_codes(s):
 
 
 LANGS["ar"] = {
+    "compound_first_stress": True,  # 2-word unit abbreviations (كغ = kilo gram) stress the first
     # Arabic stress is antepenultimate with an auto-secondary on the final (ذلك ->
     # ðˈaːlikˌa, الذين -> ʔallˈaðiːnˌa): STRESSPOSN_3R matches the oracle. (espeak reaches
     # this via the weight logic inside its default 2R; 3R is the faithful approximation.)

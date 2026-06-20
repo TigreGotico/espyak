@@ -293,6 +293,9 @@ class G2P:
                 if "'" in p or "," in p:
                     return -1
                 if is_last and not has_primary:
+                    if self._config.get("compound_first_stress") and len(parts) == 2:
+                        return 3  # ar compound unit (كغ = kilu:||gHra:m): nucleus is the FIRST
+                        # element, so the last part takes a secondary (kˈiluː ɣɹˌaːm).
                     return tonic
                 # an unmarked part FLANKED by explicit primaries takes a secondary (ms dymm
                 # d'uli||jang||mah'a||m'uli@ -> the bare jang -> jˌanɡ); an EDGE unmarked part
