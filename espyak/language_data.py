@@ -165,9 +165,9 @@ LANGS = {
            "stress_flags": K.S_NO_AUTO_2},
     "lt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "extra_vowels": "ąęėįųū", "extra_consonants": "čšž"},
-    "az": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
+    "az": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
            "extra_vowels": "əıöü", "extra_consonants": "çğş"},
-    "kk": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
+    "kk": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
     "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş"},
     # Welsh: $u function words reduce (clear y -> obscure: fy -> vˈø not vˈɨː); default 2R suits
     # the penultimate stress, so only the $u-reduction flag is needed.
@@ -182,7 +182,7 @@ LANGS = {
            "extra_vowels": "ăâîșț"},
     "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ",  # antepenultimate
            "unstress_u_words": True},  # $u function words reduce despite the clause accent
-    "eu": {"stress_rule": K.STRESSPOSN_EU,  # Basque: primary 2nd syllable, secondary last
+    "eu": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_EU,  # Basque: primary 2nd syllable, secondary last
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ"},
     "vi": {"stress_rule": K.STRESSPOSN_1L, "unstressed_wd1": 2, "unstressed_wd2": 2,
            "tonic_stress": 3, "tone_language": 1,  # secondary stress + default-tone pass
