@@ -558,9 +558,14 @@ def get_vowel_stress(toks, stressed_syllable=0):
             # digit-named phStress phonemes are tone marks (Vietnamese 1-7), not stress
             # markers — keep them in the phonetic stream rather than consuming them.
             if mnem == "=":
-                # phonSTRESS_PREV: place primary stress on the PRECEDING stressable vowel
+                # phonSTRESS_PREV: place primary stress on the PRECEDING stressable vowel — but it must
+                # not override a lexical accent (PRIORITY stress). pt símbolo (s''imbol=U): the accented
+                # í is priority, so = is suppressed (else it stresses the unstressed 'o' -> sˈimbˌolʊ,
+                # blocking o->u; correct is sˈimbulʊ). But = DOES move an ordinary PRIMARY to the suffix,
+                # demoting the earlier one to secondary: da defektrice (def'?Egtri=s@-) -> defˌεɡtʁˈisə.
                 j = count - 1
-                while (j > 0) and (stressed_syllable == 0) and (vowel_stress[j] < STRESS_IS_PRIMARY):
+                while (j > 0) and (stressed_syllable == 0) and (max_stress < STRESS_IS_PRIORITY) \
+                        and (vowel_stress[j] < STRESS_IS_PRIMARY):
                     if vowel_stress[j] not in (STRESS_IS_DIMINISHED, STRESS_IS_UNSTRESSED):
                         vowel_stress[j] = STRESS_IS_PRIMARY
                         if max_stress < STRESS_IS_PRIMARY:
