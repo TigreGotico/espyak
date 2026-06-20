@@ -667,7 +667,9 @@ class G2P:
         # stem only (espeak stresses the stem, then appends the suffix unstressed). Only when
         # there is a real stem — some endings span the whole word (stem empty, e.g. en
         # "house"), where the "suffix" vowels ARE the word and must keep their stress.
-        if stem_ph.strip("\"'"):
+        # `suffix_keeps_stress` langs (eu) instead stress the whole stem+suffix word, so the
+        # suffix vowels are NOT excluded (translateword.c stresses `phonemes` with the suffix in it).
+        if stem_ph.strip("\"'") and not self._config.get("suffix_keeps_stress"):
             self._suffix_nvowels = sum(1 for _m, p in self._mnem.tokenize(end_ph)
                                        if p.type == phVOWEL and "nonsyllabic" not in p.flags)
         return stem_ph + end_ph

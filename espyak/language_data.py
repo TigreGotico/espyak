@@ -195,7 +195,13 @@ LANGS = {
     "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ",  # antepenultimate
            "unstress_u_words": True},  # $u function words reduce despite the clause accent
     "eu": {"spirantize": True, "param_suffix": 1, "stress_rule": K.STRESSPOSN_EU,  # Basque: primary 2nd syllable, secondary last
-           "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ"},
+           "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ",
+           # espeak runs SetWordStress over the whole word (stem+suffix already concatenated,
+           # translateword.c:578), so a removed suffix's vowels stay in the auto-secondary pass
+           # (abako -> ˈaβakˌo, secondary on the suffix -o); don't exclude them as the ro stem-only
+           # path does. And a 3+-syllable $u word taking the clause accent moves it to the last
+           # syllable, its 2nd-syllable accent dropping to secondary (etarako -> etˌaɾakˈo).
+           "suffix_keeps_stress": True, "u_clause_final": True},
     "vi": {"stress_rule": K.STRESSPOSN_1L, "unstressed_wd1": 2, "unstressed_wd2": 2,
            "tonic_stress": 4, "clause_final_tone": "7", "u_tonic": 3, "tone_language": 1,  # vi: a content word takes
            # PRIMARY stress (ba ba -> bˈaː1 bˈaː7); the clause-final ngang syllable is tone 7 (its
