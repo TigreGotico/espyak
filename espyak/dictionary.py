@@ -37,6 +37,11 @@ def _nfc(s):
 
 REPLACED_E = ord("E")
 
+# Myanmar format/break marks that espeak's tokenizer treats as separators (the dot-below ့,
+# virama ္, and asat ်): when isolated they render to NOTHING — espeak never reaches its
+# codepoint-spelling TranslateLetter for them — so they are excluded from compat_spell_codepoint.
+_SPELL_CODEPOINT_SKIP = frozenset((0x1037, 0x1039, 0x103A))
+
 # remove_accent[] (dictionary.c:66), indexed by codepoint-0xC0: the 7-bit base letter an
 # accented char reduces to. espeak, on finding no rule for a letter, substitutes this base
 # and re-translates the word (dictionary.c:2228). Covers 0xC0..0x25D.
@@ -1660,11 +1665,13 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
     tr.word_stressed_count = 0
     any_alpha = 0
 
+    prev_letter = None       # (source char, phonemes-length before it) — for the spell re-lookup
     while p < len(buf) and buf[p] not in (0, ord(" ")):
         wc, wc_bytes = _utf8_in(buf, p)
         if is_alpha(wc):
             any_alpha += 1
         c = buf[p]
+        _phon_len_before = len(phonemes)
 
         if is_digit(wc):
             # tonal languages map a tone digit to a tone phoneme via the rules (cmn 3 -> 214 in the
@@ -1739,6 +1746,38 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                     # unrecognised character: skip it
                     p += (wc_bytes - 1)
 
+        # A character with NO rule match (in any group) that is non-alphabetic and non-combining
+        # is spelled IN PLACE by its Unicode codepoint name (espeak's LookupLetter,
+        # dictionary.c:2277): a Myanmar medial ွ U+103D / ှ U+103E or the visarga း U+1038 whose
+        # .group rule only fires before an L02 letter and so produces nothing here. Emit a sentinel
+        # carrying the codepoint; _render_phonemes replaces it with the in-band (en)…(shn)…
+        # spelling. Gated per-language (compat_spell_codepoint) and to the script's Unicode block.
+        if match1 is not None and match1.points == 0:
+            cfg = getattr(tr, "config", None) or {}
+            blk = cfg.get("compat_spell_codepoint")
+            # espeak spells such a character only when it is NOT word-final after a pronounced
+            # consonant: a medial/visarga that ends the word is silently dropped (ၵွ -> k), but
+            # one with more letters after it is spelled in place (ၵွၵ -> k <103D> k). A character
+            # that is the WHOLE word (no prior phonemes) is always spelled (ေ -> <1031>).
+            more_follows = bytes(buf[p_start + wc_bytes:end]).strip(b" ") != b""
+            if (blk and not is_alpha(wc) and not (0x300 <= wc <= 0x36f)
+                    and blk[0] <= wc <= blk[1]
+                    and wc not in _SPELL_CODEPOINT_SKIP
+                    and (more_follows or not phonemes)):
+                from espyak.api import _spell_cp_sentinel
+                # espeak re-translates the consonant immediately before a spelled letter via its
+                # DICTIONARY entry, not the rules (the SpeakIndividualLetters path): shn ၸ is the
+                # rule `tS;` (tɕ) but the dict entry `tS` (tʃ), and the dict wins beside a spell
+                # (ၸွၵ -> tʃ <103D> k, not tɕ …). Replace the previous letter's rule output with
+                # its dict entry when they differ.
+                if prev_letter is not None:
+                    prev_ch, prev_len = prev_letter
+                    dph, _dfl = tr.dict.lookup(prev_ch, LookupContext()) if tr.dict else (None, None)
+                    if dph and phonemes[prev_len:] and dph != phonemes[prev_len:]:
+                        phonemes = phonemes[:prev_len] + dph
+                phonemes = phonemes + _spell_cp_sentinel(wc)
+                prev_letter = None
+
         if match1 is None or match1.phonemes is None:
             continue
         if match1.points > 0:
@@ -1755,6 +1794,14 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                 # rewrite the marked forward 'e' to REPLACED_E so a later group skips it
                 # (dictionary.c:2322-2323; English silent-e).
                 buf[match1.del_fwd] = REPLACED_E
+            # remember this single source letter and where its phonemes start, so a following
+            # spelled codepoint can re-translate it via the dict (see the spell block above).
+            if match1.phonemes:
+                try:
+                    src_char = bytes(buf[p_start:p_start + wc_bytes]).decode("utf-8")
+                    prev_letter = (src_char, _phon_len_before)
+                except (UnicodeDecodeError, ValueError):
+                    prev_letter = None
             phonemes = _append(tr, phonemes, match1.phonemes, mnem_index)
 
     return phonemes, 0, ""

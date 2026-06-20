@@ -131,12 +131,37 @@ def _shn_long_vowel_tone_copy(plist):
             ent.ipa_override = vipa
 
 
-# The constant codepoint-spelling espeak produces for an orphaned visarga း (U+1038) in shn:
-# TranslateLetter names the Myanmar alphabet (en-switched "mjˈɑː1nmɑːɑː", with the shn tone-copy
-# applied to the switched English consonants), then the literal "letter" (shn-encoded "l'et@" ->
-# lˈe1təən) and the codepoint's hex digits 1/0/3/8 via the shn _0.._9 / _a.._f letter names
-# (ˈɛɛŋ / sˈo1n / sˈaːaːm / pˈɛɛt). The whole run is invariant for U+1038, so it is a literal.
-_SHN_VISARGA_SPELLED = "(en)mjˈɑː1nmɑːɑː(shn)lˈe1təənˈɛɛŋsˈo1nsˈaːaːmpˈɛɛt"
+# In-band codepoint spelling (espeak's TranslateLetter, translateword.c:786). When a
+# language's letter-to-sound rules can't translate a non-alphabetic character (a Myanmar
+# medial ွ U+103D / ှ U+103E, the visarga း U+1038, ...), espeak does NOT drop it: it spells
+# the character by its Unicode codepoint name *in place* on the shared ph_list2 buffer
+# (dictionary.c:2277 `LookupLetter`). The spelled run is
+#   (en)<alphabet name>(shn)<"letter"><hex-digit names>
+# where the alphabet name (_my -> en "Myanmar") is rendered with the DEFAULT (en) voice via an
+# in-band phonSWITCH, "letter" (l'et@) and the four hex-digit names come from shn's own _0.._9
+# (the a-f hex letters fall back to the English `hex_letters` mnemonics, read with shn's table),
+# and crucially the SOURCE language's render-time post-passes — shn's force-tone-1 default and the
+# `_shn_long_vowel_tone_copy` bug — run ACROSS the switch boundary onto the English phonemes
+# (mjˈɑː -> mjˈɑː1, A@ -> ɑːɑː). The result is invariant for a given codepoint, so it is cached.
+
+# espeak hex_letters[] (translateword.c:775): English a-f names, read with the source phoneme table
+_HEX_LETTERS = {"a": "'e:j", "b": "b'i:", "c": "s'i:", "d": "d'i:", "e": "'i:", "f": "'ef"}
+
+# sentinel wrapping a codepoint that translate_rules could not pronounce and that espeak spells
+# in place (\x01<hex>\x02). It survives stress assignment (no vowels) and is replaced by the
+# rendered codepoint-spelling in _render_phonemes — the carrier for the in-band phonSWITCH.
+_SPELL_CP_OPEN = "\x01"
+_SPELL_CP_CLOSE = "\x02"
+
+
+def _spell_cp_sentinel(cp):
+    return _SPELL_CP_OPEN + format(cp, "x") + _SPELL_CP_CLOSE
+
+
+def _re_tone_after_length(s):
+    # a tone digit immediately before the length mark ː -> after it (sˈi2ː -> sˈiː2)
+    import re
+    return re.sub(r"([0-9])(ː)", r"\2\1", s)
 
 
 def _double_long_consonants(plist, double_rfx_stop=False):
@@ -330,6 +355,23 @@ class G2P:
         self._spelled = False     # set by _translate_core for a $abbrev spelled-out word
         self._textmode_empty = False  # a $text->spell word that loops to '' (mto english)
         ph, flags = self._translate_core(word.lower(), ctx)
+        if _SPELL_CP_OPEN in ph:
+            # the rules emitted an in-band codepoint-spelling sentinel (\x01<hex>\x02) for a
+            # character they could not pronounce (a Myanmar medial / visarga). Stress the ordinary
+            # phonemes around it separately and keep the sentinel intact for _render_phonemes;
+            # the spelled run carries its own spelling stress (SetSpellingStress) so it must not be
+            # fed through set_word_stress (which strips the control bytes and would lose it).
+            import re as _re
+            parts = _re.split(r"(\x01[0-9a-f]+\x02)", ph)
+            out = []
+            last = len(parts) - 1
+            for i, part in enumerate(parts):
+                if part.startswith(_SPELL_CP_OPEN):
+                    out.append(part)
+                elif part:
+                    out.append(set_word_stress(self._tr, part, self._mnem, dict_flags=flags,
+                                               tonic=(tonic if i == last else -1)))
+            return "".join(out)
         if self._spelled:
             # a spelled-out abbreviation is already stressed by _join_spelled (SetSpellingStress);
             # don't re-run set_word_stress, which would put the clause tonic on the last sub-word
@@ -850,7 +892,12 @@ class G2P:
                 # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
                 tonic = self._config.get("u_tonic")
             if out and not nospace:
-                out.append(" ")
+                # a preceding empty token (a Burmese break mark: asat ်, dot ့) leaves a trailing
+                # separator already; don't add a second one (espeak emits no double space). The
+                # empty token itself appends "", so scan back past empties to the real last item.
+                _last = next((x for x in reversed(out) if x != ""), None)
+                if _last != " ":
+                    out.append(" ")
             caps_stress = 0
             if self._config.get("caps_in_word") and word != word.lower():
                 # Lojban: a capital marks the stressed syllable (espeak inserts ˈ before the
@@ -885,14 +932,17 @@ class G2P:
                     rendered = "(en)" + en_ph + "(" + self.lang + ")"
             if (not rendered and word == "း" and self.force_compat
                     and self._config.get("compat_spell_orphan_visarga")):
-                # shn: a visarga း orphaned by the asat split renders empty here, but espeak's
-                # TranslateLetter spells its codepoint "Myanmar letter 1038" — a CONSTANT garbage run
-                # ((en)<Myanmar alphabet name>(shn)"letter"<hex-digit names> = …pˈɛɛt for the final 8).
-                # The preceding empty break token (asat) already left a trailing space in `out`; drop
-                # it so the garbage joins with a single separator (espeak emits no double space).
-                rendered = _SHN_VISARGA_SPELLED
-                if out and out[-1] == " ":
+                # shn: a visarga း orphaned by the asat split renders empty here (it is its own
+                # token, no surrounding syllable for the rules to attach it to), but espeak's
+                # TranslateLetter still spells its codepoint "Myanmar letter 1038" in place. Use the
+                # same in-band codepoint speller as the mid-word case. The preceding empty break
+                # token (asat) already left a trailing space in `out`; drop it so the spelled run
+                # joins with a single separator (espeak emits no double space).
+                rendered = self._spell_codepoint_inband(ord("း"), ipa, tie, separator)
+                while out and out[-1] in (" ", ""):
                     out.pop()
+                if out:
+                    out.append(" ")  # exactly one separator before the spelled visarga
             out.append(rendered)
         # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
         # separator space; espeak emits none, so trim it.
@@ -1058,7 +1108,94 @@ class G2P:
         self._from_dict = False
         return self._render_phonemes(name_ph, ipa=ipa, tie=tie, separator=separator)
 
+    _SPELL_CACHE = {}
+
+    def _spell_codepoint_inband(self, cp, ipa, tie, separator):
+        """Port of TranslateLetter (translateword.c:786) for an untranslatable codepoint.
+
+        Builds the in-band phonSWITCH spelling on a SHARED phoneme list: the alphabet name
+        ``_my`` is rendered with the default (en) voice's phoneme table, the literal "letter"
+        (l'et@) and the four hex-digit names come from the source language, and the source
+        language's render-time post-passes (shn's force-tone-1 default + ``_shn_long_vowel_tone_copy``)
+        run ACROSS the en/shn boundary so the English consonants pick up shn's tone copy
+        (mjˈɑː -> mjˈɑː1, A@ -> ɑːɑː). The ``(en)…(shn)…`` switch markers are emitted by the
+        IPA writer exactly as espeak's GetTranslatedPhonemeString does for a phonSWITCH phoneme.
+
+        The result is invariant for a given codepoint (independent of surrounding context), so
+        it is cached per ``(cp, ipa, tie, separator)``.
+        """
+        ckey = (self.lang, cp, ipa, tie, separator)
+        cached = G2P._SPELL_CACHE.get(ckey)
+        if cached is not None:
+            return cached
+        en = self._en_fallback()
+        # the alphabet name (_my) is spoken by the default English voice; the hex-letter
+        # fallback (a-f) is the English `hex_letters` mnemonic read with the SOURCE table.
+        segs = [("en", en, "mj'A:nmA@")]                         # (en) "Myanmar"
+        segs.append((self._ph_table_name, self, "l'et@"))         # (shn) "letter"
+        for ch in format(cp, "x"):
+            if ch.isdigit():
+                ph, _ = self._dict.lookup("_" + ch, LookupContext())
+                segs.append((self._ph_table_name, self, ph or ("_" + ch)))
+            else:
+                # a-f: read the English hex-letter mnemonic with the SOURCE phoneme table (no switch)
+                segs.append((self._ph_table_name, self, _HEX_LETTERS[ch]))
+        out = []
+        cur = self._ph_table_name
+        for tag, g2p, mnem in segs:
+            text = self._render_spelled_segment(g2p, mnem, ipa, tie, separator)
+            if tag != cur:
+                out.append("(%s)" % tag)
+                cur = tag
+            out.append(text)
+        if cur != self._ph_table_name:
+            out.append("(%s)" % self._ph_table_name)
+        result = "".join(out)
+        G2P._SPELL_CACHE[ckey] = result
+        return result
+
+    def _render_spelled_segment(self, g2p, mnem, ipa, tie, separator):
+        """Render one spelled letter-name segment, applying THIS (source) language's tone
+        post-passes (the cross-boundary effect) but using ``g2p``'s phoneme table for the
+        segment's own phonemes (the in-band switch)."""
+        table = g2p.phoneme_table
+        stressed = set_word_stress(g2p._tr, mnem, g2p._mnem, tonic=4)
+        plist = encode_phoneme_string(stressed, table)
+        g2p._interp._translation_given = False
+        g2p._interp.run(plist)
+        _double_long_consonants(plist)
+        # the source language's tone normalization runs across the switch: every toneless
+        # nucleus gets the default tone 1, explicit tones are kept. Unlike a normal shn word
+        # this is NOT the force_compat tone-1 discard (these are pre-built letter names whose
+        # tones espeak keeps) — so insert_default but force_default=False.
+        if self._config.get("tone_language"):
+            _normalize_tones(plist, self.phoneme_table, insert_default=True, force_default=False)
+        if self.force_compat and self._config.get("compat_long_vowel_tone"):
+            _shn_long_vowel_tone_copy(plist)
+        out = render_phoneme_list(plist, table, ipa=ipa, tie=tie, separator=separator)
+        # espeak's order for a lengthened toned letter name is vowel + length + tone
+        # (si:2 -> sˈiː2, d'i: -> dˈiː1); the renderer's _reorder_tones puts the tone right after
+        # the vowel (before the length ː), so swap a tone-digit immediately before a ː back after it.
+        return _re_tone_after_length(out)
+
     def _render_phonemes(self, ph, ipa, tie, separator):
+        if _SPELL_CP_OPEN in ph:
+            # the phoneme string carries one or more in-band codepoint-spelling sentinels
+            # (\x01<hex>\x02): a Myanmar character the rules could not pronounce. espeak spells
+            # it in place on the shared buffer with a phonSWITCH; the spelled run is its own
+            # spoken letter sequence, set off from the surrounding phonemes by a space on each
+            # side (espeak's SetSpellingStress pause / word boundary). Split, render the ordinary
+            # phonemes around it, and splice the cached spelling between.
+            import re as _re
+            parts = _re.split(r"\x01([0-9a-f]+)\x02", ph)
+            out = []
+            for k, part in enumerate(parts):
+                if k % 2 == 1:
+                    spelled = self._spell_codepoint_inband(int(part, 16), ipa, tie, separator)
+                    out.append(" " + spelled + " ")
+                elif part:
+                    out.append(self._render_phonemes(part, ipa, tie, separator))
+            return "".join(out).strip(" ")
         plist = encode_phoneme_string(ph, self.phoneme_table)
         if getattr(self, "_from_dict", False) and not self._config.get("reduce_dict_vowels"):
             # dict-entry phonemes: skip stress-condition reductions (espeak's SFLAG_DICTIONARY)
