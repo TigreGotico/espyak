@@ -1438,6 +1438,11 @@ def _unpronounceable(tr, word):
             return False
         if ch != "'" and not ch.isalpha():
             return False
+        if ord(ch) >= 0x250:
+            # a non-Latin letter (Cyrillic/Greek/Indic/...) whose native vowels aren't in the Latin
+            # vowel set — not a Latin acronym. Guards languages that don't set letter_bits_offset
+            # (ky/mk/nog/ba are Cyrillic but leave it unset, so the offset check alone misses them).
+            return False
     return True
 
 
