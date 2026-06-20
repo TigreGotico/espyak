@@ -51,7 +51,7 @@ from espyak.render import PhonemeListEntry
 _DOUBLE_TYPES = frozenset((phFRICATIVE, phVFRICATIVE, phNASAL, phLIQUID))
 
 
-def _normalize_tones(plist, table, insert_default=True, force_default=False):
+def _normalize_tones(plist, table, insert_default=True, force_default=False, clause_final_tone=None):
     """Tone language (vi): every syllable carries a tone immediately after its vowel.
     Move an existing tone (digit phoneme) to right after the vowel, or insert the default
     tone '1' (phonDEFAULTTONE) if the syllable has none. With ``insert_default=False`` (my:
@@ -60,6 +60,11 @@ def _normalize_tones(plist, table, insert_default=True, force_default=False):
     produce and gives EVERY syllable the default tone 1 — ၵႃႇ/ၵႃႈ/ၵႃႉ all render kˈa1, not kˈa2/3/5.
     We replicate that (parity, bug included): drop the mark-derived tones, insert default 1."""
     default = table.get("1")
+    # vi: the LAST vowel of the clause (here, the word) carries the end-of-clause ngang tone 7 when
+    # it would otherwise take the default tone 1 (ba -> bˈaː7, but ba ba -> bˈaː1 bˈaː7).
+    _final_default = table.get(clause_final_tone) if clause_final_tone else None
+    _last_vowel = next((k for k in range(len(plist) - 1, -1, -1)
+                        if plist[k].ph.type == phVOWEL and not plist[k].deleted), None)
     # A tone that is the word's FIRST phoneme is orphaned — a Burmese visarga split from its
     # syllable by the asat word-break (း…စာကို -> 2stskˈo). Move it to after the word's last
     # vowel (stskˈo2). (A tone after the vowel, e.g. i1 then visarga 2 in i12, is not first, so
@@ -94,7 +99,11 @@ def _normalize_tones(plist, table, insert_default=True, force_default=False):
                 if tone_at != i + 1:
                     plist.insert(i + 1, plist.pop(tone_at))  # move kept tone after the vowel
             elif insert_default and default is not None:
-                plist.insert(i + 1, PhonemeListEntry(default))
+                # the clause-final ngang tone (vi 7) only on a PRIMARY-stressed final syllable: a $u
+                # function word stays secondary and keeps the plain tone 1 (cho -> tʃˌɔ1, ba -> bˈaː7)
+                _d = (_final_default if (_final_default is not None and i == _last_vowel
+                                         and plist[i].stresslevel >= 4) else default)
+                plist.insert(i + 1, PhonemeListEntry(_d))
             i += 1  # skip the tone we just placed
         i += 1
 
@@ -669,6 +678,11 @@ class G2P:
             # tonic word carries the clause stress; tone languages (vi) reduce it to
             # secondary since the tone, not stress, carries syllable prominence.
             tonic = self._config.get("tonic_stress", 4) if i == len(words) - 1 else -1
+            if (tonic >= 0 and self._config.get("u_tonic") is not None
+                    and (self._dict.lookup_flags(word) & 0x8)):
+                # vi: a $u function word as the clause nucleus stays SECONDARY (cho -> tʃˌɔ), unlike a
+                # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
+                tonic = self._config.get("u_tonic")
             if out and not nospace:
                 out.append(" ")
             caps_stress = 0
@@ -861,7 +875,8 @@ class G2P:
             _normalize_tones(plist, self.phoneme_table,
                              insert_default=bool(self._config.get("tone_language")
                                                  or self._config.get("force_tone1")),
-                             force_default=bool(self._config.get("force_tone1")))
+                             force_default=bool(self._config.get("force_tone1")),
+                             clause_final_tone=self._config.get("clause_final_tone"))
         # a PRIORITY stress (level 5, from a '' mark in the rules) dominates the word: the other
         # primaries reduce to secondary (da debutant d?eb'y''?&nt: y primary + ant priority ->
         # dʔebˌyˈant). Words with only ordinary primaries (eremitage 4,4) keep them all.

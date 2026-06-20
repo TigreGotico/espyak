@@ -185,7 +185,9 @@ LANGS = {
     "eu": {"spirantize": True, "param_suffix": 1, "stress_rule": K.STRESSPOSN_EU,  # Basque: primary 2nd syllable, secondary last
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ"},
     "vi": {"stress_rule": K.STRESSPOSN_1L, "unstressed_wd1": 2, "unstressed_wd2": 2,
-           "tonic_stress": 3, "tone_language": 1,  # secondary stress + default-tone pass
+           "tonic_stress": 4, "clause_final_tone": "7", "u_tonic": 3, "tone_language": 1,  # vi: a content word takes
+           # PRIMARY stress (ba ba -> bˈaː1 bˈaː7); the clause-final ngang syllable is tone 7 (its
+           # end-of-clause variant, ph_vietnam phoneme 7), other ngang syllables the default tone 1
            # all tone-marked vowels are vowels (espeak vowels_vi[]) so glide rules fire
            # (o before a vowel -> w: hoặc -> hwˌa6c)
            "vowels_override": "aàáảãạăằắẳẵặâầấẩẫậeèéẻẽẹêềếểễệiìíỉĩịoòóỏõọôồốổỗộơờớởỡợuùúủũụưừứửữựyỳýỷỹỵ"},
