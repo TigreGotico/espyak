@@ -702,7 +702,8 @@ class G2P:
             tg = self._switch_g2p(target)
             if tg is not None:
                 inner = tg._render_word(word, tonic, ipa, tie, separator)
-                return "(%s)%s(%s)" % (target, inner, self.lang)
+                # the return tag is the phoneme-table language (ms uses `phonemes id` -> (id))
+                return "(%s)%s(%s)" % (target, inner, self._ph_table_name)
             ph = ""
         return self._render_phonemes(ph, ipa, tie, separator)
 
