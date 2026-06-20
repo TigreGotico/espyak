@@ -717,6 +717,12 @@ class G2P:
             # verein -> fɛɾaɪn, ChangePhoneme(R)), or a non-prevocalic position (tür -> tyːɾ) keep ɾ.
             import re as _re
             result = _re.sub(r"(?<![ptkbdɡgaɑeɛiɪoɔuʊyʏøœəɐː])ɾ(?=[ˈˌ]?[aɑeɛiɪoɔuʊyʏøœəɐ])", "r", result)
+        if ipa and self._config.get("palatal_u_to_y"):
+            # pinyin ü: after a palatal initial (j/q/x = j/ɕ/tɕ/tɕh) the written 'u' is /y/, and in
+            # -üan the 'a' is /æ/ (juan -> jyæn, xun -> ɕyən). espyak rendered it as plain u.
+            import re as _re
+            result = _re.sub(r"([jɕ]h?[ˈˌ]?)ua", r"\1yæ", result)
+            result = _re.sub(r"([jɕ]h?[ˈˌ]?)u", r"\1y", result)
         return result
 
     _EN_FALLBACK = None

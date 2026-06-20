@@ -271,6 +271,7 @@ LANGS["jbo"] = {"stress_rule": K.STRESSPOSN_2R, "caps_in_word": True, "extra_vow
 # Burmese is tonal: collapse a syllable's inherent tone + explicit tone marker to the explicit
 # one (ī gives i1, visarga း gives 2 -> i2, not i12).
 LANGS["my"] = {"tone_collapse": True}
+LANGS["cmn"] = {"palatal_u_to_y": True}  # pinyin ü: 'u' after a palatal initial j/q/x is /y/
 
 # --- Indic (Brahmic) scripts: SetIndicLetters with per-script Unicode-block offset -----
 _DEVA_VOWELS2 = [0x60, 0x61, 0x55, 0x56, 0x57, 0x62, 0x63]
