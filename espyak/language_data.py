@@ -102,13 +102,14 @@ LANGS = {
         "numbers": K.NUM_OMIT_1_HUNDRED | K.NUM_DECIMAL_COMMA,
     },
     # South Slavic (tr_languages.c case L('s','r'), shared by hr/bs): initial stress,
-    # spelling stress on the first letter.
+    # spelling stress on the first letter. ph_croatian laxes a/i/u via ChangeIfNotStressed,
+    # so $u function words reduce despite carrying the clause accent (li->lˈɪ, ili->ˈɪlɪ).
     "sr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [2, 4],
-           "spelling_stress": True, "extra_consonants": "čćšžđ"},
+           "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "hr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [1],
-           "spelling_stress": True, "extra_consonants": "čćšžđ"},
+           "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "bs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [3, 4],
-           "spelling_stress": True, "extra_consonants": "čćšžđ"},
+           "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "cs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (však -> fʃak)
