@@ -217,6 +217,9 @@ LANGS = {
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
            "regression": 0x100, "lopt_prefixes": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
+           # SetLetterVowel(tr,'y') (tr_languages.c): Polish puts 'y' in vowel group A too
+           # (default A = "aeiou", except y), so `A) ł (_` fires after y: był -> bˈɨw, not bˈɨ.
+           "set_letter_bits": [(K.LETTERGP_A, "y"), (K.LETTERGP_VOWEL2, "y")],
            "regression": 0x9},  # LOPT_REGRESSIVE_VOICING (usb -> uɛzbɛ)
 }
 
