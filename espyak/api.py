@@ -698,9 +698,17 @@ class G2P:
             # break, which the per-word render misses (ca a/e -> ə βˈarə ˈɛ). Within-word cases are
             # already handled by the rules, so this only patches a word-initial stop after a vowel.
             import re
+            _spir = {"b": "β", "d": "ð", "g": "ɣ", "ɡ": "ɣ"}
             result = re.sub(
                 r"([aeiouɛɔəɐ])( [ˈˌ]?)([bdɡg])",
-                lambda m: m.group(1) + m.group(2) + {"b": "β", "d": "ð", "g": "ɣ", "ɡ": "ɣ"}[m.group(3)],
+                lambda m: m.group(1) + m.group(2) + _spir[m.group(3)],
+                result)
+            # a voiced stop after a vowel and before a liquid spirantizes too (eu aljebraiko ->
+            # alxeβɾaɪko, aerodromo -> aeɾoðɾomo, ca pedra -> peðɾə); es handles this in its rules so
+            # the stop is already β/ð/ɣ here, but eu/ca rules miss the pre-liquid context.
+            result = re.sub(
+                r"([aeiouɛɔəɐ])([bdɡg])([ɾlr])",
+                lambda m: m.group(1) + _spir[m.group(2)] + m.group(3),
                 result)
         return result
 
