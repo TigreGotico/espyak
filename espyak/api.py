@@ -743,6 +743,18 @@ class G2P:
             cls._EN_FALLBACK = G2P("en")
         return cls._EN_FALLBACK
 
+    def _stress_number_words(self, ph):
+        """espeak stresses number words. Some languages' _list fragments already encode stress
+        (en f'aIv, es T'inko, de 'fynf) AND deliberately leave connectors unstressed (en _and,
+        _point); others omit stress entirely (fr sE~k, fa pandZ -> need sˈɛ̃k / pˈandʒ). Only when
+        the WHOLE number result is stress-free do we add word stress to each ||-separated word — so
+        a language whose data encodes stress (including its unstressed point/and) is never touched."""
+        if any(c in "'%,=" for c in ph):
+            return ph
+        return "||".join(
+            set_word_stress(self._tr, w, self._mnem, tonic=4) if w else w
+            for w in ph.split("||"))
+
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False, first_upper=False):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
@@ -769,6 +781,7 @@ class G2P:
                                     and not word.endswith(dsep))):
             ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
             if ph:
+                ph = self._stress_number_words(ph)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
             # a mixed digit/letter token that is neither a pure number nor an ordinal (handled above)
