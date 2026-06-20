@@ -323,6 +323,10 @@ class PhonemeSource:
                 elif t in ("flag1", "flag2", "flag3", "flag4"):
                     cur_ph.flags.add(t)  # phoneme feature bits tested by isFlag1..4 programs
                     # (e.g. Bashkir/Tatar back vowels -> dark-l: prevVowel(isFlag2)->Change(L))
+                elif t in ("rhotic", "sibilant", "sib"):
+                    cur_ph.flags.add(t)  # feature flags tested by isRhotic/isSibilant on a
+                    # MULTI-token line (es/ca r: `vcd alv flp rhotic`) — without this they were
+                    # dropped, so isRhotic never fired and p->b voiced before r (empra -> embɾə).
             if len(tok) == 1:
                 cur_ph.flags.add(head)
 
