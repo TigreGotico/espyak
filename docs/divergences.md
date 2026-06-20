@@ -48,6 +48,14 @@ that has an explicit `ipa` string as a COPY of that vowel — ၵႄ → `kˈɛ�
 `force_compat` reproduces this via `compat_long_vowel_tone` (`_shn_long_vowel_tone_copy`); the
 default engine keeps the correct tone digit.
 
-**Not yet replicable (remaining shn quirk):** some shn words trigger an English language-switch
-in espeak, producing garbled mixed output (e.g. ၵိုဝ်း → a long spurious English run). That is
-not mirrored; those remain `force_compat` mismatches.
+**Orphaned-mark codepoint spelling (partly replicated):** when the asat ် (U+103A) splits off as
+its own token it can ORPHAN a following mark; espeak's TranslateLetter then spells that mark by its
+codepoint — `(en)<Myanmar alphabet name>(shn)<"letter"><hex-digit names>`, e.g. ၵၵ်း →
+`kk (en)mjˈɑː1nmɑːɑː(shn)lˈe1təənˈɛɛŋsˈo1nsˈaːaːmpˈɛɛt` ("Myanmar letter 1038"). For the visarga း
+(U+1038) this verbalization is a CONSTANT string (the same for every word), so `force_compat`
+reproduces it via `compat_spell_orphan_visarga`. Cases where a MEDIAL (e.g. ွ U+103D) is the
+orphaned codepoint are NOT replicated: their hex run is position-dependent AND espeak's segmentation
+of the medial diverges from espyak's (it renders the medial in the consonant cluster), so both the
+prefix and the suffix differ — a faithful fix would need espeak's full Myanmar segmentation plus
+phoneme-level language-switching (the (en) Myanmar name carries the shn tone-copy on English
+consonants). Those remain `force_compat` mismatches.

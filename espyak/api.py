@@ -131,6 +131,14 @@ def _shn_long_vowel_tone_copy(plist):
             ent.ipa_override = vipa
 
 
+# The constant codepoint-spelling espeak produces for an orphaned visarga း (U+1038) in shn:
+# TranslateLetter names the Myanmar alphabet (en-switched "mjˈɑː1nmɑːɑː", with the shn tone-copy
+# applied to the switched English consonants), then the literal "letter" (shn-encoded "l'et@" ->
+# lˈe1təən) and the codepoint's hex digits 1/0/3/8 via the shn _0.._9 / _a.._f letter names
+# (ˈɛɛŋ / sˈo1n / sˈaːaːm / pˈɛɛt). The whole run is invariant for U+1038, so it is a literal.
+_SHN_VISARGA_SPELLED = "(en)mjˈɑː1nmɑːɑː(shn)lˈe1təənˈɛɛŋsˈo1nsˈaːaːmpˈɛɛt"
+
+
 def _double_long_consonants(plist, double_rfx_stop=False):
     """phonemelist.c: a length phoneme (`:`) after a fricative/nasal/liquid lengthens by
     doubling the consonant (it mm/ll/ss); after a DIPHTHONG it repeats the diphthong
@@ -826,6 +834,16 @@ class G2P:
                 en_ph = self._en_fallback()._render_word(word.lower(), tonic, ipa, tie, separator)
                 if en_ph:
                     rendered = "(en)" + en_ph + "(" + self.lang + ")"
+            if (not rendered and word == "း" and self.force_compat
+                    and self._config.get("compat_spell_orphan_visarga")):
+                # shn: a visarga း orphaned by the asat split renders empty here, but espeak's
+                # TranslateLetter spells its codepoint "Myanmar letter 1038" — a CONSTANT garbage run
+                # ((en)<Myanmar alphabet name>(shn)"letter"<hex-digit names> = …pˈɛɛt for the final 8).
+                # The preceding empty break token (asat) already left a trailing space in `out`; drop
+                # it so the garbage joins with a single separator (espeak emits no double space).
+                rendered = _SHN_VISARGA_SPELLED
+                if out and out[-1] == " ":
+                    out.pop()
             out.append(rendered)
         # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
         # separator space; espeak emits none, so trim it.

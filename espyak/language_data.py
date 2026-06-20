@@ -310,7 +310,11 @@ LANGS["cmn"] = {"palatal_u_to_y": True, "neutral_tone_unstress": True}  # pinyin
 # the tone marks ႇ/ႈ/း/ႉ/ႊ (tones 2-6) per shn_rules: the linguistically correct G2P. espeak's binary
 # DISCARDS them and emits tone 1 for every syllable — an espeak bug (its own rules produce the tones).
 # Default = correct (deviates, see docs/divergences.md shn-tone-marks); force_compat mirrors the bug.
-LANGS["shn"] = {"tone_language": 1, "compat_separators": "ႇႈႉႊ", "compat_long_vowel_tone": True}
+LANGS["shn"] = {"tone_language": 1, "compat_separators": "ႇႈႉႊ", "compat_long_vowel_tone": True,
+                # force_compat: an orphaned visarga း (U+1038) — left stranded after the asat ်
+                # (U+103A) splits off as its own token — is spelled by espeak's TranslateLetter as
+                # its codepoint, "Myanmar letter 1038": (en)<Myanmar>(shn)<"letter"><hex-digit-names>.
+                "compat_spell_orphan_visarga": True}
 
 # --- Indic (Brahmic) scripts: SetIndicLetters with per-script Unicode-block offset -----
 _DEVA_VOWELS2 = [0x60, 0x61, 0x55, 0x56, 0x57, 0x62, 0x63]
