@@ -197,6 +197,13 @@ LANGS = {
            "extra_vowels": "ăâîșț"},
     "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ",  # antepenultimate
            "unstress_u_words": True},  # $u function words reduce despite the clause accent
+    # Malay (tr_languages.c case L('m','s')): 2R like the default, but the VOICE block sets
+    # S_FINAL_DIM_ONLY | S_FINAL_NO_2. Without S_FINAL_NO_2 espyak fell to DEFAULTS (flags=0)
+    # and auto-secondaried the word-final syllable (bertegang -> bˈərtəɡˌaŋ, radio -> rˈediˌo),
+    # which espeak suppresses (bˈərtəɡaŋ, rˈedio). accents=2 ("capital" after letter name).
+    "ms": {"stress_rule": K.STRESSPOSN_2R,
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
+           "numbers": K.NUM_DECIMAL_COMMA | K.NUM_ALLOW_SPACE | K.NUM_ROMAN},
     "eu": {"spirantize": True, "param_suffix": 1, "stress_rule": K.STRESSPOSN_EU,  # Basque: primary 2nd syllable, secondary last
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_MID_DIM, "extra_consonants": "ñ",
            # espeak runs SetWordStress over the whole word (stem+suffix already concatenated,
