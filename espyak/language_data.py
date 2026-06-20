@@ -286,6 +286,7 @@ _INDIC_OFFSETS = {
 def _indic_config(offset, stress_rule=K.STRESSPOSN_1L, stress_flags=0):
     return {
         "stress_rule": stress_rule, "stress_flags": stress_flags,
+        "indic_schwa": True,  # final inherent schwa deletes, so a $u nucleus can't sit on it
         "letter_bits": {}, "letter_bits_offset": offset,
         "letter_bits_ranges": [
             (K.LETTERGP_A, 0x04, 0x14), (K.LETTERGP_A, 0x3e, 0x4d),

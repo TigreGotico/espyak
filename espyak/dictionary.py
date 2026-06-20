@@ -826,6 +826,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         if (max_stress <= STRESS_IS_UNSTRESSED and vowel_count > 1
                 and tr.stress_rule == K.STRESSPOSN_1L and not unstressed_word):
             max_stress_posn = 1
+        elif (tr.config.get("indic_schwa") and unstressed_word and vowel_count > 1
+                and tr.stress_rule == K.STRESSPOSN_1L
+                and max_stress_posn == vowel_count - 1
+                and phoneme_str.rstrip("'\",%/ ")[-1:] == "V"):
+            # A $u function word normally keeps the last syllable (nl onze -> ɔnzˈə), but when a 1L
+            # Indic word ends in the inherent schwa V (DELETED word-finally), the clause tonic landing
+            # there is lost (bn আমার = amarV -> the V drops, leaving only ˌamaɾ); use syllable 1 (ˈamaɾ).
+            max_stress_posn = 1
         if (tonic > max_stress) or (max_stress <= STRESS_IS_PRIMARY):
             vowel_stress[max_stress_posn] = tonic
         max_stress = tonic
