@@ -769,9 +769,34 @@ class G2P:
         # replace input codepoints before tokenising. fa rewrites U+200C (ZWNJ) to '-' and drops
         # U+0640 (TATWEEL); this is espeak's real behaviour, so it applies in both modes.
         _trans.update(self._config.get("chars_ignore", {}))
+        # '_' is in espeak's breaks[] table (translate.c:113), so the clause reader turns it into a
+        # space (a word break) for every language. A leading '-' on the word after the break is then
+        # a hyphen whose following letter sets FLAG_NOSPACE (translate.c:1224-1230): the '-' is
+        # dropped and the new word glues to the previous with no space, each word independently
+        # stressed (fo `eingilskmaður_og_-kona` -> aɟndʒˌɪlsmɛˈɑːʋʊɹ ɔˈœːkoːnˈa). Mark the NOSPACE
+        # join with U+0001 so it survives the whitespace split below; a plain '_' is just a space.
+        text = text.replace("_-", "\x01").replace("_", " ")
         text = text.translate(_trans)
+        # Build the (token, nospace_join) list: whitespace is an ordinary break; a '\x01' (the
+        # former '_-') breaks AND glues the following word to the previous with no space.
+        raw_toks = []
+        for chunk in text.split():
+            for j, seg in enumerate(chunk.split("\x01")):
+                seg = seg.lstrip("-") if j > 0 else seg
+                if seg:
+                    raw_toks.append((seg, j > 0))
         words = []
-        for raw_tok in text.split():
+        for raw_tok, nospace_join in raw_toks:
+            # a '-' at a word boundary (trailing, or leading after a non-join break) is a hyphen
+            # with a space on the outside: espeak removes it without pronouncing it, and the word
+            # translates exactly as if it were not there (translate.c:1309-1335 — none of the
+            # internal-hyphen branches fire). fo `barna-` keeps its word-final `rn`->`dn` rule
+            # (badnˈa, not bˈarna); `test-` == `test` in every language.
+            if not nospace_join:
+                raw_tok = raw_tok.lstrip("-")
+            raw_tok = raw_tok.rstrip("-")
+            if not raw_tok:
+                continue
             # a '-' between two letters is a word break (espeak translate.c:1316: "'-'
             # between two letters is a hyphen, treat as a space"): Cèit-Ùna -> Cèit, Ùna.
             parts = []
@@ -786,6 +811,9 @@ class G2P:
             for pi, tok in enumerate(parts):
                 if not tok:
                     continue
+                # the '_-' break glued this word to the previous (FLAG_NOSPACE) — only its first
+                # sub-word carries the join; later camelCase sub-words space normally.
+                join = nospace_join and pi == 0
                 # split mixed/camelCase at a lowercase->uppercase boundary (espeak tokenizer):
                 # mOn -> "m","On" (-> ˈɛm ˈɒn), fooBar -> "foo","Bar".
                 # A hyphen-joined part (pi>0) is a separate word for stress but joins to the
@@ -808,9 +836,9 @@ class G2P:
                             words.append(("&" + coda, False))
                         if seg:
                             self._split_caps_word(seg, words, caps_letters,
-                                                  first_sub=(pi > 0 and si == 0))
+                                                  first_sub=((pi > 0 or join) and si == 0))
                     continue
-                self._split_caps_word(tok, words, caps_letters, first_sub=(pi > 0))
+                self._split_caps_word(tok, words, caps_letters, first_sub=(pi > 0 or join))
         out = []
         for i, (word, nospace) in enumerate(words):
             # tonic word carries the clause stress; tone languages (vi) reduce it to
@@ -909,6 +937,14 @@ class G2P:
             # espyak gives ɹɹ, oracle rɹ. Promote the first ɹ of an ɹɹ cluster to the trill r.
             import re as _re
             result = _re.sub(r"ɹ(?=ɹ)", "r", result)
+        if ipa and self._config.get("word_final_r_approximant"):
+            # fo: a word-final trill `r` after a vowel weakens to the approximant `ɹ` only when the
+            # NEXT word begins with a vowel (liaison): `ognar og` -> ɔɡnˈaɹ ɔˈœː, but `ognar gøta`
+            # keeps the trill (ɔɡnˈar ɡ2ːdˈa). Clause-final `r` (end of string) also keeps the trill.
+            # Per-word rendering can't see the boundary, so patch it in the joined multi-word output.
+            import re as _re
+            _V = "aɑeɛiɪoɔuʊyʏøœəɐ"
+            result = _re.sub(r"([%s]ː?)r(?= [ˈˌ]?[%s])" % (_V, _V), r"\1ɹ", result)
         return result
 
     _EN_FALLBACK = None

@@ -428,6 +428,11 @@ LANGS["bn"]["double_rfx_stop"] = True
 # fo: a geminate rr is the trill r + approximant ɹ (rɹ), not ɹɹ — the first r of the cluster trills
 # (fyrri -> fɪrɹˈɪ, verri -> ʋɛrɹˈɪ, teirri -> taɟrɹˈɪ).
 LANGS.setdefault("fo", {})["geminate_r_trill"] = True
+# fo: a word-final `r` after a vowel is the trill `r` only clause-finally; when another word
+# follows it weakens to the approximant `ɹ` (ognar -> ɔɡnˈar, but `ognar og` -> ɔɡnˈaɹ ɔˈœː).
+# Only surfaces in a multi-word ('_'-joined compound) render, where a non-final word's `r`
+# precedes a space.
+LANGS["fo"]["word_final_r_approximant"] = True
 # fo: a single letter's NAME is case-sensitive — the lowercase l/m/n have no gemination
 # (l -> ɛl) but the uppercase L/M/N forms do (L -> ɛll). espeak buckets the two cases
 # separately; espyak keys the dict lowercase, so without this the geminated uppercase
