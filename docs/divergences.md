@@ -16,7 +16,7 @@ Every deviation must: (1) be gated on `force_compat` so the bug-exact path still
 
 ---
 
-## `shn-tone-marks` — Shan tone marks discarded by espeak
+## `shn-tone-marks` — Shan tone marks mis-classified as separators by espeak
 
 **Languages:** `shn` (Shan)
 
@@ -25,25 +25,24 @@ Every deviation must: (1) be gated on `force_compat` so the bug-exact path still
 | input | default (`espyak`, correct) | `force_compat` / espeak-ng |
 |-------|------------------------------|----------------------------|
 | ၵႃ   (no mark) | `kˈa1` | `kˈa1` |
+| ၵေး  (mark း)  | `kˈa1e4` | `kˈa1e4` |
+| ၵေႇ  (mark ႇ)  | `kˈa1e2` | `k` (vowel dropped) |
 | ၵႃႇ  (mark ႇ)  | `kˈa2` | `kˈa1` |
-| ၵႃႈ  (mark ႈ)  | `kˈaɜ` (tone 3) | `kˈa1` |
-| ၵႃႉ  (mark ႉ)  | `kˈa5` | `kˈa1` |
-| ၵႃႊ  (mark ႊ)  | `kˈa6` | `kˈa1` |
 
-**Who is correct:** espyak. The Shan tone marks ႇ/ႈ/း/ႉ/ႊ carry phonemic tone.
+**Who is correct:** espyak (default). The Shan tone marks carry phonemic tone.
 
-**Why espeak is wrong (evidence):** espeak's *own* `dictsource/shn_rules` map each mark to a
-tone phoneme — `ႇ → 2`, `ႈ → 3`, `း → 4`, `ႉ → 5`, `ႊ → 6` (lines 348-361). A later step in the
-espeak binary discards those tone phonemes and emits the default tone 1 for every syllable
-(`espeak-ng -X` on ၵႃႇ shows the mark translated to nothing, output `k'a1`). So espeak contradicts
-its own rules — a bug, not an intended design.
+**Why espeak is wrong (evidence):** espeak mis-classifies four of the five tone marks —
+ႇ/ႈ/ႉ/ႊ (U+1087-108A) — as clause **separators**, not syllable marks. `espeak-ng -X` on ၵေႇ
+splits it into two clauses (`Translate 'ၵေ'` then `Translate 'ႇ'`); the bare `ၵေ` renders as
+just `k` (the ေ vowel needs a following element) and the mark renders nothing, so ၵေႇ → `k`.
+Only း (U+1038) survives as a real syllable mark (ၵေး → `kˈa1e4`, kept from its dict entry).
 
-**Implementation:** `LANGS["shn"]` is a tone language (`tone_language: 1`), so every syllable gets
-a tone (default 1 if unmarked) and the marked tones are kept. The bug is reproduced only under
-`force_compat` via `compat_force_tone1` → `_normalize_tones(force_default=True)`, which drops the
-mark-derived tones and forces tone 1.
+**Implementation:** `LANGS["shn"]` is a tone language (`tone_language: 1`); the default engine
+keeps the marks and applies their tones. The bug is reproduced only under `force_compat` via
+`compat_separators: "ႇႈႉႊ"`, which turns those four chars into word separators before
+tokenization, so the syllable splits and the bare vowel drops.
 
-**Not yet replicable (separate espeak shn corruption):** beyond the tone marks, espeak's shn also
-garbles some syllables case-by-case (e.g. ၵေး → `ka1e4`: it inserts a phantom `a` and splits the
-vowel). That corruption is inconsistent per input and is **not** mirrored; those remain audit
-mismatches under `force_compat` and are espeak being broken, not espyak.
+**Not yet replicable (separate espeak shn quirk):** espeak renders some long vowels (ɛ, ɔ —
+phonemes with an explicit `ipa` and `length 200`) as a doubled vowel with the tone absorbed
+(ၵႄ → `kɛɛ`, not `kˈɛ1`). That `--ipa` length/tone rendering is not yet mirrored; those remain
+`force_compat` mismatches.
