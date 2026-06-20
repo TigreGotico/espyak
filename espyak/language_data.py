@@ -465,7 +465,10 @@ LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R)
 # Urdu: the voice file (lang/.../ur) sets `stressRule 6` = STRESSPOSN_1RH (last heaviest syllable,
 # excluding the final) — the Hindi/Urdu weight-based stress. Default 2R put the accent on the wrong
 # syllable for words whose final syllable is heavy (انھوں UnHo:n -> ʊnhˈoːn, the long oː).
-LANGS["ur"] = {"stress_rule": K.STRESSPOSN_1RH, "unstress_u_words": True}
+# Urdu uses the Hindi phoneme table, so a lengthened retroflex stop renders doubled like bn
+# (ٹٹو -> ʈʈ, پٹھو -> ʈʰʈʰ), not with ː — the retroflex ʈ/ɖ ipa is repeated by the IPA writer.
+LANGS["ur"] = {"stress_rule": K.STRESSPOSN_1RH, "unstress_u_words": True,
+               "double_rfx_stop": True}
 # Hawaiian: a macron (long vowel) holding the lexical primary on a non-final syllable
 # demotes to secondary, the clause nucleus moving to the final syllable (kākou -> kˌaːkoˈu).
 LANGS["haw"] = {"macron_clause_final": True}
