@@ -675,6 +675,29 @@ class G2P:
                                        if p.type == phVOWEL and "nonsyllabic" not in p.flags)
         return stem_ph + end_ph
 
+    def _split_caps_word(self, tok, words, caps_letters, first_sub):
+        """Split a token at camelCase / letter-name boundaries (espeak tokenizer), appending
+        (word, nospace) tuples to ``words``. ``first_sub`` marks the first sub-word of a
+        FLAG_NOSPACE-joined part (hyphen-joined, or a '&'-split remainder)."""
+        sub_first = True
+        start = 0
+        for j in range(1, len(tok)):
+            split_here = False
+            if tok[j].isupper() and tok[j - 1].islower():
+                if start == 0 and self.lang == "ga" and _ga_caps_prefix(tok, j):
+                    continue  # Irish eclipsis/lenition prefix: hÓighe stays one word
+                split_here = True
+            elif caps_letters and tok[j].islower() and tok[j - 1] == ":":
+                # smj: a long-vowel letter name (capital + length colon) is spelled, so it
+                # breaks from a following lowercase run (bA:ldan -> "b","A:","ldan" -> be
+                # a-long ltan). A bare capital keeps its lowercase run (mOnnO: -> m,Onn,O:).
+                split_here = True
+            if split_here:
+                words.append((tok[start:j], first_sub and sub_first))
+                sub_first = False
+                start = j
+        words.append((tok[start:], first_sub and sub_first))
+
     def phonemize(self, text, ipa=True, tie=None, separator=None):
         """Translate text to phonemes (word-by-word; full clause handling is P5).
 
@@ -730,6 +753,7 @@ class G2P:
                     parts.append(raw_tok[seg:k])
                     seg = k + 1
             parts.append(raw_tok[seg:])
+            caps_letters = self._config.get("caps_are_letters")
             for pi, tok in enumerate(parts):
                 if not tok:
                     continue
@@ -737,25 +761,27 @@ class G2P:
                 # mOn -> "m","On" (-> ˈɛm ˈɒn), fooBar -> "foo","Bar".
                 # A hyphen-joined part (pi>0) is a separate word for stress but joins to the
                 # previous with NO space (espeak FLAG_NOSPACE): Cèit-Ùna -> kʲˈɛːdʲˈuːnə.
-                sub_first = True
-                start = 0
-                caps_letters = self._config.get("caps_are_letters")
-                for j in range(1, len(tok)):
-                    split_here = False
-                    if tok[j].isupper() and tok[j - 1].islower():
-                        if start == 0 and self.lang == "ga" and _ga_caps_prefix(tok, j):
-                            continue  # Irish eclipsis/lenition prefix: hÓighe stays one word
-                        split_here = True
-                    elif caps_letters and tok[j].islower() and tok[j - 1] == ":":
-                        # smj: a long-vowel letter name (capital + length colon) is spelled, so it
-                        # breaks from a following lowercase run (bA:ldan -> "b","A:","ldan" -> be
-                        # a-long ltan). A bare capital keeps its lowercase run (mOnnO: -> m,Onn,O:).
-                        split_here = True
-                    if split_here:
-                        words.append((tok[start:j], pi > 0 and sub_first))
-                        sub_first = False
-                        start = j
-                words.append((tok[start:], pi > 0 and sub_first))
+                if caps_letters and "&" in tok:
+                    # smj: '&' is a separate spelled word ("og" -> ˈɔːɡ). espeak's char tokenizer
+                    # terminates the run at '&' (not alpha, not punct_within_word), emits '&' as
+                    # its own word, then continues. A doubled coda-class consonant (m f v s l r)
+                    # that opens a pronounceable remainder peels its first letter onto the '&' word
+                    # as a FLAG_NOSPACE coda (b&mmi -> bˈeː ˈɔːɡm mˈiː); other clusters (nn, jj,
+                    # stops, or a remainder with no lowercase vowel) stay whole (g&nna -> ɡˈeː ˈɔːɡ
+                    # nnˈɑ).
+                    _peel, _low_vowels = set("mfvslr"), set("aeiouyáäoö")
+                    for si, seg in enumerate(tok.split("&")):
+                        if si > 0:
+                            coda = ""
+                            if (len(seg) >= 3 and seg[0] == seg[1] and seg[0] in _peel
+                                    and any(c in _low_vowels for c in seg[1:])):
+                                coda, seg = seg[0], seg[1:]
+                            words.append(("&" + coda, False))
+                        if seg:
+                            self._split_caps_word(seg, words, caps_letters,
+                                                  first_sub=(pi > 0 and si == 0))
+                    continue
+                self._split_caps_word(tok, words, caps_letters, first_sub=(pi > 0))
         out = []
         for i, (word, nospace) in enumerate(words):
             # tonic word carries the clause stress; tone languages (vi) reduce it to
@@ -779,6 +805,12 @@ class G2P:
                         break
                     if ch.lower() in "aeiouy":
                         nv += 1
+            if word[:1] == "&":
+                # smj '&' word ("og"): render the dict letter-name, then append any peeled coda
+                # consonant as its own glyph (FLAG_NOSPACE join): '&m' -> ˈɔːɡm.
+                rendered = self._render_word("&", tonic, ipa, tie, separator) + word[1:]
+                out.append(rendered)
+                continue
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
                                          caps_stress=caps_stress,
                                          all_upper=word.isupper() and any(c.isalpha() for c in word),
