@@ -108,6 +108,28 @@ def _normalize_tones(plist, table, insert_default=True, clause_final_tone=None, 
         i += 1
 
 
+def _shn_long_vowel_tone_copy(plist):
+    """espeak force_compat bug (shn): the tone after a vowel that has an explicit `ipa` string
+    renders as a COPY of that vowel's ipa, doubling it (ၵႄ -> kɛɛ, ၵၢ -> kaːaː), instead of the
+    tone digit. Short/mnemonic vowels (no ipa: a, i, u) keep the digit (ၵႃ -> ka1)."""
+    for i in range(1, len(plist)):
+        ent = plist[i]
+        if getattr(ent, "deleted", False):
+            continue
+        ph = ent.ph
+        if not (ph.mnemonic.isdigit() and ph.type != phVOWEL):
+            continue
+        v = next((plist[k] for k in range(i - 1, -1, -1)
+                  if not getattr(plist[k], "deleted", False)), None)
+        if v is None or v.ph.type != phVOWEL:
+            continue
+        vipa = getattr(v, "ipa_override", None)
+        if vipa is None:
+            vipa = getattr(v.ph, "ipa", None)
+        if vipa:
+            ent.ipa_override = vipa
+
+
 def _double_long_consonants(plist):
     """phonemelist.c: a length phoneme (`:`) after a fricative/nasal/liquid lengthens by
     doubling the consonant (it mm/ll/ss); after a DIPHTHONG it repeats the diphthong
@@ -921,6 +943,8 @@ class G2P:
                              clause_final_tone=self._config.get("clause_final_tone"),
                              force_default=bool(self.force_compat
                                                 and self._config.get("compat_force_tone1")))
+        if self.force_compat and self._config.get("compat_long_vowel_tone"):
+            _shn_long_vowel_tone_copy(plist)
         # a PRIORITY stress (level 5, from a '' mark in the rules) dominates the word: the other
         # primaries reduce to secondary (da debutant d?eb'y''?&nt: y primary + ant priority ->
         # dʔebˌyˈant). Words with only ordinary primaries (eremitage 4,4) keep them all.
