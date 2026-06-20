@@ -81,6 +81,11 @@ def encode_phoneme_string(s, table):
     # build a longest-first list of known mnemonics for greedy matching
     mnems = sorted(table.phonemes.keys(), key=len, reverse=True)
     maxlen = len(mnems[0]) if mnems else 1
+    # ta redefines '#' as a NULL phoneme for the virama (suppresses the inherent vowel), so a
+    # consonant + '#' must parse as two phonemes (l, #) not the subscript-h combine 'l#' (= ɬ) that
+    # other tables carry — otherwise the virama's ChangePhoneme(NULL) never runs (பில் -> piɬ not pil).
+    _virama_hash = "#" in table.phonemes and "ChangePhoneme(NULL)" in str(
+        getattr(table.phonemes.get("#"), "program", ""))
 
     entries = []
     pending_stress = None
@@ -107,6 +112,21 @@ def encode_phoneme_string(s, table):
         m = None
         for L in range(min(maxlen, n - i), 0, -1):
             cand = s[i : i + L]
+            if _virama_hash and len(cand) > 1 and cand.endswith("#"):
+                # The virama '#' is a NULL phoneme: split it off ONLY when it ends a
+                # syllable — i.e. after a consonant and before a consonant or word end
+                # (bil# -> bil, ba:l#ja -> ba:lja). Keep the merge for the inherent schwa
+                # V# (ba:kkV#i, a vowel base, elided before the next vowel) and for a real
+                # subscript-h before a vowel (t# -> tʰ in t#i:).
+                base = cand[:-1]
+                base_vowel = base in table.phonemes and table.phonemes[base].type == phVOWEL
+                j = i + L  # next phoneme, skipping any intervening stress markers ('t#\'i:')
+                while j < n and table.phonemes.get(s[j]) is not None and table.phonemes[s[j]].type == phSTRESS:
+                    j += 1
+                nxt = table.phonemes.get(s[j]) if j < n else None
+                nxt_vowel = nxt is not None and nxt.type == phVOWEL
+                if not base_vowel and not nxt_vowel:
+                    continue  # keep the NULL virama '#' separate from its consonant
             if cand in table.phonemes:
                 m = cand
                 break
