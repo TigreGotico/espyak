@@ -627,10 +627,13 @@ def get_vowel_stress(toks, stressed_syllable=0):
             # and the stress falls on the following vowel (我=ngo5 -> ŋˈo5, not ŋo5).
             phonetic.append((mnem, ph))
             continue
-        if _ph_is_vowel(ph) and mnem != "@-":
-            # @- is the "very short schwa" (linking/epenthetic, e.g. eo Cr clusters
-            # septemb@-*o); it is not a syllable nucleus, so it must not be counted for
-            # stress placement (else the penult shifts onto it).
+        if _ph_is_vowel(ph):
+            # @- is the "very short schwa": in most languages it is the nonsyllabic
+            # linking/epenthetic schwa (eo Cr clusters septemb@-*o) — excluded from the
+            # vowel count by its phNONSYLLABIC flag (_ph_is_vowel returns False). But fr/vi
+            # redefine @- as a full syllabic vowel (ph_french/ph_vietnam, no `nsy`), so it
+            # IS a nucleus there (fr je=Z@- -> ʒˈə-); rely on the per-language flag, not the
+            # mnemonic, to keep both cases right.
             vowel_stress.append(stress)
             if stress >= STRESS_IS_PRIMARY and stress >= max_stress:
                 primary_posn = count
@@ -946,7 +949,7 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             _vi = 0
             _msp_ph = None
             for _m, _p in phonetic:
-                if _ph_is_vowel(_p) and _m != "@-":
+                if _ph_is_vowel(_p):  # @- excluded by its phNONSYLLABIC flag (syllabic in fr/vi)
                     _vi += 1
                     if _vi == max_stress_posn:
                         _msp_ph = _p
@@ -985,10 +988,11 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 shorten = prev_v_stress < STRESS_IS_PRIMARY
             if shorten:
                 continue
-        if _ph_is_vowel(ph) and mnem != "@-":
-            # @- is excluded from the vowel count in get_vowel_stress, so it must also be
-            # skipped here or `v` desyncs and the stress mark lands on it (before an onset
-            # liquid: eo pra -> pˈra instead of prˈa).
+        if _ph_is_vowel(ph):
+            # @- excluded from the vowel count in get_vowel_stress when nonsyllabic (its
+            # phNONSYLLABIC flag, _ph_is_vowel False) — must also be skipped here or `v`
+            # desyncs and the stress mark lands on it (eo pra -> pˈra instead of prˈa). In
+            # fr/vi @- is syllabic (a real nucleus), so it is counted and stressed here.
             v_stress = vowel_stress[v]
             if v_stress <= STRESS_IS_UNSTRESSED:
                 if (v > 1) and (max_stress >= 2) and (stressflags & K.S_FINAL_DIM) and (v == vowel_count - 1):
