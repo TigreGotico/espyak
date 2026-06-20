@@ -607,10 +607,19 @@ class G2P:
                 # previous with NO space (espeak FLAG_NOSPACE): Cèit-Ùna -> kʲˈɛːdʲˈuːnə.
                 sub_first = True
                 start = 0
+                caps_letters = self._config.get("caps_are_letters")
                 for j in range(1, len(tok)):
+                    split_here = False
                     if tok[j].isupper() and tok[j - 1].islower():
                         if start == 0 and self.lang == "ga" and _ga_caps_prefix(tok, j):
                             continue  # Irish eclipsis/lenition prefix: hÓighe stays one word
+                        split_here = True
+                    elif caps_letters and tok[j].islower() and tok[j - 1] == ":":
+                        # smj: a long-vowel letter name (capital + length colon) is spelled, so it
+                        # breaks from a following lowercase run (bA:ldan -> "b","A:","ldan" -> be
+                        # a-long ltan). A bare capital keeps its lowercase run (mOnnO: -> m,Onn,O:).
+                        split_here = True
+                    if split_here:
                         words.append((tok[start:j], pi > 0 and sub_first))
                         sub_first = False
                         start = j
