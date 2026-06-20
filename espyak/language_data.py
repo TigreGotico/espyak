@@ -273,7 +273,7 @@ LANGS["jbo"] = {"stress_rule": K.STRESSPOSN_2R, "caps_in_word": True, "extra_vow
 # Burmese is tonal: collapse a syllable's inherent tone + explicit tone marker to the explicit
 # one (ī gives i1, visarga း gives 2 -> i2, not i12).
 LANGS["my"] = {"tone_collapse": True}
-LANGS["cmn"] = {"palatal_u_to_y": True}  # pinyin ü: 'u' after a palatal initial j/q/x is /y/
+LANGS["cmn"] = {"palatal_u_to_y": True, "neutral_tone_unstress": True}  # pinyin ü; neutral tone (5) is unstressed
 # Shan (shn): a tone language — every syllable carries a tone (default 1 if unmarked). espyak applies
 # the tone marks ႇ/ႈ/း/ႉ/ႊ (tones 2-6) per shn_rules: the linguistically correct G2P. espeak's binary
 # DISCARDS them and emits tone 1 for every syllable — an espeak bug (its own rules produce the tones).

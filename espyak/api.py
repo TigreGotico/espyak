@@ -308,6 +308,7 @@ class G2P:
         self._tr.expect_verb = 0
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
         self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
+        self._neutral_tone = False  # cmn neutral tone (pinyin 5): the syllable is unstressed
         self._spelled = False     # set by _translate_core for a $abbrev spelled-out word
         self._textmode_empty = False  # a $text->spell word that loops to '' (mto english)
         ph, flags = self._translate_core(word.lower(), ctx)
@@ -448,6 +449,9 @@ class G2P:
                 # $text: the entry value is text to re-translate (ta "tamil" -> தமிழ்,
                 # Korean sandhi respellings) — feed it back through the rules.
                 word = nfc_ph
+                if (self._config.get("neutral_tone_unstress") and nfc_ph[-1:] == "5"
+                        and (len(nfc_ph) < 2 or not nfc_ph[-2].isdigit())):
+                    self._neutral_tone = True  # cmn neutral tone -> unstressed (戚 qi5 -> tɕhi1)
             elif hangul and any("가" <= c <= "힣" for c in nfc_ph):
                 word = nfc_ph  # Korean Hangul respelling without an explicit $text flag
             else:
@@ -954,6 +958,9 @@ class G2P:
                     e.stresslevel = 3
         result = render_phoneme_list(plist, self.phoneme_table,
                                      ipa=ipa, tie=tie, separator=separator)
+        if getattr(self, "_neutral_tone", False):
+            # cmn neutral tone is unstressed: drop the one tonic mark espeak omits.
+            result = result.replace("ˈ" if ipa else "'", "", 1)
         if ipa and (self._config.get("stress_flags", 0) & K.S_FIRST_PRIMARY):
             # ca S_FIRST_PRIMARY: within ONE multi-word dict entry (a || expansion rendered here as a
             # single token) only the first primary survives; later parts reduce to secondary (ccoo ->
