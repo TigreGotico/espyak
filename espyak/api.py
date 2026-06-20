@@ -678,6 +678,13 @@ class G2P:
         # normal translation instead of crashing.
         def _dig(s):
             return s.isascii() and s.isdigit()
+        if not word.isascii():
+            # native-script decimal digits (fa ۱, ar ٠, Devanagari ०, ...) -> ASCII so they route to
+            # the number path (۱ -> jek). unicodedata.decimal rejects superscripts/subscripts ('²'),
+            # so those still fall through to normal translation as intended.
+            word = "".join(
+                str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None else c
+                for c in word)
         if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and _dig(word[:-2])):
             ph = translate_ordinal(self._dict, word[:-2], word[-2:], flags=num_flags)
             if ph:
