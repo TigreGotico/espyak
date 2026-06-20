@@ -222,7 +222,7 @@ class G2P:
             plist, self.phoneme_table, ipa=ipa, tie=tie, separator=separator
         )
 
-    def translate_word(self, word, tonic=-1, caps_stress=0, all_upper=None):
+    def translate_word(self, word, tonic=-1, caps_stress=0, all_upper=None, first_upper=None):
         """Translate a single lowercase word to its mnemonic phoneme string.
 
         Pipeline: dictionary `_list` lookup -> (fallback) letter-to-sound rules ->
@@ -231,9 +231,10 @@ class G2P:
         stress onto that syllable (Lojban LOPT_CAPS_IN_WORD: a capital marks stress).
         """
         ctx = LookupContext(
-            first_upper=word[:1].isupper(),
-            # the caller passes the ORIGINAL-case all-caps flag: the word arriving here is already
-            # lowercased, so word.isupper() can't recover it (et USA -> $abbrev $allcaps spell-out).
+            # the caller passes the ORIGINAL-case flags: the word arriving here is already lowercased,
+            # so word.isupper()/word[0].isupper() can't recover them (et USA -> $abbrev $allcaps; a
+            # $capital entry needs first_upper).
+            first_upper=word[:1].isupper() if first_upper is None else first_upper,
             all_upper=(word.isupper() and any(c.isalpha() for c in word))
             if all_upper is None else all_upper,
             dict_condition=self._tr.dict_condition,
@@ -672,7 +673,8 @@ class G2P:
                         nv += 1
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
                                          caps_stress=caps_stress,
-                                         all_upper=word.isupper() and any(c.isalpha() for c in word))
+                                         all_upper=word.isupper() and any(c.isalpha() for c in word),
+                                         first_upper=word[:1].isupper())
             if (not rendered and self.lang != "en" and word.isascii()
                     and any(c.isalpha() for c in word)
                     and not getattr(self, "_textmode_empty", False)):
@@ -707,7 +709,7 @@ class G2P:
             cls._EN_FALLBACK = G2P("en")
         return cls._EN_FALLBACK
 
-    def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False):
+    def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False, first_upper=False):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
@@ -751,7 +753,8 @@ class G2P:
             if len(_parts) > 1:
                 _r = [self._render_word(p, tonic, ipa, tie, separator) for p in _parts]
                 return " ".join(x for x in _r if x)
-        ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper)
+        ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
+                                 first_upper=first_upper)
         if ph.startswith("_^_"):
             # foreign word: re-translate in the named language and wrap (lang)...(orig)
             target = ph[3:].split("|")[0].lower().strip()
