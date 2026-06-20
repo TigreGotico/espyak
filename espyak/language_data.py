@@ -362,6 +362,11 @@ LANGS["bn"]["double_rfx_stop"] = True
 # fo: a geminate rr is the trill r + approximant ɹ (rɹ), not ɹɹ — the first r of the cluster trills
 # (fyrri -> fɪrɹˈɪ, verri -> ʋɛrɹˈɪ, teirri -> taɟrɹˈɪ).
 LANGS.setdefault("fo", {})["geminate_r_trill"] = True
+# fo: a single letter's NAME is case-sensitive — the lowercase l/m/n have no gemination
+# (l -> ɛl) but the uppercase L/M/N forms do (L -> ɛll). espeak buckets the two cases
+# separately; espyak keys the dict lowercase, so without this the geminated uppercase
+# variant wins the lowercase letter lookup.
+LANGS["fo"]["case_sensitive_letters"] = True
 
 
 # Georgian (1L + S_FINAL_NO_2) and Amharic (1L + S_NO_AUTO_2|S_FINAL_DIM): non-Latin

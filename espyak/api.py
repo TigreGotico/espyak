@@ -227,6 +227,7 @@ class G2P:
         # tr/he/...); espeak compiles it after _list, so later entries win ties.
         self._dict = DictList.load(data_paths.list_path(lang), data_paths.listx_path(lang),
                                    data_paths.extra_path(lang))
+        self._dict.case_sensitive_letters = bool(self._config.get("case_sensitive_letters"))
         # the matcher's $p_alt / $list DollarRule needs a part-word dict lookup (LookupFlags)
         self._tr.dict = self._dict
 

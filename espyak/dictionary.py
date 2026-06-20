@@ -218,13 +218,17 @@ _MNEM_FLAGS = {
 
 
 class DictEntry:
-    __slots__ = ("phonemes", "flag_codes", "multiword", "rest")
+    __slots__ = ("phonemes", "flag_codes", "multiword", "rest", "key_upper")
 
-    def __init__(self, phonemes, flag_codes, multiword=False, rest=""):
+    def __init__(self, phonemes, flag_codes, multiword=False, rest="", key_upper=False):
         self.phonemes = phonemes
         self.flag_codes = flag_codes
         self.multiword = multiword
         self.rest = rest
+        # True if the SOURCE key for this entry had a leading uppercase letter. espeak buckets
+        # `l` and `L` separately, so a lowercase single-letter NAME lookup must not borrow the
+        # uppercase variant (fo L -> %El: geminates, l -> El does not).
+        self.key_upper = key_upper
 
 
 class DictList:
@@ -234,6 +238,8 @@ class DictList:
         self.words = {}     # lowercase word -> list[DictEntry] in file order
         self.cased_keys = set()  # original-case keys (espeak's letter lookup is case-sensitive)
         self.text_mode = False
+        # fo: single-letter NAME lookups respect the source key's case (see DictEntry.key_upper).
+        self.case_sensitive_letters = False
 
     def has_exact(self, key):
         """True if `key` existed verbatim (case-sensitive). espeak's LookupLetter is
@@ -326,7 +332,8 @@ class DictList:
         phonemes = phon_tokens[0] if phon_tokens else ""
         if self.text_mode:
             flag_codes.append(_MNEM_FLAGS["$text"])  # within a $textmode section -> FLAG_TEXTMODE
-        entry = DictEntry(phonemes, flag_codes, multiword, rest_words)
+        entry = DictEntry(phonemes, flag_codes, multiword, rest_words,
+                          key_upper=word[:1].isupper())
         # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
         # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries. EXCEPTION: polytonic
         # Greek (U+1F00–U+1FFF) is canonically equivalent under NFC to the monotonic letters
@@ -353,6 +360,15 @@ class DictList:
             entries = self.words.get(word[0].lower()) or self.words.get(_nfc(word[0].lower()))
         if not entries:
             return None, None
+        if self.case_sensitive_letters and len(word) == 1 and word.isalpha():
+            # fo names `l`/`m`/`n` without gemination but `L`/`M`/`N` (uppercase, mid-acronym
+            # form) with it (l -> ɛl, L -> ɛll). espeak buckets the two cases separately; espyak
+            # keys everything lowercase, so the uppercase variant otherwise wins the lowercase
+            # `l` lookup. Restrict to the entries whose source key matched the query's case.
+            want_upper = bool(ctx.first_upper)
+            cased = [e for e in entries if e.key_upper == want_upper]
+            if cased and len(cased) != len(entries):
+                entries = cased
         for entry in reversed(entries):
             ok, flags1, flags2, stress = self._eval(entry, ctx)
             if not ok:
