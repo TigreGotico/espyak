@@ -90,6 +90,7 @@ LANGS = {
         "stress_flags": 0,
         "extra_vowels": "äöü",
         "encoding": "iso-8859-1",
+        "regression": 0x100,  # LOPT_REGRESSIVE_VOICING: devoice word-final obstruents (Auslautverhärtung)
         "numbers": K.NUM_SWAP_TENS | K.NUM_DECIMAL_COMMA,
     },
     "fr": {
