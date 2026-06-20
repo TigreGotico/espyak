@@ -155,6 +155,9 @@ _FEATURES = {
     "isFlag2": lambda ph, e, ctx: "flag2" in ph.flags,
     "isFlag3": lambda ph, e, ctx: "flag3" in ph.flags,
     "isFlag4": lambda ph, e, ctx: "flag4" in ph.flags,
+    # ba/tt/tr: a phoneme supplied by a dictionary entry (the letter-name 'kA') is "translation
+    # given" — its vowel programs (A -> 0 backing) are suppressed, unlike a rules-derived vowel.
+    "isTranslationGiven": lambda ph, e, ctx: ctx.get("translation_given", False),
 }
 
 # a synthetic pause phoneme stands in at word boundaries for *W predicates
@@ -208,7 +211,8 @@ class Interpreter:
         final_vowel = bool(vowels and vowels[-1] == i)
         max_stress = entry.stresslevel >= 4
         return {"word_end": word_end, "first_vowel": first_vowel,
-                "final_vowel": final_vowel, "max_stress": max_stress}
+                "final_vowel": final_vowel, "max_stress": max_stress,
+                "translation_given": getattr(self, "_translation_given", False)}
 
     # -- execution --
     def _exec(self, block, plist, i, ctx):

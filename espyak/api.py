@@ -716,6 +716,7 @@ class G2P:
         reg = self._config.get("regression", 0)
         if reg:
             set_regressive_voicing(plist, self.phoneme_table, reg)
+        self._interp._translation_given = getattr(self, "_from_dict", False)
         self._interp.run(plist)  # P1b: context-dependent phoneme programs
         out_str = getattr(self, "_u_out_str", None)
         if out_str is not None:
