@@ -325,9 +325,11 @@ for _l, _off in _INDIC_OFFSETS.items():
 # hi तक -> tˈək): the phoneme programs must see the un-tonic stress so the inherent vowel V laxes to ə.
 for _l in ("pa", "ne", "hi"):
     LANGS[_l]["unstress_u_words"] = True
-# bn র is the tap ɾ prevocalically and word-finally, but the alveolar trill r in a syllable coda
-# before a consonant (ধর্ম -> dʰɔrmɔ, গরমিল -> ɡɔrmil).
-LANGS["bn"]["coda_trill_r"] = True
+# bn/mr/hi র is the tap ɾ prevocalically and word-finally, but the alveolar trill r in a syllable
+# coda before a NON-STOP consonant (ধর্ম -> dʰɔrmɔ, mr चार्वाक -> tʃaːrvaːk, hi नौकरशाह -> ...arʃ...);
+# before a stop it stays the tap (bn দরকার -> dɔːɾkɑɾ).
+for _l in ("bn", "mr", "hi"):
+    LANGS[_l]["coda_trill_r"] = True
 
 
 # Georgian (1L + S_FINAL_NO_2) and Amharic (1L + S_NO_AUTO_2|S_FINAL_DIM): non-Latin
