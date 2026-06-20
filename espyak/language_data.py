@@ -151,6 +151,12 @@ LANGS = {
     "af": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True, "accents_before": True},
     "be": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2 | K.S_NO_DIM},
     "da": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True},
+    # Luxembourgish has no tr_languages.c block, so it keeps the NewTranslator defaults
+    # (2R stress). Its lb_list defines the accented letters as bare `$accent` entries but
+    # ships NO accent-name spellings (`_grv`/`_acu`/… absent). LookupLetterAccent therefore
+    # writes nothing and espeak emits an EMPTY word — it does NOT fall back to the rules.
+    # accent_empty_no_fallback makes the $accent path exclusive so à/é/ö/… -> '' (not ˈaː).
+    "lb": {"accent_empty_no_fallback": True},
     "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
     "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "y"},
     "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},

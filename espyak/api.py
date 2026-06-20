@@ -552,6 +552,11 @@ class G2P:
             acc = self._spell_accented_letter(word.lstrip("_"))
             if acc:
                 return acc, 0
+            if accent_entry and self._config.get("accent_empty_no_fallback"):
+                # lb: the $accent path is exclusive. With no accent-name spelling in the dict
+                # (`_grv`/`_acu`/… absent) LookupLetterAccent writes nothing, so espeak emits an
+                # EMPTY word — it never falls back to the letter-to-sound rules (à -> '', not ˈaː).
+                return "", 0
         return ph, flags
 
     def _spell_letters(self, word):
