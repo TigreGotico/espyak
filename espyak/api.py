@@ -10,7 +10,7 @@ from espyak.render import render_phoneme_list, encode_phoneme_string
 from espyak.rule_compiler import RuleSet
 from espyak.dictionary import (
     Translator, translate_rules, set_word_stress, MnemIndex, DictList, LookupContext,
-    remove_ending, _apply_replacements,
+    remove_ending, _apply_replacements, _unpronounceable,
 )
 from espyak import constants as K
 import unicodedata
@@ -367,6 +367,11 @@ class G2P:
                 return dict_ph, flags
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
             # $abbrev with no pronunciation -> spell out as individual letter names
+            self._spelled = True
+            return self._spell_word(word), 0
+        if not dict_ph and not accent_entry and _unpronounceable(self._tr, word):
+            # Unpronouncable (translateword.c): a word with no dict pronunciation and no vowel letter
+            # is spelled out (ca Mgfc, en th). Latin-script + non-tonal only (guard in _unpronounceable).
             self._spelled = True
             return self._spell_word(word), 0
         if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in word):

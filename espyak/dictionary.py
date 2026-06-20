@@ -1407,6 +1407,40 @@ def _apply_replacements(reps, word):
     return "".join(out)
 
 
+_ACCENTED_VOWELS = set("àáâãäåæāăąèéêëēĕėęěìíîïĩīĭįòóôõöøœōŏőùúûüũūŭůűųýÿı")
+
+
+def _is_vowel_letter(tr, ch):
+    """A letter that can be a syllable nucleus in this language: the dict letter_bits vowel group,
+    extra_vowels, syllabic consonants, accented Latin vowels, and 'y'."""
+    c = ch.lower()
+    lb = tr.config.get("letter_bits", {})
+    vowels = lb.get(0, "aeiou") if isinstance(lb, dict) else "aeiou"
+    extra = tr.config.get("extra_vowels", "") or ""
+    syll = tr.config.get("syllabic_consonants", "")  # cs/hr/sl/sk/sr: r,l are syllabic nuclei
+    return c == "y" or c in vowels or c in extra or c in syll or c in _ACCENTED_VOWELS
+
+
+def _unpronounceable(tr, word):
+    """Port of Unpronouncable (translateword.c:1114), restricted to the robust no-vowel case: a word
+    with no dictionary pronunciation and NO vowel letter is spelled out (ca Mgfc, en th). Latin-script,
+    non-tonal languages only — others render native/tone-marked vowels not in the Latin vowel set."""
+    if not word or len(word) < 2:
+        return False
+    if tr.config.get("letter_bits_offset", 0) or tr.config.get("tone_language"):
+        return False
+    if word[0] in (" ", "'"):
+        return False
+    for ch in word:
+        if ch == " ":
+            break
+        if _is_vowel_letter(tr, ch):
+            return False
+        if ch != "'" and not ch.isalpha():
+            return False
+    return True
+
+
 def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 

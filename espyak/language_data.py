@@ -90,13 +90,13 @@ LANGS = {
     },
     # South Slavic (tr_languages.c case L('s','r'), shared by hr/bs): initial stress,
     # spelling stress on the first letter.
-    "sr": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [2, 4],
+    "sr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [2, 4],
            "spelling_stress": True, "extra_consonants": "čćšžđ"},
-    "hr": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [1],
+    "hr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [1],
            "spelling_stress": True, "extra_consonants": "čćšžđ"},
-    "bs": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [3, 4],
+    "bs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [3, 4],
            "spelling_stress": True, "extra_consonants": "čćšžđ"},
-    "cs": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
+    "cs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (však -> fʃak)
            "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž"},
@@ -124,7 +124,7 @@ LANGS = {
     "io": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2},
     # Slovak: fixed initial stress (shares espeak's cs block). No config -> wrong 2R default
     # (alebo -> alˈebo instead of ˈalebo). Regressive voicing assimilation (však -> fʃak).
-    "sk": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
+    "sk": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "regression": 0x03,
            "extra_vowels": "áäéíóôúýyr", "extra_consonants": "čďľĺňŕšťž"},
     # fixed-initial-stress langs that had no config (-> wrong 2R default). espeak's per-lang
@@ -157,7 +157,7 @@ LANGS = {
            "it_lengthen": 2,  # remove length from unstressed/non-penultimate
            "lopt_alt": True,  # ApplySpecialAttribute2: $alt/$alt2 shift the post-stress e<->E o<->O
            "reduce_dict_vowels": True},  # LOPT_REDUCE&1: reduce vowels even in it_list entries
-    "sl": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
+    "sl": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž", "lopt_alt": True,
            "unstress_u_words": True, "drop_u_length": True},  # $u words: short, open vowels
     "la": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2},
