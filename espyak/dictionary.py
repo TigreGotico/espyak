@@ -1157,12 +1157,14 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
                     letter_xbytes = nb - 1
                     letter = buf[post_ptr] if post_ptr < len(buf) else 0
                     post_ptr += 1
-                    failed, add_points, post_ptr, k, rule_end = _match_post(
+                    failed, add_points, post_ptr, k, rule_end, rule_del_fwd = _match_post(
                         tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
                         last_letter_w, distance_right, post_ptr, word_flags, dict_flags,
-                        ix_word + group_length + consumed)
+                        ix_word + group_length + consumed, ix_word + group_length)
                     if rule_end:
                         end_type = rule_end
+                    if rule_del_fwd is not None:
+                        del_fwd = rule_del_fwd
             elif match_type == K.RULE_PRE:
                 distance_left += 2
                 if distance_left > 18:
@@ -1205,10 +1207,11 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
 
 def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
                 last_letter_w, distance_right, post_ptr, word_flags, dict_flags,
-                match_end_ptr=None):
+                match_end_ptr=None, group_end=None):
     failed = 0
     add_points = 0
     end_type = 0
+    del_fwd = None
     if rb == K.RULE_LETTERGP:
         letter_group = _letter_group_no(prog[k]); k += 1
         if tr.is_letter(letter_w, letter_group):
@@ -1237,6 +1240,11 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         if is_digit(letter_w):
             add_points = 20 - distance_right
             post_ptr += letter_xbytes
+        elif tr.config.get("tone_numbers"):
+            # tone languages: a 'D' post-rule also matches when no digit is present
+            # (dictionary.c:1700-1703); back up so the missing digit isn't consumed.
+            add_points = 20 - distance_right
+            post_ptr -= 1
         else:
             failed = 1
     elif rb == K.RULE_NONALPHA:
@@ -1312,7 +1320,14 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         post_ptr -= 1
         add_points = -20
     elif rb == K.RULE_DEL_FWD:
-        pass  # del_fwd handled minimally (rare; English 'e' replacement)
+        # find the next 'e' between the group end and the current scan position; on the
+        # winning match it is rewritten to REPLACED_E so a later group skips it
+        # (dictionary.c:1814-1822 + 2322-2323; English silent-e logic).
+        if group_end is not None:
+            for p in range(group_end, post_ptr):
+                if 0 <= p < len(buf) and buf[p] == ord("e"):
+                    del_fwd = p
+                    break
     elif rb == K.RULE_ENDING:
         # 3 bytes: flags(16-23), flags(8-15), length|0x80 -> end_type
         et = (prog[k] << 16) | ((prog[k + 1] & 0x7f) << 8) | (prog[k + 2] & 0x7f)
@@ -1357,7 +1372,7 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
                 add_points = 21 - distance_right
         else:
             failed = 1
-    return failed, add_points, post_ptr, k, end_type
+    return failed, add_points, post_ptr, k, end_type, del_fwd
 
 
 def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
@@ -1455,6 +1470,17 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
             p -= nb
         if ok and not failed:
             add_points = 3
+    elif rb == ord("."):
+        # dot in pre-section: match on any '.' before this point in the word
+        # (dictionary.c:1977-1986). Scan backward to the word-start space; +50 if a dot found.
+        p = pre_ptr
+        while p >= 0 and buf[p] != ord(" "):
+            if buf[p] == ord("."):
+                add_points = 50
+                break
+            p -= 1
+        if p < 0 or buf[p] == ord(" "):
+            failed = 1
     elif rb == ord("-"):
         if letter == ord("-") or (letter == ord(" ") and (word_flags & K.FLAG_HYPHEN)):
             add_points = 22 - distance_right
@@ -1582,7 +1608,7 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
     rules = tr.rules
     word = _apply_replacements(getattr(rules, "replacements", None), word)
     wb = word.encode("utf-8")
-    buf = b"\x00 " + wb + b" \x00"
+    buf = bytearray(b"\x00 " + wb + b" \x00")
     p = 2                       # index of first letter
     end = len(buf) - 2          # index of trailing space
     phonemes = ""
@@ -1681,6 +1707,10 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                     if (end_type & K.SUFX_P) and ((end_type & 0x7f) == 0):
                         end_type |= (p - 2)  # prefix length = chars consumed so far
                     return phonemes, end_type, match1.phonemes
+            if match1.del_fwd is not None and 0 <= match1.del_fwd < len(buf):
+                # rewrite the marked forward 'e' to REPLACED_E so a later group skips it
+                # (dictionary.c:2322-2323; English silent-e).
+                buf[match1.del_fwd] = REPLACED_E
             phonemes = _append(tr, phonemes, match1.phonemes, mnem_index)
 
     return phonemes, 0, ""
