@@ -1155,7 +1155,8 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
                     post_ptr += 1
                     failed, add_points, post_ptr, k, rule_end = _match_post(
                         tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-                        last_letter_w, distance_right, post_ptr, word_flags, dict_flags)
+                        last_letter_w, distance_right, post_ptr, word_flags, dict_flags,
+                        ix_word + group_length + consumed)
                     if rule_end:
                         end_type = rule_end
             elif match_type == K.RULE_PRE:
@@ -1172,7 +1173,8 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
                     letter = buf[pre_ptr] if pre_ptr >= 0 else 0
                     failed, add_points, pre_ptr, k = _match_pre(
                         tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-                        last_letter_w, distance_left, distance_right, pre_ptr, word_flags, dict_flags)
+                        last_letter_w, distance_left, distance_right, pre_ptr, word_flags, dict_flags,
+                        ix_word + group_length + consumed)
 
             if failed == 0:
                 points += add_points
@@ -1198,7 +1200,8 @@ def match_rule(tr, buf, ix_word, group_length, rules, word_flags, dict_flags):
 
 
 def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-                last_letter_w, distance_right, post_ptr, word_flags, dict_flags):
+                last_letter_w, distance_right, post_ptr, word_flags, dict_flags,
+                match_end_ptr=None):
     failed = 0
     add_points = 0
     end_type = 0
@@ -1256,7 +1259,11 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
     elif rb == K.RULE_DOLLAR:
         post_ptr -= 1
         command = prog[k]; k += 1
-        failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, post_ptr)
+        # espeak's DollarRule keys the part-word lookup off the MATCH end
+        # (word_start + consumed + group_length, dictionary.c:3030), independent of how far the
+        # post-context has scanned. da `el (l$p_alt` must check `appel`, not the scanned `appell`.
+        part_end = match_end_ptr if match_end_ptr is not None else post_ptr
+        failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, part_end)
     elif rb == ord("-"):
         if letter == ord("-") or (letter == ord(" ") and (word_flags & K.FLAG_HYPHEN_AFTER)):
             add_points = 22 - distance_right
@@ -1350,7 +1357,8 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
 
 
 def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
-               last_letter_w, distance_left, distance_right, pre_ptr, word_flags, dict_flags):
+               last_letter_w, distance_left, distance_right, pre_ptr, word_flags, dict_flags,
+               match_end_ptr=None):
     failed = 0
     add_points = 0
     if rb == K.RULE_LETTERGP:
@@ -1399,7 +1407,9 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         pre_ptr += 1
         command = prog[k]; k += 1
         if (command == K.DOLLAR_LIST) or ((command & 0xf0) == 0x20):
-            failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, post_ptr)
+            # part-word lookup keys off the MATCH end (consumed+group_length), same as the
+            # post-context branch (dictionary.c:1927 -> DollarRule).
+            failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, match_end_ptr)
     elif rb == K.RULE_SYLLABLE:
         syllable_count = 1
         while k < len(prog) and prog[k] == K.RULE_SYLLABLE:
