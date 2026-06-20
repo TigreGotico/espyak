@@ -66,7 +66,7 @@ LANGS = {
     # (no automatic secondary stress — biocomsc -> biokˈɔmsk, no ˌi) and S_FIRST_PRIMARY
     # (reduce primaries after the first to secondary). tr_languages.c case L('c','a'),
     # name2==L('c','a').
-    "ca": {"spirantize": True, 
+    "ca": {"unstress_u_words": True, "spirantize": True, 
         "stress_rule": K.STRESSPOSN_2R,
         "stress_flags": (K.S_FINAL_SPANISH | K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2
                          | K.S_NO_AUTO_2 | K.S_FIRST_PRIMARY),
