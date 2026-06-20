@@ -549,19 +549,24 @@ class G2P:
         if len(decomp) < 2:
             return None
         base, marks = decomp[0], decomp[1:]
-        names = []
         bn = self._lookup_letter(base, at_end=False, first=True)
-        if bn:
-            names.append(bn)
+        accent_names = []
         for mk in marks:
             key = _ACCENT_NAMES.get(ord(mk))
             if key:
                 ph, _ = self._dict.lookup(key, LookupContext())
                 if ph:
-                    names.append(ph)
-        if len(names) < 2:
+                    accent_names.append(ph)
+        if not bn or not accent_names:
             return None
-        return self._join_spelled(names)
+        # espeak's langopts.accents&1 (af, gn) spells the accent name BEFORE the base letter
+        # (à -> "grave a"), not after (numbers.c LookupAccentedLetter, accents & 1).
+        if self._config.get("accents_before"):
+            # espeak accents&1 (af/gn): the accent name precedes the base letter and each is
+            # its own primary-stressed unit (no count%3 spelling reduction) — à -> "grave a".
+            return "".join(set_word_stress(self._tr, nm, self._mnem, tonic=4)
+                           for nm in (accent_names + [bn]))
+        return self._join_spelled([bn] + accent_names)
 
     # spelling sets dict_condition group 1 so the rules' letter-NAME forms (gated `?1`,
     # e.g. pt "n" -> ɛn) win over the letter's sound. Languages that name letters via the

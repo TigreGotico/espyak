@@ -130,7 +130,7 @@ LANGS = {
     # fixed-initial-stress langs that had no config (-> wrong 2R default). espeak's per-lang
     # stress_rule (tr_languages.c); _list headwords are mostly dict-stressed so these were
     # already high, but rules-based words needed the right rule (af alebo-class, etc.).
-    "af": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True},
+    "af": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True, "accents_before": True},
     "be": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2 | K.S_NO_DIM},
     "da": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True},
     "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
