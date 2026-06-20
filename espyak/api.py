@@ -222,7 +222,7 @@ class G2P:
             plist, self.phoneme_table, ipa=ipa, tie=tie, separator=separator
         )
 
-    def translate_word(self, word, tonic=-1, caps_stress=0):
+    def translate_word(self, word, tonic=-1, caps_stress=0, all_upper=None):
         """Translate a single lowercase word to its mnemonic phoneme string.
 
         Pipeline: dictionary `_list` lookup -> (fallback) letter-to-sound rules ->
@@ -232,7 +232,10 @@ class G2P:
         """
         ctx = LookupContext(
             first_upper=word[:1].isupper(),
-            all_upper=word.isupper() and any(c.isalpha() for c in word),
+            # the caller passes the ORIGINAL-case all-caps flag: the word arriving here is already
+            # lowercased, so word.isupper() can't recover it (et USA -> $abbrev $allcaps spell-out).
+            all_upper=(word.isupper() and any(c.isalpha() for c in word))
+            if all_upper is None else all_upper,
             dict_condition=self._tr.dict_condition,
         )
         self._tr.expect_verb = 0
@@ -668,7 +671,8 @@ class G2P:
                     if ch.lower() in "aeiouy":
                         nv += 1
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
-                                         caps_stress=caps_stress)
+                                         caps_stress=caps_stress,
+                                         all_upper=word.isupper() and any(c.isalpha() for c in word))
             if (not rendered and self.lang != "en" and word.isascii()
                     and any(c.isalpha() for c in word)
                     and not getattr(self, "_textmode_empty", False)):
@@ -703,7 +707,7 @@ class G2P:
             cls._EN_FALLBACK = G2P("en")
         return cls._EN_FALLBACK
 
-    def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0):
+    def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
@@ -747,7 +751,7 @@ class G2P:
             if len(_parts) > 1:
                 _r = [self._render_word(p, tonic, ipa, tie, separator) for p in _parts]
                 return " ".join(x for x in _r if x)
-        ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress)
+        ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper)
         if ph.startswith("_^_"):
             # foreign word: re-translate in the named language and wrap (lang)...(orig)
             target = ph[3:].split("|")[0].lower().strip()
