@@ -710,6 +710,13 @@ class G2P:
                 r"([aeiouɛɔəɐ])([bdɡg])([ɾlr])",
                 lambda m: m.group(1) + _spir[m.group(2)] + m.group(3),
                 result)
+        if ipa and self._config.get("trill_r_not_after_stop"):
+            # de r is the alveolar TRILL r only PREVOCALICALLY after a non-stop consonant or word
+            # boundary (unsre -> ʊnzrə); the de 'r' program otherwise renders the tap ɾ (via CALL
+            # base1/*). A stop before it (dreißig -> dɾaɪsɪç), a vowel before it (intervocalic
+            # verein -> fɛɾaɪn, ChangePhoneme(R)), or a non-prevocalic position (tür -> tyːɾ) keep ɾ.
+            import re as _re
+            result = _re.sub(r"(?<![ptkbdɡgaɑeɛiɪoɔuʊyʏøœəɐː])ɾ(?=[ˈˌ]?[aɑeɛiɪoɔuʊyʏøœəɐ])", "r", result)
         return result
 
     _EN_FALLBACK = None

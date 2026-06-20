@@ -73,7 +73,7 @@ LANGS = {
         "unstressed_wd1": 0,
         "unstressed_wd2": 2,
     },
-    "de": {
+    "de": {"trill_r_not_after_stop": True, 
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)
         "stress_flags": 0,
         "extra_vowels": "äöü",
