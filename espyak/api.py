@@ -147,6 +147,26 @@ def _decompose_hangul(word):
     return "".join(out)
 
 
+def _reduce_extra_primaries(ph):
+    """espeak's prefix-primary reduction (translateword.c:557): keep the first primary
+    stress mark in a prefix, reduce any later primary marks to secondary."""
+    out = []
+    seen = False
+    i, n = 0, len(ph)
+    while i < n:
+        if ph[i:i + 2] == "''":      # priority marker — leave intact
+            out.append("''")
+            i += 2
+        elif ph[i] == "'":           # primary stress
+            out.append(",," if seen else "'")
+            seen = True
+            i += 1
+        else:
+            out.append(ph[i])
+            i += 1
+    return "".join(out)
+
+
 class G2P:
     """Grapheme-to-phoneme translator for one language."""
 
@@ -446,6 +466,16 @@ class G2P:
             rest = word[prefix_len:]
             rctx = LookupContext(dict_condition=self._tr.dict_condition)
             rest_ph, _ = self._translate_core(rest, rctx)
+            if self._config.get("lopt_prefixes") and ",," not in rest_ph:
+                # LOPT_PREFIXES (af/da/de/nl): "keep a secondary stress on the stem"
+                # (translateword.c:553). espeak runs SetWordStress(stem, tonic=3) so the
+                # stem's main vowel becomes SECONDARY, then reduces all but the first
+                # primary mark in the prefix; the final word-stress pass places the primary.
+                # Applied only at the INNERMOST prefix level: a stem that already carries a
+                # secondary (nested prefix, on+begrip) keeps its single secondary, not a second.
+                rest_ph = set_word_stress(self._tr, rest_ph, self._mnem,
+                                          dict_flags=flags, tonic=3)
+                end_ph = _reduce_extra_primaries(end_ph)
             return end_ph + rest_ph, flags
         if end_type and (end_type & K.SUFX_Q):
             # "lookup stem in *_list without the suffix" (it `_S1q`): if the stem is a

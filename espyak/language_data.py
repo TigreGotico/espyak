@@ -73,7 +73,7 @@ LANGS = {
         "unstressed_wd1": 0,
         "unstressed_wd2": 2,
     },
-    "de": {"trill_r_not_after_stop": True, 
+    "de": {"trill_r_not_after_stop": True, "lopt_prefixes": True,
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)
         "stress_flags": 0,
         "extra_vowels": "äöü",
@@ -130,9 +130,9 @@ LANGS = {
     # fixed-initial-stress langs that had no config (-> wrong 2R default). espeak's per-lang
     # stress_rule (tr_languages.c); _list headwords are mostly dict-stressed so these were
     # already high, but rules-based words needed the right rule (af alebo-class, etc.).
-    "af": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},
+    "af": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True},
     "be": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2 | K.S_NO_DIM},
-    "da": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},
+    "da": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True},
     "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
     "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "y"},
     "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},
@@ -195,7 +195,7 @@ LANGS = {
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_INITIAL_2 | K.S_PRIORITY_STRESS,
            "lopt_alt": True, "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1"},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
-           "regression": 0x100},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
+           "regression": 0x100, "lopt_prefixes": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
            "regression": 0x9},  # LOPT_REGRESSIVE_VOICING (usb -> uɛzbɛ)
 }
