@@ -670,6 +670,12 @@ class G2P:
         _trans[0x104A] = " "
         _trans[0x104B] = " "
         _trans[0x1039] = " "   # Myanmar virama (stacked consonants): a plain word break
+        # shn (Shan): espeak mis-classifies the tone marks ႇ/ႈ/ႉ/ႊ (U+1087-108A) as clause
+        # separators, not syllable marks — it splits the syllable so the bare vowel drops
+        # (ၵေႇ -> 'ၵေ'+'ႇ' -> k). force_compat reproduces this bug; the default engine keeps them.
+        if self.force_compat:
+            for ch in self._config.get("compat_separators", ""):
+                _trans[ord(ch)] = " "
         # a '/' is a word break that is itself spoken as its character name (ca a/e -> a barra e,
         # en a/b -> a slash b), so isolate it as its own token.
         _trans[ord("/")] = " / "
