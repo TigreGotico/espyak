@@ -46,6 +46,7 @@ from espyak.phoneme_program import Interpreter, set_regressive_voicing
 
 
 from espyak.phoneme_tab import phNASAL, phLIQUID, phFRICATIVE, phVFRICATIVE, phVOWEL
+from espyak.constants import phSTOP, phVSTOP
 from espyak.render import PhonemeListEntry
 
 _DOUBLE_TYPES = frozenset((phFRICATIVE, phVFRICATIVE, phNASAL, phLIQUID))
@@ -130,16 +131,24 @@ def _shn_long_vowel_tone_copy(plist):
             ent.ipa_override = vipa
 
 
-def _double_long_consonants(plist):
+def _double_long_consonants(plist, double_rfx_stop=False):
     """phonemelist.c: a length phoneme (`:`) after a fricative/nasal/liquid lengthens by
     doubling the consonant (it mm/ll/ss); after a DIPHTHONG it repeats the diphthong
     (af e@: -> iəiə, o@: -> ʊəʊə) — espeak renders a lengthened diphthong by writing it twice,
-    not vowel+ː (which stays for monophthongs: A: -> ɑː)."""
+    not vowel+ː (which stays for monophthongs: A: -> ɑː).
+
+    With double_rfx_stop (bn), a lengthened RETROFLEX stop also doubles (bn টা টা ->
+    ʈʈ, ড়া -> ɖɖ): unlike a plain stop (kː) the retroflex ʈ/ɖ has an explicit single-char
+    ipa, which espeak's IPA writer repeats instead of appending ː (দশটা -> dɔʃʈʈˈa)."""
     for i in range(1, len(plist)):
         e = plist[i]
         if e.deleted or e.ph.mnemonic != ":":
             continue
         prev = plist[i - 1].ph
+        if (double_rfx_stop and prev.type in (phSTOP, phVSTOP)
+                and prev.place == "rfx" and prev.ipa is not None):
+            e.ph = prev
+            continue
         if prev.type in _DOUBLE_TYPES or (
                 prev.type == phVOWEL and (
                     # a MONOPHTHONG with an explicit ipa string (mto i/a/o/e, af a) is lengthened
@@ -940,7 +949,7 @@ class G2P:
                 for k in range(1, len(plist)):
                     if plist[k].ph.mnemonic == ":" and plist[k - 1].ph.type == phVOWEL:
                         plist[k].deleted = True
-        _double_long_consonants(plist)
+        _double_long_consonants(plist, double_rfx_stop=bool(self._config.get("double_rfx_stop")))
         if self._config.get("tone_language") or self._config.get("tone_collapse"):
             _normalize_tones(plist, self.phoneme_table,
                              insert_default=bool(self._config.get("tone_language")),
