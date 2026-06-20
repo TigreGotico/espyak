@@ -362,7 +362,15 @@ class Interpreter:
                 if p is not None:
                     prog = parse_program(p.program)
         elif ref in getattr(self.source, "procedures", {}):
+            # espeak's CallPhoneme resolves a procedure name first (compiledata.c)
             prog = parse_program(self.source.procedures[ref])
+        else:
+            # ...then a bare phoneme mnemonic in the current table: `CALL @` runs the
+            # called phoneme's whole program inline (synthdata.c i_CALLPH), so en's
+            # `phoneme 3 { CALL @ }` inherits @'s IfNextVowelAppend(r-) linking r.
+            p = self.table.get(ref)
+            if p is not None and p is not plist[i].ph:
+                prog = parse_program(p.program)
         if prog:
             self._exec(prog, plist, i, ctx)
 
