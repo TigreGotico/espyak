@@ -445,11 +445,17 @@ class G2P:
                 else {"e": "E", "o": "O"}).get(ph[j])
         return ph[:j] + repl + ph[j + 1:] if repl else ph
 
-    def _translate_core(self, word, ctx, word_flags=0):
+    def _translate_core(self, word, ctx, word_flags=0, inherit_flags=0):
         """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
 
         Returns (phonemes, dict_flags). Handles one prefix (recursing on the stem) or
-        one suffix per call (TranslateWord3's prefix/suffix branches)."""
+        one suffix per call (TranslateWord3's prefix/suffix branches).
+
+        ``inherit_flags`` carries the parent word's dict flags into a prefix-stripped
+        stem: TranslateWord3 reuses one ``dictionary_flags`` array across the prefix
+        loop (translateword.c:428), so the stem's rules still see the whole word's
+        $alt flag (only overwritten by the stem's own lookup when the original was 0).
+        That keeps nl gestage/inzage on the `age (_$w_alt a:Q@` rule (ɣ, not French ʒ)."""
         if self._config.get("decompose_hangul"):
             word = unicodedata.normalize("NFC", word)
         # espeak's SubstituteChar (.replace table) normalises the source BEFORE the dict lookup,
@@ -459,6 +465,12 @@ class G2P:
         word = _apply_replacements(getattr(self._rules, "replacements", None), word)
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
+        # translateword.c keeps the prefix-parent's dictionary_flags across the prefix
+        # loop, only overwriting it from the stem's own lookup when the original was 0
+        # (lines 422-428). So a prefix-stripped stem's rules see the WHOLE word's $alt
+        # flag -> nl gestage/inzage stay on `age (_$w_alt a:Q@` (ɣ, not the French ʒ).
+        if inherit_flags:
+            flags = inherit_flags
         accent_entry = not dict_ph and getattr(self._dict, "_last_accent", False)
         if dict_ph:
             hangul = self._config.get("decompose_hangul")
@@ -509,7 +521,7 @@ class G2P:
             prefix_len = end_type & 0x3f
             rest = word[prefix_len:]
             rctx = LookupContext(dict_condition=self._tr.dict_condition)
-            rest_ph, _ = self._translate_core(rest, rctx)
+            rest_ph, _ = self._translate_core(rest, rctx, inherit_flags=flags)
             if self._config.get("lopt_prefixes") and ",," not in rest_ph:
                 # LOPT_PREFIXES (af/da/de/nl): "keep a secondary stress on the stem"
                 # (translateword.c:553). espeak runs SetWordStress(stem, tonic=3) so the
