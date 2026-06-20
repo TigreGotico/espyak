@@ -158,6 +158,8 @@ _FEATURES = {
     # ba/tt/tr: a phoneme supplied by a dictionary entry (the letter-name 'kA') is "translation
     # given" — its vowel programs (A -> 0 backing) are suppressed, unlike a rules-derived vowel.
     "isTranslationGiven": lambda ph, e, ctx: ctx.get("translation_given", False),
+    "isSecondVowel": lambda ph, e, ctx: ctx.get("second_vowel", False),
+    "isAfterStress": lambda ph, e, ctx: ctx.get("after_stress", False),
 }
 
 # a synthetic pause phoneme stands in at word boundaries for *W predicates
@@ -208,9 +210,13 @@ class Interpreter:
         # first/final vowel within the word
         vowels = [j for j in range(len(plist)) if plist[j].ph.type == phVOWEL]
         first_vowel = bool(vowels and vowels[0] == i)
+        second_vowel = bool(len(vowels) > 1 and vowels[1] == i)
         final_vowel = bool(vowels and vowels[-1] == i)
         max_stress = entry.stresslevel >= 4
+        stressed_v = next((j for j in vowels if plist[j].stresslevel >= 4), None)
+        after_stress = stressed_v is not None and i > stressed_v
         return {"word_end": word_end, "first_vowel": first_vowel,
+                "second_vowel": second_vowel, "after_stress": after_stress,
                 "final_vowel": final_vowel, "max_stress": max_stress,
                 "translation_given": getattr(self, "_translation_given", False)}
 
