@@ -314,6 +314,25 @@ class G2P:
                                 tonic=_part_tonic(p, i == last, i))
                 for i, p in enumerate(parts)
             ]
+            for _i in range(1, len(stressed)):
+                # stress clash: a part whose FIRST stressed syllable is a secondary (,,) drops it
+                # when the previous part ends in a primary — the two stressed syllables are adjacent
+                # across the word break (es é = 'e||aTEntw'aDa -> ˈe aθɛntwˈaða; ü = 'u||k,,on||... ->
+                # ˈu kon ...). Only the first mark, so an interior primary is kept.
+                _part = stressed[_i]
+                _marks = [(_part.find(m), m) for m in ("'", ",,", "%%") if _part.find(m) >= 0]
+                if not _marks:
+                    continue
+                _pos, _mark = min(_marks)
+                _prev = stressed[_i - 1]
+                _lp = _prev.rfind("'")
+                # the previous part must END in a primary syllable (the primary on its LAST vowel)
+                # for the syllables to be adjacent — ms d'uli||jang keeps jˌanɡ (primary on u, not li).
+                _prev_ends_primary = _lp > _prev.rfind(",,") and sum(
+                    1 for _m, _ph in self._mnem.tokenize(_prev[_lp + 1:])
+                    if _ph.type == phVOWEL) == 1
+                if _mark == ",," and _prev_ends_primary:
+                    stressed[_i] = _part[:_pos] + _part[_pos + 2:]
             return "||".join(stressed)
         return self._apply_alt_attribute(
             set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
