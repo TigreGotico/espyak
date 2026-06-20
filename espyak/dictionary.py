@@ -802,10 +802,10 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         tonic = tr.unstressed_wd1 if vowel_count <= 2 else tr.unstressed_wd2
 
     if (unstressed_word and max_stress_input < STRESS_IS_PRIMARY
-            and tr.stress_rule == K.STRESSPOSN_1L and vowel_count > 3
+            and tr.stress_rule in (K.STRESSPOSN_1L, K.STRESSPOSN_1RH) and vowel_count > 3
             and not (dict_flags & K.FLAG_STRESS_END)):
         # a $u word with no lexical accent of its own (smj derived nouns allelattjaj, bn pronouns)
-        # carries no primary: reduce the position-rule (1L) primary to secondary so the clause tonic
+        # carries no primary: reduce the position-rule (1L/1RH) primary to secondary so the clause tonic
         # lands on its natural main syllable (the last/heaviest, via max_stress_posn's last-wins scan
         # below) instead of the first. $u+ entries (FLAG_STRESS_END, smj avtagattjaj) keep first stress.
         for _v in range(1, vowel_count):
