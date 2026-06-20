@@ -110,9 +110,9 @@ LANGS = {
     # fi/et stress_flags come from the VOICE file (stressOpt): S_FINAL_DIM_ONLY | S_FINAL_NO_2 |
     # S_2_TO_HEAVY — the last keeps secondary stress off light syllables (et följetonist ->
     # fˈøʎjetonist, no ˌo before the heavy final).
-    "fi": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöy",
+    "fi": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöy", "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY},
-    "et": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöüõ",
+    "et": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöüõ", "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY},
     # Latvian: fixed initial stress. _list headwords carry explicit stress so they scored
     # 100% under the wrong 2R default, but rules-based words (Glāžšķūņa -> ɡlˈaːʒʃcuːɲa)
