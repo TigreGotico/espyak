@@ -794,8 +794,17 @@ class G2P:
         if self._config.get("tone_language") or self._config.get("tone_collapse"):
             _normalize_tones(plist, self.phoneme_table,
                              insert_default=bool(self._config.get("tone_language")))
-        return render_phoneme_list(plist, self.phoneme_table,
-                                   ipa=ipa, tie=tie, separator=separator)
+        result = render_phoneme_list(plist, self.phoneme_table,
+                                     ipa=ipa, tie=tie, separator=separator)
+        if ipa and (self._config.get("stress_flags", 0) & K.S_FIRST_PRIMARY):
+            # ca S_FIRST_PRIMARY: within ONE multi-word dict entry (a || expansion rendered here as a
+            # single token) only the first primary survives; later parts reduce to secondary (ccoo ->
+            # cumisiˈonz uβɾˌeɾəs). Applied per-token so separately-rendered tokens — digit splits
+            # (co2 -> kˈɔ ðˈos) and '/' splits (a/e -> ə βˈarə ˈɛ) — each keep their own primary.
+            first = result.find("ˈ")
+            if first >= 0:
+                result = result[:first + 1] + result[first + 1:].replace("ˈ", "ˌ")
+        return result
 
     _SWITCH_CACHE = {}
 
