@@ -801,6 +801,13 @@ class G2P:
         if self._config.get("tone_language") or self._config.get("tone_collapse"):
             _normalize_tones(plist, self.phoneme_table,
                              insert_default=bool(self._config.get("tone_language")))
+        # a PRIORITY stress (level 5, from a '' mark in the rules) dominates the word: the other
+        # primaries reduce to secondary (da debutant d?eb'y''?&nt: y primary + ant priority ->
+        # dʔebˌyˈant). Words with only ordinary primaries (eremitage 4,4) keep them all.
+        if any(e.ph.type == phVOWEL and e.stresslevel == 5 for e in plist):
+            for e in plist:
+                if e.ph.type == phVOWEL and e.stresslevel == 4:
+                    e.stresslevel = 3
         result = render_phoneme_list(plist, self.phoneme_table,
                                      ipa=ipa, tie=tie, separator=separator)
         if ipa and (self._config.get("stress_flags", 0) & K.S_FIRST_PRIMARY):
