@@ -129,7 +129,7 @@ LANGS = {
     # Latvian: fixed initial stress. _list headwords carry explicit stress so they scored
     # 100% under the wrong 2R default, but rules-based words (Glāžšķūņa -> ɡlˈaːʒʃcuːɲa)
     # need 1L.
-    "lv": {"stress_rule": K.STRESSPOSN_1L,
+    "lv": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM | K.S_FINAL_DIM_ONLY | K.S_EO_CLAUSE1},
     # Ido (constructed, penultimate stress like Esperanto): no final auto-secondary.
     # Without S_FINAL_NO_2 the final vowel got a spurious ˌ (Jun/junio -> dʒˈuniˌo not dʒˈunio).
