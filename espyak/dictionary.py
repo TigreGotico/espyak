@@ -541,6 +541,22 @@ def _ph_is_vowel(p):
     return p.type == phVOWEL and "nonsyllabic" not in p.flags
 
 
+def _nonsyllabic_before_vowel(p):
+    """True for a vowel-typed phoneme whose program turns it into the consonant N when the
+    next phoneme is a vowel (`IF nextPh(isVowel) THEN ChangePhoneme(N)`). This is the yue/zh
+    `ng` initial: syllabic `ŋ̩` on its own (五 -> ˈnɡ5), but a plain onset consonant `ŋ` before
+    a vowel (我=ngo5 -> ŋˈo5), so it must NOT be counted as a syllable nucleus there. The
+    program signature scopes this to that phoneme — other langs' ChangePhoneme(N) is on a
+    consonant-typed `n` (velar assimilation), which _ph_is_vowel already rejects."""
+    if p.type != phVOWEL:
+        return False
+    prog = getattr(p, "program", None)
+    if not prog:
+        return False
+    txt = " ".join(prog)
+    return "nextPh(isVowel)" in txt and "ChangePhoneme(N)" in txt
+
+
 def get_vowel_stress(toks, stressed_syllable=0):
     """Port of GetVowelStress. Returns (vowel_stress list, phonetic toks, count, primary).
 
@@ -553,7 +569,7 @@ def get_vowel_stress(toks, stressed_syllable=0):
     max_stress = -1
     stress = -1
     primary_posn = 0
-    for mnem, ph in toks:
+    for idx, (mnem, ph) in enumerate(toks):
         if ph.type == phSTRESS and not mnem.isdigit():
             # digit-named phStress phonemes are tone marks (Vietnamese 1-7), not stress
             # markers — keep them in the phonetic stream rather than consuming them.
@@ -582,6 +598,13 @@ def get_vowel_stress(toks, stressed_syllable=0):
                 stress = ph.stress_type
                 if stress > max_stress:
                     max_stress = stress
+            continue
+        if _nonsyllabic_before_vowel(ph) and idx + 1 < len(toks) \
+                and _ph_is_vowel(toks[idx + 1][1]):
+            # yue/zh `ng` onset before a vowel: the phoneme interpreter changes it to the
+            # consonant N, so (like espeak's GetVowelStress) it is not a syllable nucleus here
+            # and the stress falls on the following vowel (我=ngo5 -> ŋˈo5, not ŋo5).
+            phonetic.append((mnem, ph))
             continue
         if _ph_is_vowel(ph) and mnem != "@-":
             # @- is the "very short schwa" (linking/epenthetic, e.g. eo Cr clusters
@@ -906,7 +929,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     v = 1
     prev_v = 0
     prev_v_stress = 0
-    for mnem, ph in phonetic:
+    for _pi, (mnem, ph) in enumerate(phonetic):
+        if _nonsyllabic_before_vowel(ph) and _pi + 1 < len(phonetic) \
+                and _ph_is_vowel(phonetic[_pi + 1][1]):
+            # yue/zh `ng` onset before a vowel is not a syllable nucleus (see get_vowel_stress):
+            # emit it as a plain consonant so `v` stays aligned with the real vowels and the
+            # stress mark lands on the following vowel, not the onset.
+            out.append(mnem)
+            continue
         if (opt_length & 1) and mnem == ":":
             # remove a lengthen indicator from a non-stressed (or non-max-stress) syllable
             if opt_length & 0x10:
