@@ -173,6 +173,20 @@ def _double_long_consonants(plist, double_rfx_stop=False):
     With double_rfx_stop (bn), a lengthened RETROFLEX stop also doubles (bn টা টা ->
     ʈʈ, ড়া -> ɖɖ): unlike a plain stop (kː) the retroflex ʈ/ɖ has an explicit single-char
     ipa, which espeak's IPA writer repeats instead of appending ː (দশটা -> dɔʃʈʈˈa)."""
+    # espeak builds the phoneme list with phonLENGTHEN as a single SFLAG_LENGTHEN bit on the
+    # preceding phoneme (translate.c:590), so repeated ':' (a dict entry's `q::abl`) collapse to
+    # ONE length effect — fa ق.ظ q::abl -> qːabl, not qːːabl. Drop each ':' that merely follows
+    # another ':' before the doubling pass runs (its length is already accounted for).
+    prev_colon = False
+    for i in range(1, len(plist)):
+        e = plist[i]
+        if e.deleted:
+            continue
+        is_colon = e.ph.mnemonic == ":"
+        if is_colon and prev_colon:
+            e.deleted = True
+            continue
+        prev_colon = is_colon
     for i in range(1, len(plist)):
         e = plist[i]
         if e.deleted or e.ph.mnemonic != ":":
@@ -505,6 +519,15 @@ class G2P:
         # is pronounced as its native equivalent and never reaches its `$accent` dict entry, while
         # letters with no mapping (é) still hit `$accent` and get spelled.
         word = _apply_replacements(getattr(self._rules, "replacements", None), word)
+        # CheckDottedAbbrev / LookupDictList (translateword.c:1046, dictionary.c:2737): the clause
+        # reader spaces every dot in a single-letter run (a.b.c -> "a . b . c"), so LookupDictList
+        # reconstructs the key by joining the letters with dots but DROPPING the trailing dot (a.b.
+        # -> "a.b"). espyak keeps the dotted token whole, so reproduce the reconstruction here: an
+        # entry like eo `a.k` or fa `ق.ظ` is matched, while a trailing-dot-only entry (fo `m.a.`)
+        # is NOT — its real espeak fate is letter-by-letter spelling (handled below when unmatched).
+        dotted_letters = self._check_dotted_abbrev(word)
+        if dotted_letters is not None:
+            word = ".".join(dotted_letters)
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
         # translateword.c keeps the prefix-parent's dictionary_flags across the prefix
@@ -537,6 +560,14 @@ class G2P:
             # $abbrev with no pronunciation -> spell out as individual letter names
             self._spelled = True
             return self._spell_word(word), 0
+        if not dict_ph and dotted_letters is not None:
+            # CheckDottedAbbrev (translateword.c:1046): a run of single letters separated by dots
+            # (a.b.c, A.C., m.a.) with no matching dict entry is spelled out letter by letter
+            # (a.b.c -> ˌeɪbˌiːsˈiː). The whole-word dict lookup ran first (so the fa ق.ظ / ar د.ج
+            # dict entries win and are NOT respelled); reaching here means the reconstructed key
+            # had no pronunciation, so SpeakIndividualLetters spells the joined letters.
+            self._spelled = True
+            return self._spell_word("".join(dotted_letters)), 0
         if not dict_ph and not accent_entry and _unpronounceable(self._tr, word):
             # Unpronouncable (translateword.c): a word with no dict pronunciation and no vowel letter
             # is spelled out (ca Mgfc, en th). Latin-script + non-tonal only (guard in _unpronounceable).
@@ -614,6 +645,50 @@ class G2P:
             if ph:
                 parts.append(set_word_stress(self._tr, ph, self._mnem, tonic=4))
         return "||".join(parts)
+
+    def _check_dotted_abbrev(self, word):
+        """Port of CheckDottedAbbrev (translateword.c:1046).
+
+        espeak's clause reader turns `a.b.c` into `a . b . c ` (each dot spaced), then this
+        walks single-letter+dot segments: a letter must be followed by a dot (with a trailing
+        space, or end of run) — the final letter may have no dot. A `'s` after the run is kept
+        (u.s.a.'s). On a run of count>1 letters it returns the joined letters (`abc`) for
+        SpeakIndividualLetters; otherwise None (no abbreviation — leave the word as-is).
+        """
+        n = len(word)
+        if n < 3 or "." not in word:
+            return None
+        letters = []
+        i = 0
+        while True:
+            if i >= n or not word[i].isalpha():
+                break
+            ch = word[i]
+            nxt = word[i + 1] if i + 1 < n else ""
+            if nxt == ".":
+                after = word[i + 2] if i + 2 < n else ""
+                if after == "" or after == "'":
+                    # trailing dot at end of word (a.b.) or before an apostrophe (u.s.a.'s):
+                    # accept this letter and stop the run.
+                    letters.append(ch)
+                    break
+                # a.X — only a real single-letter+dot segment continues the run; a dot
+                # followed by anything other than another single-letter+dot (e.g. 'a.bc')
+                # is not part of the abbreviation, so the next char must itself be a letter
+                # that the loop will validate.
+                letters.append(ch)
+                i += 2
+                continue
+            if nxt == "" and letters:
+                # final letter of the run with no trailing dot (a.b -> 'a','b')
+                letters.append(ch)
+                break
+            # a letter not followed by a dot and not the final letter of a started run
+            # (e.g. the 'b' in 'a.bc'): the abbreviation ends before it.
+            break
+        if len(letters) > 1:
+            return letters
+        return None
 
     def _spell_word(self, word):
         """Spell a word as individual letter names (SpeakIndividualLetters +
