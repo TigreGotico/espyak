@@ -562,7 +562,7 @@ class G2P:
             # prefix: remove it, translate the remaining stem, prepend the prefix phonemes
             prefix_len = end_type & 0x3f
             rest = word[prefix_len:]
-            rctx = LookupContext(dict_condition=self._tr.dict_condition)
+            rctx = LookupContext(dict_condition=self._tr.dict_condition, prefix_removed=True)
             rest_ph, _ = self._translate_core(rest, rctx, inherit_flags=flags)
             if self._config.get("lopt_prefixes") and ",," not in rest_ph:
                 # LOPT_PREFIXES (af/da/de/nl): "keep a secondary stress on the stem"
@@ -580,8 +580,9 @@ class G2P:
             # dictionary entry use it, otherwise keep the in-context rule output (don't
             # re-run the rules on the stem — that would re-expose a geminate to the
             # word-end rule, palla->pal, and lose intervocalic context, casa s->z).
-            stem, _ = remove_ending(self._tr, word, end_type)
-            sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True)
+            stem, _qflags = remove_ending(self._tr, word, end_type)
+            sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True,
+                                 suffix_is_s=bool(_qflags & K.FLAG_SUFX_S))
             sdict_ph, _ = self._dict.lookup(stem.strip(), sctx)
             return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
         if end_type and not (end_type & K.SUFX_P):
@@ -711,7 +712,8 @@ class G2P:
         stem, end_flags = remove_ending(self._tr, word, end_type)
         stem = stem.strip()
         self._tr.expect_verb = 0
-        sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True)
+        sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True,
+                             suffix_is_s=bool(end_flags & K.FLAG_SUFX_S))
         # A SINGLE-letter vowelless stem (e.g. eu gara - 'ara' suffix -> 'g') is not a real word
         # stem; skipping the dict avoids matching single-letter *name* entries (eu 'g'->'ge'),
         # which would inject a spurious vowel (gara -> gea**a instead of gaɾa). A MULTI-letter

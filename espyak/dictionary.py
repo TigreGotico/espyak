@@ -335,6 +335,12 @@ class DictList:
         # whitespace-separated token is a separate field that EncodePhonemes does not consume (mt
         # `lil hinn<TAB>lil:in:` -> lil maps to `hinn`, the trailing `lil:in:` dropped, not hinnlilin).
         phonemes = phon_tokens[0] if phon_tokens else ""
+        if "_^_" in phonemes:
+            # compiledict.c:582-583: an entry whose phonemes contain a language switch (phonSWITCH,
+            # written `_^_LANG`) implicitly gets FLAG_ONLY_S — "don't match on suffixes (except 's')
+            # when switching languages". So de `word _^_EN` matches `word`/`words` but NOT the stem
+            # of `worden` (the `en` suffix removed), which falls through to the rules (vˈɔɾdən).
+            flag_codes.append(_MNEM_FLAGS["$onlys"])
         if self.text_mode:
             flag_codes.append(_MNEM_FLAGS["$text"])  # within a $textmode section -> FLAG_TEXTMODE
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words,
@@ -429,6 +435,14 @@ class DictList:
         # condition checks (LookupDict2 tail)
         if (flags2 & K.FLAG_STEM) and not ctx.suffix_removed:
             return False, 0, 0, None
+        # $only / $onlys suffix gating (LookupDict2:2573-2581). $only never matches once a prefix
+        # OR suffix was removed; $onlys (implicit on language-switch entries) matches only when no
+        # suffix was removed or the removed suffix was 's'. de `word _^_EN` ($onlys via _^_) thus
+        # matches `word`/`words` but not the `en`-stripped stem of `worden`.
+        if (flags2 & K.FLAG_ONLY) and (ctx.suffix_removed or ctx.prefix_removed):
+            return False, 0, 0, None
+        if (flags2 & K.FLAG_ONLY_S) and ctx.suffix_removed and not ctx.suffix_is_s:
+            return False, 0, 0, None
         if (flags2 & K.FLAG_CAPITAL) and not ctx.first_upper:
             return False, 0, 0, None
         if (flags2 & K.FLAG_ALLCAPS) and not ctx.all_upper:
@@ -455,7 +469,8 @@ class LookupContext:
 
     def __init__(self, first_upper=False, all_upper=False, has_dot=False,
                  first_word=True, at_end=True, sentence=True, dict_condition=0,
-                 expect_verb=0, expect_noun=0, expect_past=0, suffix_removed=False):
+                 expect_verb=0, expect_noun=0, expect_past=0, suffix_removed=False,
+                 prefix_removed=False, suffix_is_s=False):
         self.first_upper = first_upper
         self.all_upper = all_upper
         self.has_dot = has_dot
@@ -466,7 +481,9 @@ class LookupContext:
         self.expect_verb = expect_verb
         self.expect_noun = expect_noun
         self.expect_past = expect_past
-        self.suffix_removed = suffix_removed
+        self.suffix_removed = suffix_removed   # a suffix was removed (FLAG_SUFX)
+        self.prefix_removed = prefix_removed   # a prefix was removed (SUFX_P)
+        self.suffix_is_s = suffix_is_s         # the removed suffix was 's' (FLAG_SUFX_S)
 
 
 def is_digit(c):
