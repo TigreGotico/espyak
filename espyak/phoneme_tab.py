@@ -333,6 +333,10 @@ class PhonemeSource:
                     cur_ph.flags.add(t)  # feature flags tested by isRhotic/isSibilant on a
                     # MULTI-token line (es/ca r: `vcd alv flp rhotic`) — without this they were
                     # dropped, so isRhotic never fired and p->b voiced before r (empra -> embɾə).
+                elif t == "unstressed":
+                    cur_ph.flags.add("unstressed")  # phUNSTRESSED on a MULTI-token line (de `3`:
+                    # `unstressed flag1`) — GetVowelStress marks such a bare vowel UNSTRESSED, so
+                    # the trochaic auto-secondary pass skips it (stofftier ʃtˈɔftiːɜ, no ˌ on ɜ).
             if len(tok) == 1:
                 cur_ph.flags.add(head)
 

@@ -386,6 +386,7 @@ class G2P:
         )
         self._tr.expect_verb = 0
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
+        self._suffix_dict_flags = 0  # a flags-only stem entry's flags adopted by the suffix path
         self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
         self._neutral_tone = False  # cmn neutral tone (pinyin 5): the syllable is unstressed
         self._spelled = False     # set by _translate_core for a $abbrev spelled-out word
@@ -572,8 +573,22 @@ class G2P:
             nfc_ph = unicodedata.normalize("NFC", dict_ph) if hangul else dict_ph
             if flags & K.FLAG_TEXTMODE:
                 # $text: the entry value is text to re-translate (ta "tamil" -> தமிழ்,
-                # Korean sandhi respellings) — feed it back through the rules.
+                # Korean sandhi respellings). espeak recurses through TranslateWord on the
+                # replacement (dictionary.c:2881), so the replacement gets a FRESH dict lookup
+                # before the rules — a respelling that is itself a dict headword uses that entry's
+                # pronunciation/stress (de matthias->mathias = matˈiːɑːs, jonathan->jonatan = $1).
                 word = nfc_ph
+                if not (self._config.get("neutral_tone_unstress")
+                        and nfc_ph[-1:] == "5"):
+                    rctx = LookupContext(dict_condition=self._tr.dict_condition)
+                    sub_ph, sub_flags = self._dict.lookup(word, rctx)
+                    if sub_flags is not None and not (sub_flags & K.FLAG_TEXTMODE):
+                        if sub_ph:
+                            self._from_dict = True
+                            return sub_ph, sub_flags or 0
+                        # flags-only entry (de jonatan -> $1): carry the replacement's stress
+                        # flags into the rules pass so $1/$2 place the primary (jˈoːnatˌɑːn).
+                        flags = sub_flags
                 if (self._config.get("neutral_tone_unstress") and nfc_ph[-1:] == "5"
                         and (len(nfc_ph) < 2 or not nfc_ph[-2].isdigit())):
                     self._neutral_tone = True  # cmn neutral tone -> unstressed (戚 qi5 -> tɕhi1)
@@ -638,22 +653,44 @@ class G2P:
                 return "", 0
             return self._spell_letters(word), 0
         if end_type and (end_type & K.SUFX_P) and not (word_flags & K.FLAG_NO_PREFIX):
-            # prefix: remove it, translate the remaining stem, prepend the prefix phonemes
-            prefix_len = end_type & 0x3f
-            rest = word[prefix_len:]
-            rctx = LookupContext(dict_condition=self._tr.dict_condition, prefix_removed=True)
-            rest_ph, _ = self._translate_core(rest, rctx, inherit_flags=flags)
-            if self._config.get("lopt_prefixes") and ",," not in rest_ph:
-                # LOPT_PREFIXES (af/da/de/nl): "keep a secondary stress on the stem"
-                # (translateword.c:553). espeak runs SetWordStress(stem, tonic=3) so the
-                # stem's main vowel becomes SECONDARY, then reduces all but the first
-                # primary mark in the prefix; the final word-stress pass places the primary.
-                # Applied only at the INNERMOST prefix level: a stem that already carries a
-                # secondary (nested prefix, on+begrip) keeps its single secondary, not a second.
-                rest_ph = set_word_stress(self._tr, rest_ph, self._mnem,
-                                          dict_flags=flags, tonic=3)
-                end_ph = _reduce_extra_primaries(end_ph)
-            return end_ph + rest_ph, flags
+            # confirm_prefix (translateword.c:341-364): before committing to a prefix, espeak
+            # re-translates the WHOLE word with FLAG_NO_PREFIX to see whether it also carries a
+            # standard suffix. If it does, that suffix is removed and the stem re-translated; if
+            # the stem then no longer triggers the prefix rule, the prefix is *discarded* and the
+            # suffix result wins (de unserer: `un` prefix + `erer` suffix -> stem `uns` is too
+            # short to re-trigger `un (@P2`, so the word is `uns`+`@r3` = ˈʊnzər3, not zˈeːrɜ).
+            if not (end_type & K.SUFX_B):
+                ph2, end2, end_ph2 = translate_rules(
+                    self._tr, word, self._mnem,
+                    word_flags=word_flags | K.FLAG_NO_PREFIX, want_endings=True,
+                    dict_flags=flags)
+                if end2 and not (end2 & K.SUFX_P):
+                    stem2, _ = remove_ending(self._tr, word, end2)
+                    _sp, sp_end_type, _se = translate_rules(
+                        self._tr, stem2.strip(), self._mnem,
+                        word_flags=word_flags, want_endings=True, dict_flags=flags)
+                    if not (sp_end_type & K.SUFX_P):
+                        # prefix no longer recognised on the suffix-stripped stem: keep the suffix,
+                        # drop the prefix, and fall through to the standard suffix branches below
+                        # (SUFX_Q keeps the in-context stem — ro reci -> rˈetʃʲ, not rˈekʲ).
+                        end_type, end_ph, ph = end2, end_ph2, ph2
+            if end_type & K.SUFX_P:
+                # still a prefix: remove it, translate the stem, prepend the prefix phonemes
+                prefix_len = end_type & 0x3f
+                rest = word[prefix_len:]
+                rctx = LookupContext(dict_condition=self._tr.dict_condition, prefix_removed=True)
+                rest_ph, _ = self._translate_core(rest, rctx, inherit_flags=flags)
+                if self._config.get("lopt_prefixes") and ",," not in rest_ph:
+                    # LOPT_PREFIXES (af/da/de/nl): "keep a secondary stress on the stem"
+                    # (translateword.c:553). espeak runs SetWordStress(stem, tonic=3) so the
+                    # stem's main vowel becomes SECONDARY, then reduces all but the first
+                    # primary mark in the prefix; the final word-stress pass places the primary.
+                    # Applied only at the INNERMOST prefix level: a stem that already carries a
+                    # secondary (nested prefix, on+begrip) keeps its single secondary, not a second.
+                    rest_ph = set_word_stress(self._tr, rest_ph, self._mnem,
+                                              dict_flags=flags, tonic=3)
+                    end_ph = _reduce_extra_primaries(end_ph)
+                return end_ph + rest_ph, flags
         if end_type and (end_type & K.SUFX_Q):
             # "lookup stem in *_list without the suffix" (it `_S1q`): if the stem is a
             # dictionary entry use it, otherwise keep the in-context rule output (don't
@@ -665,7 +702,9 @@ class G2P:
             sdict_ph, _ = self._dict.lookup(stem.strip(), sctx)
             return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
         if end_type and not (end_type & K.SUFX_P):
-            return self._translate_with_suffix(word, end_type, end_ph, flags, ph), flags
+            self._suffix_dict_flags = 0
+            sph = self._translate_with_suffix(word, end_type, end_ph, flags, ph)
+            return sph, (flags or self._suffix_dict_flags)
         # $accent entry ($accent in *_list): spell the letter as base + accent name(s). espeak
         # spells these (found==0); the letters a language pronounces instead are normalised away
         # by .replace above (da ä->æ) before they ever reach their $accent entry, so no extra
@@ -919,9 +958,17 @@ class G2P:
         elif sdict_ph:
             stem_ph = sdict_ph
         else:
+            # translateword.c: the stem lookup sets dictionary_flags2; when the WHOLE word
+            # carried no flags, the stem's flags are adopted (`if (dictionary_flags[0]==0)`).
+            # A flags-only stem entry (en update -> $1) thus places its stress on the
+            # suffix-stripped stem (updates -> ˈʌpdeɪts, not ʌpdˈeɪts) — the adopted flags are
+            # passed up via _suffix_dict_flags so the final SetWordStress sees the $1.
+            stem_flags = dict_flags if dict_flags else (sdict_flags or 0)
+            if not dict_flags and sdict_flags:
+                self._suffix_dict_flags = sdict_flags
             stem_ph, _, _ = translate_rules(
                 self._tr, stem, self._mnem,
-                word_flags=end_flags | K.FLAG_SUFFIX_REMOVED, dict_flags=dict_flags)
+                word_flags=end_flags | K.FLAG_SUFFIX_REMOVED, dict_flags=stem_flags)
         # record the suffix's vowel count so set_word_stress runs the auto-secondary on the
         # stem only (espeak stresses the stem, then appends the suffix unstressed). Only when
         # there is a real stem — some endings span the whole word (stem empty, e.g. en
