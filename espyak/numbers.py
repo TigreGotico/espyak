@@ -41,9 +41,11 @@ def _tens_units(tr_dict, value, ctx, flags=0, final=True):
         return _frag(tr_dict, str(value), ctx) or _frag(tr_dict, "%dx" % tens, ctx)
     ph_tens = _frag(tr_dict, "%dx" % tens, ctx)
     if flags & K.NUM_SWAP_TENS:
-        # units "and" tens (German "ein-und-zwanzig"); swap languages take the connective.
+        # units "and" tens (German "ein-und-zwanzig", Faroese "seks-og-tríati"). espeak
+        # concatenates units+_0and+tens directly (numbers.c:1198); any word break comes from
+        # the `_0and` fragment itself (de `||_|Unt` breaks, fo `u-o` joins as one word).
         ph_and = _frag(tr_dict, "0and", ctx)
-        out = _digit(tr_dict, units, ctx, False) + "||" + ph_and + ph_tens
+        out = _digit(tr_dict, units, ctx, False) + ph_and + ph_tens
     else:
         ph_and = _frag(tr_dict, "0and", ctx) if (flags & K.NUM_AND_UNITS) else ""
         out = ph_tens + ph_and + _digit(tr_dict, units, ctx, final)

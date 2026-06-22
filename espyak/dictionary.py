@@ -154,6 +154,13 @@ class Translator:
         for ch in config.get("extra_consonants", ""):
             if ord(ch) < 256:
                 self.letter_bits[ord(ch)] |= (1 << K.LETTERGP_C)
+        # SetLetterVowel(tr, c) (tr_languages.c:116): `letter_bits[c] = (bits & 0x40) | 0x81`
+        # — make c a VOWEL (groups A + VOWEL2), keep its LETTERGP_Y bit, and REMOVE it from the
+        # consonant groups B/C/G. pt `SetLetterVowel(tr,'y')`: y stops counting as a not-vowel
+        # `K`, so `an (K+ -> &~N` no longer fires over `a (n -> &~`; tiffany -> tˈifɐ̃ni, not …ŋi.
+        for ch in config.get("set_letter_vowel", ""):
+            if ord(ch) < 256:
+                self.letter_bits[ord(ch)] = (self.letter_bits[ord(ch)] & 0x40) | 0x81
         # SetLetterBits(group, letters): OR letters into a specific group
         for group, letters in config.get("set_letter_bits", []):
             for ch in letters:
@@ -1086,6 +1093,54 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 out.append(_STRESS_MNEM.get(v_stress, ""))
             prev_v = v
             prev_v_stress = v_stress
+            v += 1
+        out.append(mnem)
+    return "".join(out)
+
+
+def change_word_stress(tr, phoneme_str, mnem_index, new_stress, pick_last=False):
+    """Port of ChangeWordStress (translateword.c:705). Re-stresses an ALREADY-rendered
+    phoneme string (one that carries its stress mnemonics). espeak calls this on the last
+    word of a clause when the word's dict entry has FLAG_STRESS_END/FLAG_STRESS_END2
+    (`$u+`/`$u1+`/`$u2+`/`$u3+`): the word was rendered with its lexical/unstressed marks,
+    then this PROMOTES the FIRST syllable already at max_stress to the clause primary (4).
+
+    Unlike set_word_stress(tonic=4) — which puts the tonic at the LAST max-stress vowel
+    (max_stress_posn, last-wins) — ChangeWordStress promotes the FIRST one. That distinction
+    is exactly the ro pronoun divergence (dumneata: dˈumneatˌa not dˌumneatˈa).
+
+    `pick_last=True` instead promotes the LAST max-stress syllable: this models the
+    intonation nucleus (intonation.c count_pitch_vowels, tone_posn = last max-stress) for a
+    clause-final $u word WITHOUT FLAG_STRESS_END, whose dict stressed_syllable ($u1/$u2/$u3)
+    only positions secondaries — the clause accent lands on the last (cărora -> kˌəɾoɾˈa)."""
+    toks = mnem_index.tokenize(phoneme_str)
+    if not toks:
+        return phoneme_str
+    vowel_stress, phonetic, vowel_count, _primary_posn, max_stress = get_vowel_stress(toks)
+    if new_stress >= STRESS_IS_PRIMARY:
+        # promote the FIRST (or, pick_last, LAST) vowel already at max_stress to new_stress
+        rng = range(vowel_count - 1, 0, -1) if pick_last else range(1, vowel_count)
+        for ix in rng:
+            if vowel_stress[ix] >= max_stress:
+                vowel_stress[ix] = new_stress
+                break
+    else:
+        # demote: cap every vowel stronger than new_stress down to it
+        for ix in range(1, vowel_count):
+            if vowel_stress[ix] > new_stress:
+                vowel_stress[ix] = new_stress
+    # re-emit: a stress mnemonic before each vowel that is DIMINISHED or > UNSTRESSED
+    out = []
+    v = 1
+    for _pi, (mnem, ph) in enumerate(phonetic):
+        if _nonsyllabic_before_vowel(ph) and _pi + 1 < len(phonetic) \
+                and _ph_is_vowel(phonetic[_pi + 1][1]):
+            out.append(mnem)
+            continue
+        if _ph_is_vowel(ph):
+            vs = vowel_stress[v]
+            if vs == STRESS_IS_DIMINISHED or vs > STRESS_IS_UNSTRESSED:
+                out.append(_STRESS_MNEM.get(vs, ""))
             v += 1
         out.append(mnem)
     return "".join(out)

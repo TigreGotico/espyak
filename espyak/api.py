@@ -9,8 +9,9 @@ from espyak.phoneme_tab import get_source
 from espyak.render import render_phoneme_list, encode_phoneme_string
 from espyak.rule_compiler import RuleSet
 from espyak.dictionary import (
-    Translator, translate_rules, set_word_stress, MnemIndex, DictList, LookupContext,
-    remove_ending, _apply_replacements, _unpronounceable,
+    Translator, translate_rules, set_word_stress, change_word_stress, MnemIndex,
+    DictList, LookupContext, remove_ending, _apply_replacements, _unpronounceable,
+    _is_vowel_letter,
 )
 from espyak import constants as K
 from espyak import voice as _voice_mod
@@ -534,6 +535,26 @@ class G2P:
                 if _mark == ",," and _prev_ends_primary:
                     stressed[_i] = _part[:_pos] + _part[_pos + 2:]
             return "||".join(stressed)
+        if (flags & K.FLAG_STRESS_END) and tonic >= 4:
+            # $u+/$u1+/$u2+/$u3+ word that is the clause nucleus: espeak renders it with its
+            # unstressed/lexical marks (SetWordStress, no tonic) and then runs ChangeWordStress(4)
+            # in TranslateWord, which promotes the FIRST max-stress syllable to primary — NOT the
+            # last (which set_word_stress's tonic placement would pick). ro dumneata -> dˈumneatˌa.
+            base = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
+                                   suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+            return self._apply_alt_attribute(
+                change_word_stress(self._tr, base, self._mnem, 4), flags)
+        if (flags & 0x8) and (flags & 0x3) and tonic >= 4:
+            # $u1/$u2/$u3 (explicit syllable, NO trailing +/FLAG_STRESS_END) as the clause
+            # nucleus: espeak renders it UNSTRESSED (SetWordStress, tonic=-1 — the $uN only
+            # positions the secondary) and the intonation nucleus then promotes the LAST
+            # max-stress syllable (count_pitch_vowels). Passing tonic=4 to set_word_stress
+            # would instead drop the primary on the dict's early stressed_syllable (the $uN),
+            # fighting the nucleus (ro cărora $u1 -> kˌəɾoɾˈa, not kˈəɾoɾˌa).
+            base = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
+                                   suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+            return self._apply_alt_attribute(
+                change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags)
         return self._apply_alt_attribute(
             set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
                             suffix_vowels=getattr(self, "_suffix_nvowels", 0)), flags)
@@ -541,7 +562,14 @@ class G2P:
     def _apply_alt_attribute(self, ph, flags):
         """ApplySpecialAttribute2 (translateword.c, LOPT_ALT&2: it/pt/sl). A $alt/$alt2 word
         shifts the vowel right after the PRIMARY stress: $alt opens it (e->E, o->O), $alt2
-        closes it (E->e, O->o). sl 'ena' ($alt): 'e:na -> 'E:na -> ˈɛːna."""
+        closes it (E->e, O->o). sl 'ena' ($alt): 'e:na -> 'E:na -> ˈɛːna.
+
+        Two espeak fidelity points the byte loop encodes:
+        * it scans for `phonSTRESS_P` (`'`) ONLY — NOT `phonSTRESS_P2` (`''`), which pt's
+          `S_PRIORITY_STRESS` lexical entries emit. A `''`-marked vowel is left untouched.
+        * `*p == PhonemeCode('e'|'o')` compares a WHOLE phoneme, so a diphthong whose mnemonic
+          merely starts with `o`/`e` (pt `oI` in `voice`: `v'oIsy`) does NOT match and stays
+          closed -> `vˈoɪsɨ` (not `vˈɔɪsɨ`)."""
         if not (self._config.get("lopt_alt")
                 and (flags & (K.FLAG_ALT_TRANS | K.FLAG_ALT2_TRANS))):
             return ph
@@ -555,8 +583,20 @@ class G2P:
         if ph[j + 1 : j + 2] == "/":
             return ph
         repl = ({"E": "e", "O": "o"} if (flags & K.FLAG_ALT2_TRANS)
-                else {"e": "E", "o": "O"}).get(ph[j])
-        return ph[:j] + repl + ph[j + 1:] if repl else ph
+                else {"e": "E", "o": "O"})
+        toks = self._mnem.tokenize(ph)
+        for idx, (mnem, _p) in enumerate(toks):
+            # phonSTRESS_P is the single `'`; the `''` priority mark tokenizes as one `''`
+            # mnemonic, so an exact `== "'"` test skips it (matches the C phonSTRESS_P byte).
+            if mnem == "'" and idx + 1 < len(toks):
+                nxt = toks[idx + 1][0]
+                if nxt in repl:
+                    out = "".join(m for m, _ in toks[:idx + 1])
+                    out += repl[nxt]
+                    out += "".join(m for m, _ in toks[idx + 2:])
+                    return out
+                break
+        return ph
 
     def _translate_core(self, word, ctx, word_flags=0, inherit_flags=0):
         """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
@@ -585,6 +625,16 @@ class G2P:
         dotted_letters = self._check_dotted_abbrev(word)
         if dotted_letters is not None:
             word = ".".join(dotted_letters)
+        elif len(word) > 1 and word.endswith(".") and not word[-2].isdigit():
+            # A trailing dot that is NOT part of a single-letter dotted run (a.b.c, handled
+            # above) is clause punctuation: espeak's clause reader (readclause.c) consumes it
+            # before the word reaches TranslateWord, so a multi-letter abbreviation's trailing-dot
+            # dict entry (fo `kl.` -> `kl%oHg:an`) is never matched — those entries are dead. Only
+            # strip the dot when such a dead entry actually exists for the dotted form: that keeps
+            # fo `kl.` from wrongly expanding (it then spells k-l), while leaving a dotless-keyed
+            # word untouched so a no-entry token (haw `kl.`) renders exactly as it did with the dot.
+            if self._dict.lookup(word, ctx)[0] is not None:
+                word = word[:-1]
         dict_ph, dict_flags = self._dict.lookup(word, ctx)
         flags = dict_flags or 0
         # translateword.c keeps the prefix-parent's dictionary_flags across the prefix
@@ -956,6 +1006,10 @@ class G2P:
         # entry: pt has `_tld tS'iU` (the digraph "tch") AND `?1 _tld til`, and an accented letter
         # is spelled, so ã -> base a + til -> ˌɐtˈil (not ˌɐtʃˈiʊ).
         accent_names = []
+        # espeak's LookupAccentedLetter calls Lookup(tr, accents_tab[..].name, ...) under the
+        # spelling dict_condition, so `?1`-gated accent-name variants win: pt has `_ced`->`syd'il^&`
+        # (sɨdˈiʎɐ) and `_tld`->`til` (not the unconditional `tS'iU` digraph). acc_ctx already forces
+        # self._SPELL_CONDITION, which is exactly the bit a `dictrules 1` voice (pt) sets persistently.
         for mk in marks:
             key = _ACCENT_NAMES.get(ord(mk))
             if key:
@@ -973,22 +1027,29 @@ class G2P:
                            for nm in (accent_names + [bn]))
         # LookupAccentedLetter (numbers.c:473): a single accented letter is ONE spelled letter,
         # so SetSpellingStress runs with n_chars==1 and applies NO count%3 reduction. espeak
-        # composes phonSTRESS_2 + base-letter + accent-name(s) verbatim (the accent name keeps
-        # its own dict stress, e.g. _acu=aksA~tEg'y:), then the word-stress pass adds a secondary
-        # to any unstressed pre-tonic run: pt â -> ,ɐ + sirkũŋfl'ɛksʊ -> ˌɐsirkũŋflˈɛksʊ. The base
-        # keeps its own primary if it already carries one (lfn 'a -> ˈa…).
-        # This subsumes smj's earlier accent-AFTER take (base secondary + accent-name own primary):
-        # the ","+bn prefix gives the base its phonSTRESS_2 and the accent-name dict value keeps the
-        # primary, so fi/et/lv/smj é -> ˌeː…ˈakuːt… still holds while pt/cs/da/de/lfn/pl/sk gain the
-        # n_chars==1 no-reduction + ?1 spell-condition NAMEs.
-        # The very-short pause `_|` (phonPAUSE_VSHORT, numbers.c:473's `%c%s%c%s%c` with
-        # phonPAUSE_VSHORT around the accent name) separates the base name from the accent name and
-        # closes the unit: it renders silently but supplies word boundaries, so each name's final
-        # vowel laxes via its own phoneme program (it ć = c + _acu: the letter-name "ci"'s i is now
-        # word-final-unstressed -> tʃˌɪakˈuːto not tʃˌiakˈuːto). The contiguous (no-space) render is
-        # preserved because `_|` is a pause, not a START_OF_WORD space.
-        composed = "," + bn + "_|" + "_|".join(accent_names) + "_|"
-        return set_word_stress(self._tr, composed, self._mnem, tonic=4)
+        # composes `phonSTRESS_2 ph_letter1 _| ph_accent1 _|` — the BASE letter name is secondary-
+        # stressed and each ACCENT name is appended VERBATIM (its own dict `'` primary stands),
+        # separated by the very-short pause `_|` (phonPAUSE_VSHORT, the `%c%s%c` around the accent
+        # name). Two espeak fidelity points the two accent families need, unified here:
+        # * The base name gets phonSTRESS_2 by running SetWordStress over the base ALONE (then
+        #   demoting its primary to secondary `,,`), NOT over base+accents together — espeak does
+        #   NOT run SetWordStress across the accent names, so no spurious secondary is injected
+        #   into them (pt `sirku~Nfl'EksU` stays `sirkũŋflˈɛksʊ`, not `sˌirk…`; `_ced`/`_tld`
+        #   keep their `?1` dict values: pt ã -> ˌɐtˈil, ç -> sˌesɨdˈiʎɐ).
+        # * The `_|` pause after the base (and after each accent name) renders silently but
+        #   supplies a word boundary, so the base name's final vowel laxes via its own phoneme
+        #   program (it ć = c + _acu: the letter-name "ci"'s i is word-final-unstressed ->
+        #   tʃˌɪakˈuːto not tʃˌiakˈuːto). The contiguous (no-space) render is preserved because
+        #   `_|` is a pause, not a START_OF_WORD space.
+        # This subsumes smj's earlier accent-AFTER take and keeps fi/et/lv/cs/da/de/smj/pap/fr
+        # (é -> ˌeː…ˈakuːt…) while pt/cs/da/de/lfn/pl/sk gain the ?1 spell-condition NAMEs.
+        # The base is demoted to phonSTRESS_2 ONLY when its letter-name had no inherent primary:
+        # a name that already carries its own `'` in the dict (lfn `_a -> 'a`) KEEPS its primary
+        # (lfn á -> ˈasinjˈetaˈaɡu, not ˌa…), matching espeak's `if (..no stress..) STRESS_2`.
+        base = set_word_stress(self._tr, bn + "_|", self._mnem, tonic=4)
+        if "'" not in bn.replace("''", ""):
+            base = base.replace("''", "'", 1).replace("'", ",,", 1)
+        return base + "".join(nm + "_|" for nm in accent_names)
 
     # spelling sets dict_condition group 1 so the rules' letter-NAME forms (gated `?1`,
     # e.g. pt "n" -> ɛn) win over the letter's sound. Languages that name letters via the
@@ -1433,16 +1494,27 @@ class G2P:
             cls._EN_FALLBACK = G2P("en")
         return cls._EN_FALLBACK
 
-    def _stress_number_words(self, ph):
+    def _stress_number_words(self, ph, tonic=4):
         """espeak stresses number words. Some languages' _list fragments already encode stress
         (en f'aIv, es T'inko, de 'fynf) AND deliberately leave connectors unstressed (en _and,
         _point); others omit stress entirely (fr sE~k, fa pandZ -> need sˈɛ̃k / pˈandʒ). Only when
         the WHOLE number result is stress-free do we add word stress to each ||-separated word — so
-        a language whose data encodes stress (including its unstressed point/and) is never touched."""
-        if any(c in "'%,=" for c in ph):
+        a language whose data encodes stress (including its unstressed point/and) is never touched.
+
+        A language whose fragments carry only the `%` marker (espeak's repositionable secondary,
+        fo `f%UJ:ra`) and no primary still needs a tonic: SetWordStress promotes one `%` to primary.
+        So apply word stress when only `%` marks are present. A fragment that already carries a
+        resolved primary `'`, an explicit secondary `,` (vi tone-number x,o1N keeps its `,`), or a
+        no-stress connector `=` is left untouched.
+
+        `tonic` is the clause-stress level for this number word (the caller's per-word tonic): the
+        clause nucleus (>=4) promotes a `%` to primary; a non-nucleus number (-1, e.g. the digit
+        run in `co2` where the word `co` is the nucleus) takes no primary, so its `%` stays
+        unstressed (kˈɔː tʋɛɟː, not kˈɔː tʋˈɛɟː)."""
+        if any(c in "',=" for c in ph):
             return ph
         return "||".join(
-            set_word_stress(self._tr, w, self._mnem, tonic=4) if w else w
+            set_word_stress(self._tr, w, self._mnem, tonic=tonic) if w else w
             for w in ph.split("||"))
 
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
@@ -1472,7 +1544,7 @@ class G2P:
                                     and not word.endswith(dsep))):
             ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
             if ph:
-                ph = self._stress_number_words(ph)
+                ph = self._stress_number_words(ph, tonic=tonic)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
             # a mixed digit/letter token that is neither a pure number nor an ordinal (handled above)
@@ -1489,7 +1561,45 @@ class G2P:
             if _cur:
                 _parts.append(_cur)
             if len(_parts) > 1:
-                _r = [self._render_word(p, tonic, ipa, tie, separator) for p in _parts]
+                # each split part is its own clause word; exactly one carries the clause tonic, the
+                # rest render non-tonic (-1). The nucleus is the LAST pronounceable WORD part (one
+                # with a vowel letter, e.g. `co` in co2 -> kˈɔː tʋɛɟː), so the trailing number stays
+                # reduced. With no such word (all earlier parts are SPELLED letters) the nucleus is
+                # the last part, so a monosyllabic letter name loses its stress before a final
+                # number (U4 -> uː fʊɟːɹˈa, not ˈuː …) while the number takes the tonic.
+                #
+                # `clause_nucleus_last` (default, fo and most langs) puts the nucleus on the last
+                # qualifying part. xex's intonation makes the FIRST word the clause nucleus instead
+                # (V4 -> vˈɛːvɛt kwa: the spelled letter keeps primary, the number is reduced), so it
+                # opts to `clause_nucleus_last=False` — the nucleus is the FIRST word part, else first.
+                _word_parts = [i for i, p in enumerate(_parts)
+                               if len(p) > 1 and any(_is_vowel_letter(self._tr, c) for c in p)]
+                if self._config.get("clause_nucleus_last", True):
+                    _nucleus = _word_parts[-1] if _word_parts else len(_parts) - 1
+                else:
+                    _nucleus = _word_parts[0] if _word_parts else 0
+                # `word` is already lowercased here, so the original case comes from the parent
+                # flags: an alpha part is uppercase when the whole token was ALLCAPS (V4) or it is
+                # the leading part of a Capitalised token. Passing all_upper names the letter via
+                # its `_X` entry (V -> ʋeː) instead of the bare-vowel rule (ʋɛː).
+                _r = []
+                for i, p in enumerate(_parts):
+                    _alpha = any(c.isalpha() for c in p)
+                    _up = _alpha and (all_upper or (first_upper and i == 0))
+                    # A single letter that resolves to a multi-syllable dict WORD is a UNIT
+                    # abbreviation (fo `g` -> millimeter `m%Il:Ime:dUr`), not a spelled letter —
+                    # espeak reads it as that word regardless of the token's case (5G/G5/5g all ->
+                    # "fimm millimeter"). Forcing all_upper would name the letter (G -> ɡˈeː), so a
+                    # case-insensitive lookup that returns a >1-vowel value vetoes the uppercase spell.
+                    if _up and len(p) == 1:
+                        _lp = self._dict.lookup(
+                            p.lower(), LookupContext(dict_condition=self._tr.dict_condition))[0]
+                        if _lp and sum(1 for _m, _ph in self._mnem.tokenize(_lp)
+                                       if _ph.type == phVOWEL) > 1:
+                            _up = False
+                    _r.append(self._render_word(
+                        p, tonic if i == _nucleus else -1, ipa, tie, separator,
+                        all_upper=_up, first_upper=_up))
                 return " ".join(x for x in _r if x)
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
                                  first_upper=first_upper, at_end=at_end)

@@ -157,6 +157,10 @@ LANGS = {
     # writes nothing and espeak emits an EMPTY word — it does NOT fall back to the rules.
     # accent_empty_no_fallback makes the $accent path exclusive so à/é/ö/… -> '' (not ˈaː).
     "lb": {"accent_empty_no_fallback": True},
+    # xex (xextan test voice): in a letter+number token the clause nucleus is the FIRST word,
+    # not the last (V4 -> vˈɛːvɛt kwa: the spelled letter keeps primary, the number is reduced).
+    # Most langs (fo etc.) put the nucleus on the LAST part (clause_nucleus_last default True).
+    "xex": {"clause_nucleus_last": False},
     "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
     "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "y"},
     "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},
@@ -249,6 +253,7 @@ LANGS = {
     "pt": {"unstress_u_words": True, "stress_rule": K.STRESSPOSN_1R,  # final syllable (tr_languages.c L('p','t'))
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_INITIAL_2 | K.S_PRIORITY_STRESS,
            "lopt_alt": True, "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1",
+           "set_letter_vowel": "y",  # SetLetterVowel(tr,'y') (tr_languages.c L('p','t'))
            "priority_stress_demote": True},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
            "regression": 0x100, "lopt_prefixes": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
@@ -457,6 +462,13 @@ LANGS["fo"]["word_final_r_approximant"] = True
 # separately; espyak keys the dict lowercase, so without this the geminated uppercase
 # variant wins the lowercase letter lookup.
 LANGS["fo"]["case_sensitive_letters"] = True
+# fo: the full numbers flag set (tr_languages.c:847). Without an explicit value fo would
+# fall back to NUM_HUNDRED_AND, missing NUM_SWAP_TENS — Faroese says the units before the
+# tens joined by "og" (36 -> "seks og tríati" -> sɛɡsuotɹeːdɪʋˈʊ, not "tríati seks").
+LANGS["fo"]["numbers"] = (
+    K.NUM_DECIMAL_COMMA | K.NUM_SWAP_TENS | K.NUM_HUNDRED_AND | K.NUM_OMIT_1_HUNDRED
+    | K.NUM_ORDINAL_DOT | K.NUM_1900 | K.NUM_ROMAN | K.NUM_ROMAN_CAPITALS
+    | K.NUM_ROMAN_ORDINAL)
 
 
 # Georgian (1L + S_FINAL_NO_2) and Amharic (1L + S_NO_AUTO_2|S_FINAL_DIM): non-Latin

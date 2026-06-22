@@ -175,7 +175,25 @@ data does **not** encode the distinction espeak emits:
 | lv | `r` | `ˈerr` | `ˈerrr` | spelled-letter consonant length (double vs triple) |
 | lv | `pats` | `pˈats` | `pˈat͡s` | affricate tie-bar vs plain — encoding-level length |
 | af | `cliché` | `kliʃˈɛɪɛɪ` (vowel copied) | `kliʃˈɛɪː` (lengthened) | diphthong-copy vs `ː` length rendering |
-| pt | `voice` | `vˈoɪsɨ` (close o) | `vˈɔɪsɨ` (open ɔ) | `$alt` opens the post-stress vowel, but espeak's `ApplySpecialAttribute2` matches only `phonSTRESS_P` (`'`), NOT the `phonSTRESS_P2` (`''`) priority mark pt's `S_PRIORITY_STRESS` emits; espyak's `'`-search opens it anyway |
+| pt | `pròs` | `pɹˈuʃ` (close u) | `pɹˈʊʃ` (lax ʊ) | the `o (s_ -> =U` mnemonic `U` is a stress/context allophone: espeak's formant-synthesis pass renders it `u` here (and `o` in `sòs`, `nòs`); espyak's render maps the `U` mnemonic to `ʊ` unconditionally |
+| pt | `experts` | `ɨʃpˈeɾətʃ` (affricate) | `ɨʃpˈeɾəts` (plain) | `?1 @) s -> s#` fires in both (mnemonic `…ts#`), but espeak's WAV/FMT synthesis pass affricates `t`+`s#` -> `tʃ` in full-word context; feeding the mnemonic via `[[…]]` gives `…ts` even in the oracle. Same class as `lv pats` (`pˈats`/`pˈat͡s`) |
+
+**`pt voice` ($alt P-vs-P2 gate) — CLOSED.** `ApplySpecialAttribute2` (translateword.c:674) scans
+for `phonSTRESS_P` (`'`) ONLY, never the `phonSTRESS_P2` (`''`) priority mark, and tests
+`*p == PhonemeCode('e'|'o')` (a WHOLE phoneme). espyak's port searched the raw `'` character and
+compared a single byte, so (a) it would have opened a `''`-marked vowel and (b) it matched the
+`o` *inside* the `oI` diphthong of `v'oIsy`. Now tokenized: `'`-only, whole-phoneme match ->
+`voice` stays `vˈoɪsɨ`, with `it lord/sos/condor/sonar` and `sl ena` unchanged.
+
+**pt accent-letter spelling + `SetLetterVowel('y')` — CLOSED.** The accent-letter `$accent` spell
+(`â`/`ê`/`ô`/`í`/`ú`/`é`/`ã`/`õ`/`ç`) looked the accent name up with a bare `dict_condition=0`,
+so the `?1`-gated pt variants (`_ced -> syd'il^&` = sɨdˈiʎɐ, `_tld -> til`) lost to the
+unconditional defaults; and it re-ran SetWordStress over the accent name, adding a spurious
+secondary (`…sˌirk…`). espeak runs `Lookup` with the translator's persistent `dict_condition`
+(pt `dictrules 1` always sets bit 1) and uses `ph_accent1` verbatim. Also `SetLetterVowel(tr,'y')`
+(tr_languages.c) was unported: with `y` outside vowel group A the `K`(not-a-vowel) rule matched
+it, so `an (K+ -> &~N` fired over `a (n -> &~` (`tiffany -> …ŋi`). Adding it recovers
+8 accent letters + `tiffany`, plus 2 `smj` + 1 `de` accent letters elsewhere, zero regressions.
 
 **`_list`/`_listx` precedence — CLOSED.** `CompileDictionary` (compiledict.c:1581) compiles
 `_list` and `_listx` in an order gated on `langopts.listx`, prepending each entry to its

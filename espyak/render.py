@@ -18,7 +18,7 @@ here does NOT run programs, so program-dependent inputs differ until that pass l
 
 Reference: espeak-ng 1.52.0.
 """
-from espyak.phoneme_tab import phVOWEL, phSTRESS, phPAUSE
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phPAUSE, phVIRTUAL
 
 # stress levels (synthesize.h)
 STRESS_IS_SECONDARY = 3
@@ -157,6 +157,14 @@ def encode_phoneme_string(s, table):
                 entries[-1].synthflags |= SFLAG_SYLLABLE
                 entries[-1].stresslevel = pending_stress if pending_stress is not None else 1
             pending_stress = None
+            continue
+        if (ph.type == phVIRTUAL and ph.ipa is None and m == "-"
+                and entries and entries[-1].ph.type == phVOWEL):
+            # the `-` syllabic-consonant marker (phsource/phonemes:135) makes the PREVIOUS
+            # phoneme syllabic. After a vowel that is meaningless, so MakePhonemeList drops it
+            # and it produces no IPA (fo number connective `u-o` -> uo). After a consonant the
+            # marker is kept (ar `s̪-ˈifr`), as is the length mark `:` -> ː (a virtual with ipa).
+            entries[-1].synthflags |= SFLAG_SYLLABLE
             continue
         if ph.type == phSTRESS and not m.isdigit():
             # punctuation stress markers ('/,/%/=) attach to the next vowel; digit-named
