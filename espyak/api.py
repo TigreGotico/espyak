@@ -64,8 +64,15 @@ def _normalize_tones(plist, table, insert_default=True, clause_final_tone=None, 
     # vi: the LAST vowel of the clause (here, the word) carries the end-of-clause ngang tone 7 when
     # it would otherwise take the default tone 1 (ba -> bˈaː7, but ba ba -> bˈaː1 bˈaː7).
     _final_default = table.get(clause_final_tone) if clause_final_tone else None
+    # the end-of-clause ngang tone falls on the clause-final word's PRIMARY-stressed (>=4) ngang
+    # syllable, which need not be the word's last vowel: a letter name El@:2 ("l") stresses the
+    # first vowel ɛ, so tone 7 lands there while the trailing @:2 keeps its own tone (ˈɛ7ləː2).
     _last_vowel = next((k for k in range(len(plist) - 1, -1, -1)
-                        if plist[k].ph.type == phVOWEL and not plist[k].deleted), None)
+                        if plist[k].ph.type == phVOWEL and not plist[k].deleted
+                        and plist[k].stresslevel >= 4), None)
+    if _last_vowel is None:
+        _last_vowel = next((k for k in range(len(plist) - 1, -1, -1)
+                            if plist[k].ph.type == phVOWEL and not plist[k].deleted), None)
     # A tone that is the word's FIRST phoneme is orphaned — a Burmese visarga split from its
     # syllable by the asat word-break (း…စာကို -> 2stskˈo). Move it to after the word's last
     # vowel (stskˈo2). (A tone after the vowel, e.g. i1 then visarga 2 in i12, is not first, so
