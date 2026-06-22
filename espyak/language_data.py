@@ -210,7 +210,11 @@ LANGS = {
     "smj": {"caps_are_letters": True, "stress_rule": K.STRESSPOSN_1L,  # Lule Saami: first syllable
             "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY,
             "spelling_stress": True, "extra_vowels": "áä", "extra_consonants": "ŋđ",
-            "unstress_u_words": True},  # $u function words reduce despite the clause accent
+            "unstress_u_words": True,  # $u function words reduce despite the clause accent
+            "u_post_nuclear": True,  # a TRAILING $u word in a multi-word render stays post-nuclear
+                                     # (A:ga -> ˈɑː kɑ): the spelled letter name took the accent
+            "atend_clause_final": True},  # $atend letter name (O -> o:) only at clause end; a
+                                          # non-final caps letter rule-translates (dO:t -> ...ˈoɔ...)
     "ro": {"stress_rule": K.STRESSPOSN_1R,
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_FINAL_DIM_ONLY,
            "extra_vowels": "ăâîșț"},

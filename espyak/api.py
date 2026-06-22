@@ -355,13 +355,17 @@ class G2P:
             plist, self.phoneme_table, ipa=ipa, tie=tie, separator=separator
         )
 
-    def translate_word(self, word, tonic=-1, caps_stress=0, all_upper=None, first_upper=None):
+    def translate_word(self, word, tonic=-1, caps_stress=0, all_upper=None, first_upper=None,
+                       at_end=True):
         """Translate a single lowercase word to its mnemonic phoneme string.
 
         Pipeline: dictionary `_list` lookup -> (fallback) letter-to-sound rules ->
         stress assignment. `tonic` (>=0) forces the word's main stress to that level,
         used for the tonic (clause-stressed) word. `caps_stress` (>0) forces the main
         stress onto that syllable (Lojban LOPT_CAPS_IN_WORD: a capital marks stress).
+        ``at_end`` is False for a non-clause-final word so a $atend-gated entry (smj O -> o:
+        only at clause end) fails and falls to the rules (mid-clause O -> oɔ); it defaults True
+        (the historical isolated-word assumption) and is only threaded for atend_clause_final langs.
         """
         ctx = LookupContext(
             # the caller passes the ORIGINAL-case flags: the word arriving here is already lowercased,
@@ -370,6 +374,7 @@ class G2P:
             first_upper=word[:1].isupper() if first_upper is None else first_upper,
             all_upper=(word.isupper() and any(c.isalpha() for c in word))
             if all_upper is None else all_upper,
+            at_end=at_end,
             dict_condition=self._tr.dict_condition,
         )
         self._tr.expect_verb = 0
@@ -833,7 +838,14 @@ class G2P:
             # its own primary-stressed unit (no count%3 spelling reduction) — à -> "grave a".
             return "".join(set_word_stress(self._tr, nm, self._mnem, tonic=4)
                            for nm in (accent_names + [bn]))
-        return self._join_spelled([bn] + accent_names)
+        # accent-AFTER path (numbers.c LookupAccentedLetter, accents&1 clear, _acu/_dia
+        # accent_flags 0): the base letter takes a SECONDARY (phonSTRESS_2) and the accent name
+        # keeps its own (primary) stress — é -> ˌiɛ ɑːkˈʉtː, NOT the spelling-stress first-primary
+        # rule (which wrongly stressed the base: fi/et/lv/smj). The accent name's dict value
+        # (_acu A:'ku-t:) already carries the primary, so stress it on its own (tonic=-1).
+        base = set_word_stress(self._tr, bn, self._mnem, tonic=3)
+        names = [set_word_stress(self._tr, nm, self._mnem, tonic=-1) for nm in accent_names]
+        return "".join([base] + names)
 
     # spelling sets dict_condition group 1 so the rules' letter-NAME forms (gated `?1`,
     # e.g. pt "n" -> ɛn) win over the letter's sound. Languages that name letters via the
@@ -911,10 +923,18 @@ class G2P:
         """Split a token at camelCase / letter-name boundaries (espeak tokenizer), appending
         (word, nospace) tuples to ``words``. ``first_sub`` marks the first sub-word of a
         FLAG_NOSPACE-joined part (hyphen-joined, or a '&'-split remainder)."""
+        # smj: a doubled coda-class continuant (m f v s l r ŋ) opening the lowercase run after a
+        # long-vowel letter name peels its FIRST letter onto the letter-name word as a coda — the
+        # geminate straddles the word break (bA:lldaj -> bˈeː ˈɑːl ltˈɑj, dA:vva -> dˈeː ˈɑːv vˈɑ,
+        # mA:ŋŋga -> ˈɛm ˈɑːŋ ŋkˈɑ). Same condition as the '&'-coda peel: the doubled consonant must
+        # be in mfvslrŋ and the remainder must contain a lowercase vowel (A:jja stays whole — j∉set;
+        # A:nna stays whole — n∉set; A:lln has no vowel in the spelled `lln`; A:kka -> kk is a stop).
+        _peel, _peel_vowels = set("mfvslrŋ"), set("aeiouyáäoö")
         sub_first = True
         start = 0
         for j in range(1, len(tok)):
             split_here = False
+            peel = ""
             if tok[j].isupper() and tok[j - 1].islower():
                 if start == 0 and self.lang == "ga" and _ga_caps_prefix(tok, j):
                     continue  # Irish eclipsis/lenition prefix: hÓighe stays one word
@@ -924,10 +944,18 @@ class G2P:
                 # breaks from a following lowercase run (bA:ldan -> "b","A:","ldan" -> be
                 # a-long ltan). A bare capital keeps its lowercase run (mOnnO: -> m,Onn,O:).
                 split_here = True
+                rest = tok[j:]
+                if (len(rest) >= 3 and rest[0] == rest[1] and rest[0] in _peel
+                        and any(c in _peel_vowels for c in rest[1:])):
+                    peel = rest[0]
             if split_here:
-                words.append((tok[start:j], first_sub and sub_first))
+                # the peeled coda rides on the letter-name word behind a \x02 sentinel so the
+                # render loop spells the letter name (A: -> ˈɑː) then appends the coda glyph as
+                # its IPA (smj m/f/v/s/l/r are identity-mapped) -> ˈɑːl, mirroring the '&' coda.
+                lw = tok[start:j] + ("\x02" + peel if peel else "")
+                words.append((lw, first_sub and sub_first))
                 sub_first = False
-                start = j
+                start = j + len(peel)
         words.append((tok[start:], first_sub and sub_first))
 
     def phonemize(self, text, ipa=True, tie=None, separator=None):
@@ -1028,12 +1056,12 @@ class G2P:
                 if caps_letters and "&" in tok:
                     # smj: '&' is a separate spelled word ("og" -> ˈɔːɡ). espeak's char tokenizer
                     # terminates the run at '&' (not alpha, not punct_within_word), emits '&' as
-                    # its own word, then continues. A doubled coda-class consonant (m f v s l r)
+                    # its own word, then continues. A doubled coda-class continuant (m f v s l r ŋ)
                     # that opens a pronounceable remainder peels its first letter onto the '&' word
-                    # as a FLAG_NOSPACE coda (b&mmi -> bˈeː ˈɔːɡm mˈiː); other clusters (nn, jj,
-                    # stops, or a remainder with no lowercase vowel) stay whole (g&nna -> ɡˈeː ˈɔːɡ
-                    # nnˈɑ).
-                    _peel, _low_vowels = set("mfvslr"), set("aeiouyáäoö")
+                    # as a FLAG_NOSPACE coda (b&mmi -> bˈeː ˈɔːɡm mˈiː, b&ŋŋi -> bˈeː ˈɔːɡŋ ŋˈiː);
+                    # other clusters (nn, jj, stops, or a remainder with no lowercase vowel) stay
+                    # whole (g&nna -> ɡˈeː ˈɔːɡ nnˈɑ).
+                    _peel, _low_vowels = set("mfvslrŋ"), set("aeiouyáäoö")
                     for si, seg in enumerate(tok.split("&")):
                         if si > 0:
                             coda = ""
@@ -1056,6 +1084,16 @@ class G2P:
                 # vi: a $u function word as the clause nucleus stays SECONDARY (cho -> tʃˌɔ), unlike a
                 # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
                 tonic = self._config.get("u_tonic")
+            _wflags = self._dict.lookup_flags(word.split("\x02")[0])
+            if (tonic >= 0 and len(words) > 1 and self._config.get("u_post_nuclear")
+                    and (_wflags & 0x8) and not (_wflags & K.FLAG_STRESS_END)):
+                # smj: a TRAILING plain-$u function word in a multi-word render is post-nuclear —
+                # the clause accent already landed on a preceding (spelled letter-name / camelCase)
+                # word, so the $u word keeps its NATURAL stress, not the clause primary
+                # (A:ga -> ˈɑː kɑ, A:dagi -> ˈɑː tˌɑɡɪː, BeGa -> pˈiɛ kɑ). A $u word that is the
+                # ONLY word is still promoted to the nucleus (ga -> kˈɑ). A $u+ word (FLAG_STRESS_END,
+                # da/sij/ma) KEEPS its stress, so it still takes the clause primary (dijA:da -> tˈɑ).
+                tonic = -1
             if out and not nospace:
                 # a preceding empty token (a Burmese break mark: asat ်, dot ့) leaves a trailing
                 # separator already; don't add a second one (espeak emits no double space). The
@@ -1080,10 +1118,22 @@ class G2P:
                 rendered = self._render_word("&", tonic, ipa, tie, separator) + word[1:]
                 out.append(rendered)
                 continue
+            if "\x02" in word:
+                # smj long-vowel letter name with a peeled geminate coda (A:\x02l): spell the
+                # letter name (A: -> ˈɑː), then append the coda consonant as its glyph -> ˈɑːl.
+                lname, coda = word.split("\x02", 1)
+                rendered = self._render_word(lname.lower(), tonic, ipa, tie, separator) + coda
+                out.append(rendered)
+                continue
+            # atend_clause_final (smj): a $atend-gated letter name (O -> o:, i -> i:) only applies
+            # when the word is the LAST in the clause; a non-final caps-letter token rule-translates
+            # instead (dO:t -> d | O | t, the mid-clause O -> oɔ not the o: letter name). Default
+            # languages keep the historical isolated-word at_end=True (one word per phonemize call).
+            at_end = (not self._config.get("atend_clause_final")) or (i == len(words) - 1)
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
                                          caps_stress=caps_stress,
                                          all_upper=word.isupper() and any(c.isalpha() for c in word),
-                                         first_upper=word[:1].isupper())
+                                         first_upper=word[:1].isupper(), at_end=at_end)
             if (not rendered and self.lang != "en" and word.isascii()
                     and any(c.isalpha() for c in word)
                     and not getattr(self, "_textmode_empty", False)):
@@ -1244,7 +1294,8 @@ class G2P:
             set_word_stress(self._tr, w, self._mnem, tonic=4) if w else w
             for w in ph.split("||"))
 
-    def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False, first_upper=False):
+    def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
+                     first_upper=False, at_end=True):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
@@ -1290,7 +1341,7 @@ class G2P:
                 _r = [self._render_word(p, tonic, ipa, tie, separator) for p in _parts]
                 return " ".join(x for x in _r if x)
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
-                                 first_upper=first_upper)
+                                 first_upper=first_upper, at_end=at_end)
         if getattr(self, "_spell_prerendered", False):
             # name-first spell-word (_spell_letters_named) already produced final IPA with its own
             # (lang)…(orig) switches spliced in; return it verbatim (do not re-encode as phonemes).
