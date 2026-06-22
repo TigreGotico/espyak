@@ -334,7 +334,13 @@ class DictList:
         # espeak's _list value is a SINGLE phoneme string (word breaks use ||, not spaces); a second
         # whitespace-separated token is a separate field that EncodePhonemes does not consume (mt
         # `lil hinn<TAB>lil:in:` -> lil maps to `hinn`, the trailing `lil:in:` dropped, not hinnlilin).
-        phonemes = phon_tokens[0] if phon_tokens else ""
+        # EXCEPTION: a $textmode value is replacement TEXT that espeak puts back in the source buffer
+        # and re-tokenises, so a multi-word value keeps ALL its words (xex j -> "íki flu", spoken as
+        # two words ˈiːki flˈuː).
+        if self.text_mode and len(phon_tokens) > 1:
+            phonemes = " ".join(phon_tokens)
+        else:
+            phonemes = phon_tokens[0] if phon_tokens else ""
         if "_^_" in phonemes:
             # compiledict.c:582-583: an entry whose phonemes contain a language switch (phonSWITCH,
             # written `_^_LANG`) implicitly gets FLAG_ONLY_S — "don't match on suffixes (except 's')

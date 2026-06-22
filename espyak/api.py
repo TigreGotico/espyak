@@ -578,6 +578,19 @@ class G2P:
         if dict_ph:
             hangul = self._config.get("decompose_hangul")
             nfc_ph = unicodedata.normalize("NFC", dict_ph) if hangul else dict_ph
+            if flags & K.FLAG_TEXTMODE and " " in nfc_ph.strip():
+                # $text whose value is MULTIPLE words (xex j -> "íki flu"): espeak puts the text
+                # back in the source buffer and re-tokenises it, so each word is translated and
+                # spoken separately (ˈiːki flˈuː). Translate each sub-word and join with the word
+                # break; the parts keep their own lexical stress (tonic=-1, honoured by the || pass).
+                subs = []
+                for sub in nfc_ph.split():
+                    sctx = LookupContext(dict_condition=self._tr.dict_condition)
+                    sph, _ = self._translate_core(sub, sctx)
+                    if sph.strip():
+                        subs.append(sph)
+                if subs:
+                    return "||".join(subs), 0
             if flags & K.FLAG_TEXTMODE:
                 # $text: the entry value is text to re-translate (ta "tamil" -> தமிழ்,
                 # Korean sandhi respellings). espeak recurses through TranslateWord on the
