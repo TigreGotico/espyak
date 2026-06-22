@@ -41,6 +41,22 @@ _ACCENT_NAMES = {
     0x0338: "_stk", 0x0337: "_stk", 0x030B: "_ac2", 0x0331: "_bar",
     0x0309: "_hok",
 }
+
+# letter_accents_0e0[] (numbers.c) entries for ATOMIC letters that NFD does NOT decompose:
+# ligatures (LIGATURE base1 base2 -> "_lig" + base1 + base2) and stroke/bar letters
+# (LETTER base M_STROKE/M_BAR -> "_stk"/"_bar" + base). NFD-decomposable accented letters
+# (à, é, ã …) are handled by the generic decomposition path; these have no decomposition so
+# their (base letters, accent name) must be looked up here. (key: codepoint -> (bases, accent_key))
+_DERIVED_LETTERS = {
+    0x00E6: ("ae", "_lig"),   # æ ligature a-e
+    0x0153: ("oe", "_lig"),   # œ ligature o-e
+    0x0133: ("ij", "_lig"),   # ĳ ligature i-j
+    0x00F8: ("o", "_stk"),    # ø o-stroke
+    0x0142: ("l", "_stk"),    # ł l-stroke
+    0x0111: ("d", "_stk"),    # đ d-stroke
+    0x0127: ("h", "_stk"),    # ħ h-stroke
+    0x0167: ("t", "_bar"),    # ŧ t-bar
+}
 from espyak import language_data
 from espyak.phoneme_program import Interpreter, set_regressive_voicing
 
@@ -895,16 +911,40 @@ class G2P:
         """Speak an accented letter as base-letter name + accent name(s) ($accent).
 
         Decomposes via Unicode NFD instead of porting espeak's letter_accents table."""
+        acc_ctx = LookupContext(dict_condition=self._tr.dict_condition | self._SPELL_CONDITION)
+        derived = _DERIVED_LETTERS.get(ord(ch))
+        if derived and not self._config.get("accents_before"):
+            # an atomic ligature/stroke letter (æ, ø) has no NFD decomposition: spell the accent
+            # NAME then the base letter(s) verbatim (LookupAccentedLetter ligature/stroke branch,
+            # numbers.c:466/473). æ -> _lig(ligature) + a + STRESS_P + e -> lˌiːɡatˈuːɾɑːˈeː;
+            # ø -> STRESS_2 o + _stk(o-stroke) name. The word-stress pass distributes the rest.
+            bases, acc_key = derived
+            anm, _ = self._dict.lookup(acc_key, acc_ctx)
+            base_phs = [self._lookup_letter(b, at_end=False, first=True) for b in bases]
+            if anm and all(base_phs):
+                if len(base_phs) == 2:
+                    # ligature: accent name + phonPAUSE_VSHORT + base1 + STRESS_P + base2
+                    # (the very-short pause `_|` is espeak's separator; it renders silently but
+                    # supplies the word boundary so a name-final r flaps before the base vowel:
+                    # de æ = ligatur|a|e -> lˌiːɡatˈuːɾɑːˈeː).
+                    composed = anm + "_|" + base_phs[0] + "'" + base_phs[1]
+                else:
+                    # stroke/bar single base: STRESS_2 base + accent name (as LETTER form)
+                    composed = "," + base_phs[0] + anm
+                return set_word_stress(self._tr, composed, self._mnem, tonic=4)
         decomp = unicodedata.normalize("NFD", ch)
         if len(decomp) < 2:
             return None
         base, marks = decomp[0], decomp[1:]
         bn = self._lookup_letter(base, at_end=False, first=True)
+        # spelling sets dict_condition group 1, so a `?1`-gated accent NAME wins over the plain
+        # entry: pt has `_tld tS'iU` (the digraph "tch") AND `?1 _tld til`, and an accented letter
+        # is spelled, so ã -> base a + til -> ˌɐtˈil (not ˌɐtʃˈiʊ).
         accent_names = []
         for mk in marks:
             key = _ACCENT_NAMES.get(ord(mk))
             if key:
-                ph, _ = self._dict.lookup(key, LookupContext())
+                ph, _ = self._dict.lookup(key, acc_ctx)
                 if ph:
                     accent_names.append(ph)
         if not bn or not accent_names:
@@ -916,14 +956,18 @@ class G2P:
             # its own primary-stressed unit (no count%3 spelling reduction) — à -> "grave a".
             return "".join(set_word_stress(self._tr, nm, self._mnem, tonic=4)
                            for nm in (accent_names + [bn]))
-        # accent-AFTER path (numbers.c LookupAccentedLetter, accents&1 clear, _acu/_dia
-        # accent_flags 0): the base letter takes a SECONDARY (phonSTRESS_2) and the accent name
-        # keeps its own (primary) stress — é -> ˌiɛ ɑːkˈʉtː, NOT the spelling-stress first-primary
-        # rule (which wrongly stressed the base: fi/et/lv/smj). The accent name's dict value
-        # (_acu A:'ku-t:) already carries the primary, so stress it on its own (tonic=-1).
-        base = set_word_stress(self._tr, bn, self._mnem, tonic=3)
-        names = [set_word_stress(self._tr, nm, self._mnem, tonic=-1) for nm in accent_names]
-        return "".join([base] + names)
+        # LookupAccentedLetter (numbers.c:473): a single accented letter is ONE spelled letter,
+        # so SetSpellingStress runs with n_chars==1 and applies NO count%3 reduction. espeak
+        # composes phonSTRESS_2 + base-letter + accent-name(s) verbatim (the accent name keeps
+        # its own dict stress, e.g. _acu=aksA~tEg'y:), then the word-stress pass adds a secondary
+        # to any unstressed pre-tonic run: pt â -> ,ɐ + sirkũŋfl'ɛksʊ -> ˌɐsirkũŋflˈɛksʊ. The base
+        # keeps its own primary if it already carries one (lfn 'a -> ˈa…).
+        # This subsumes smj's earlier accent-AFTER take (base secondary + accent-name own primary):
+        # the ","+bn prefix gives the base its phonSTRESS_2 and the accent-name dict value keeps the
+        # primary, so fi/et/lv/smj é -> ˌeː…ˈakuːt… still holds while pt/cs/da/de/lfn/pl/sk gain the
+        # n_chars==1 no-reduction + ?1 spell-condition NAMEs.
+        composed = "," + bn + "".join(accent_names)
+        return set_word_stress(self._tr, composed, self._mnem, tonic=4)
 
     # spelling sets dict_condition group 1 so the rules' letter-NAME forms (gated `?1`,
     # e.g. pt "n" -> ɛn) win over the letter's sound. Languages that name letters via the
