@@ -271,9 +271,19 @@ class G2P:
         self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
         # _listx is the supplementary lexical-stress / vocalized dictionary (ar/ru/it/bg/
-        # tr/he/...); espeak compiles it after _list, so later entries win ties.
-        self._dict = DictList.load(data_paths.list_path(lang), data_paths.listx_path(lang),
-                                   data_paths.extra_path(lang))
+        # tr/he/...). CompileDictionary (compiledict.c:1581) compiles _list and _listx in an
+        # order gated on langopts.listx, and each entry is PREPENDED to its hash chain (the
+        # last file compiled ends up first in the chain, so it wins LookupDict2). Only
+        # cmn/yue/zh set langopts.listx=1 -> compile order (_list, _listx) -> _listx wins.
+        # Every OTHER language compiles (_listx, _list) -> _LIST wins the tie (it `lord $alt`
+        # in _list beats `lord $alt2` in _listx -> ɔ, not o). espyak's lookup takes the
+        # last-loaded entry (reversed(entries)), so load the winning file LAST. _extra is
+        # compiled after both in espeak, so it always wins -> load it last of all.
+        if self._config.get("listx"):
+            _list_files = [data_paths.list_path(lang), data_paths.listx_path(lang)]
+        else:
+            _list_files = [data_paths.listx_path(lang), data_paths.list_path(lang)]
+        self._dict = DictList.load(*_list_files, data_paths.extra_path(lang))
         self._dict.case_sensitive_letters = bool(self._config.get("case_sensitive_letters"))
         # the matcher's $p_alt / $list DollarRule needs a part-word dict lookup (LookupFlags)
         self._tr.dict = self._dict

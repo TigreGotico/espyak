@@ -164,27 +164,44 @@ Affects `tr` (2 segment fails) and a few en stacked-suffix words.
 ### (C) Lexical / data vowel quality & length — **~120** (within `segment`=161)
 
 espeak emits open/close vowel-quality and length distinctions that are **lexically or
-stress-conditioned**, not derivable from the bundled `_list`/`_rules` data alone (or
-internally inconsistent in espeak). Verified examples where the bundled data does **not**
-encode the distinction espeak emits:
+stress-conditioned**. A large share of the it/ru open/close `e/ɛ o/ɔ` fails turned out to
+be a **`_list` vs `_listx` precedence bug**, not irreducible data — closed (see below).
+The residue is genuinely lexical or stress-conditioned. Verified examples where the bundled
+data does **not** encode the distinction espeak emits:
 
 | lang | input | oracle | got | note |
 |------|-------|--------|-----|------|
-| it | `sos` | `sˈos` (close o) | `sˈɔs` (open ɔ) | `it_list` has `sos $abbrev $allcaps` — no vowel-quality phoneme; espeak's `o` vs `ɔ` is rule-internal |
 | ru | `могла` | `mʌɡɭˈa` | `mʌɡɭˈɑ` | `a`/`ɑ` allophone is stress/position-conditioned |
 | lv | `r` | `ˈerr` | `ˈerrr` | spelled-letter consonant length (double vs triple) |
 | lv | `pats` | `pˈats` | `pˈat͡s` | affricate tie-bar vs plain — encoding-level length |
 | af | `cliché` | `kliʃˈɛɪɛɪ` (vowel copied) | `kliʃˈɛɪː` (lengthened) | diphthong-copy vs `ː` length rendering |
+| pt | `voice` | `vˈoɪsɨ` (close o) | `vˈɔɪsɨ` (open ɔ) | `$alt` opens the post-stress vowel, but espeak's `ApplySpecialAttribute2` matches only `phonSTRESS_P` (`'`), NOT the `phonSTRESS_P2` (`''`) priority mark pt's `S_PRIORITY_STRESS` emits; espyak's `'`-search opens it anyway |
 
-Affected: `lv`=17, `it`=16, `en`=15, `lb`=11, `ur`=8, `pt`=7, `nl`=7, `ru`=5, `de`=5,
-`ca`=5, and a tail; the `segment`=161 bucket also contains some letter-name spelling
-(xex `flˈuː`, ar/ml letter codepoints) that overlaps B1, hence the ~120 (not 161) estimate
-attributed to genuine lexical/length quality after removing the B1-style letter-name cases.
+**`_list`/`_listx` precedence — CLOSED.** `CompileDictionary` (compiledict.c:1581) compiles
+`_list` and `_listx` in an order gated on `langopts.listx`, prepending each entry to its
+hash chain, so the **last file compiled wins** `LookupDict2`. Only `cmn`/`yue`/`zh` set
+`langopts.listx=1` (compile `_list` then `_listx` → `_listx` wins). **Every other language**
+compiles `_listx` then `_list` → **`_list` wins** the tie. espyak loaded `_listx` last
+unconditionally, so for the 8 non-Chinese langs with a `_listx` file (`ar bg he ia it ru tk
+tr`) a stale/different `_listx` entry shadowed the correct `_list` one. The clearest case:
+`it_list` has `lord $alt` (rule gives `O`=ɔ, `$alt` is a no-op on an already-open vowel → ɔ)
+but `it_listx` has `lord $alt2` (closes ɔ→o); the `$alt2` wrongly won, giving `lˈord`.
+Loading order now follows `langopts.listx`, recovering 14 `it` + 1 `ru` headwords with
+**zero regressions** (`it sos`, `condor`, `sonar`, `sofia`, `oscar`, `revolver`, `montreal`,
+`vacuolo`, … all now match). The old category-C `it sos` example was one of these — closable,
+not a data limit.
 
-**Closable?** Partly. Where espeak's choice follows a rule we have not fully modelled
-(some it/da open-close, the lv consonant-length doubling) it is closable. Where espeak's
-output is **not** recoverable from the bundled data (the distinction lives in a per-voice
-table or is internally inconsistent), it is a hard data limit, not a code bug.
+Affected residue: `lv`=17, `en`=15, `lb`=11, `ur`=8, `pt`=7, `nl`=7, `de`=5, `ca`=5, and a
+tail; the `segment`=161 bucket also contains some letter-name spelling (xex `flˈuː`, ar/ml
+letter codepoints) that overlaps B1. After the `_listx` fix and removing the B1-style
+letter-name cases, the genuine lexical/length quality residue is below the original ~120.
+
+**Closable?** Partly. The `_list`/`_listx` precedence share is now closed. Of the residue:
+the `pt voice` `phonSTRESS_P2` case is a narrow, closable `ApplySpecialAttribute2` arm (one
+word, deferred for risk to pt's priority-stress path); `montgomery`-style cases are
+stress-placement (B2) surfacing through `ChangeIfNotStressed`. Where espeak's output is
+**not** recoverable from the bundled data (a per-voice table or internal inconsistency), it
+is a hard data limit, not a code bug.
 
 ---
 
