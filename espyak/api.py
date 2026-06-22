@@ -501,12 +501,19 @@ class G2P:
                 single = sum(1 for _m, ph_ in self._mnem.tokenize(p)
                              if ph_.type == phVOWEL and "nonsyllabic" not in ph_.flags) <= 1
                 return 1 if (single or priority) else 4
-            stressed = [
-                set_word_stress(self._tr, p, self._mnem,
-                                dict_flags=(flags if i == last else 0),
-                                tonic=_part_tonic(p, i == last, i))
-                for i, p in enumerate(parts)
-            ]
+            def _stress_part(p, i):
+                # A non-last part that carries an explicit SECONDARY (`,`) but no primary, while
+                # another part owns the primary, keeps ONLY that secondary: espeak stresses the
+                # whole ||-string once, so its single (last-part) primary suffices and the rule
+                # never promotes this part. Per-part SetWordStress WOULD add a spurious primary
+                # (it videogames v,ideo||g'eIm -> vˌidˈeo, castelmezzano kast,el||... -> kˈastˌel),
+                # so skip the stress pass and keep the part's explicit marks (-> vˌideo, kastˌel).
+                if (i != last and has_primary and "," in p and "'" not in p):
+                    return p
+                return set_word_stress(self._tr, p, self._mnem,
+                                       dict_flags=(flags if i == last else 0),
+                                       tonic=_part_tonic(p, i == last, i))
+            stressed = [_stress_part(p, i) for i, p in enumerate(parts)]
             for _i in range(1, len(stressed)):
                 # stress clash: a part whose FIRST stressed syllable is a secondary (,,) drops it
                 # when the previous part ends in a primary — the two stressed syllables are adjacent
@@ -542,6 +549,11 @@ class G2P:
         if i < 0 or i + 1 >= len(ph):
             return ph
         j = i + 1
+        # espeak compares the phoneme CODE right after phonSTRESS_P against PhonemeCode('e')/('o')
+        # (translateword.c:688). A variant such as `e/` (salome `salom'e/`) is a DIFFERENT phoneme
+        # code, so it is NOT shifted — match only the bare e/o phoneme, never e//o/.
+        if ph[j + 1 : j + 2] == "/":
+            return ph
         repl = ({"E": "e", "O": "o"} if (flags & K.FLAG_ALT2_TRANS)
                 else {"e": "E", "o": "O"}).get(ph[j])
         return ph[:j] + repl + ph[j + 1:] if repl else ph
@@ -726,8 +738,20 @@ class G2P:
             stem, _qflags = remove_ending(self._tr, word, end_type)
             sctx = LookupContext(dict_condition=self._tr.dict_condition, suffix_removed=True,
                                  suffix_is_s=bool(_qflags & K.FLAG_SUFX_S))
-            sdict_ph, _ = self._dict.lookup(stem.strip(), sctx)
-            return (sdict_ph + end_ph if sdict_ph else ph + end_ph), flags
+            sdict_ph, sdict_flags = self._dict.lookup(stem.strip(), sctx)
+            if sdict_ph:
+                return sdict_ph + end_ph, flags
+            # A flag-only stem entry (it_listx `omer $1 $alt`, `agit $1`) has no phonemes but
+            # carries a stress position ($1/$2/$3) and/or $alt: espeak keeps these flags in the
+            # word's dictionary_flags, so the final SetWordStress over the rule output re-places
+            # the primary (omero -> ˈɔmero not omˈɛro) and ApplySpecialAttribute2 runs $alt. Merge
+            # the stem flags only when the FULL word found no stress position of its own — a
+            # full-word flag-only entry (baritono $3, ciascuna $2) was already captured into
+            # `flags` and takes precedence over the suffix-stripped stem (bariton $2).
+            if sdict_flags and not (flags & 0x7):
+                _STEM_FLAG_MASK = 0x7 | K.FLAG_ALT_TRANS | K.FLAG_ALT2_TRANS
+                flags = (flags & ~_STEM_FLAG_MASK) | (sdict_flags & _STEM_FLAG_MASK)
+            return ph + end_ph, flags
         if end_type and not (end_type & K.SUFX_P):
             self._suffix_dict_flags = 0
             sph = self._translate_with_suffix(word, end_type, end_ph, flags, ph)
@@ -957,7 +981,13 @@ class G2P:
         # the ","+bn prefix gives the base its phonSTRESS_2 and the accent-name dict value keeps the
         # primary, so fi/et/lv/smj é -> ˌeː…ˈakuːt… still holds while pt/cs/da/de/lfn/pl/sk gain the
         # n_chars==1 no-reduction + ?1 spell-condition NAMEs.
-        composed = "," + bn + "".join(accent_names)
+        # The very-short pause `_|` (phonPAUSE_VSHORT, numbers.c:473's `%c%s%c%s%c` with
+        # phonPAUSE_VSHORT around the accent name) separates the base name from the accent name and
+        # closes the unit: it renders silently but supplies word boundaries, so each name's final
+        # vowel laxes via its own phoneme program (it ć = c + _acu: the letter-name "ci"'s i is now
+        # word-final-unstressed -> tʃˌɪakˈuːto not tʃˌiakˈuːto). The contiguous (no-space) render is
+        # preserved because `_|` is a pause, not a START_OF_WORD space.
+        composed = "," + bn + "_|" + "_|".join(accent_names) + "_|"
         return set_word_stress(self._tr, composed, self._mnem, tonic=4)
 
     # spelling sets dict_condition group 1 so the rules' letter-NAME forms (gated `?1`,

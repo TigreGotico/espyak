@@ -181,7 +181,11 @@ LANGS = {
            "it_lengthen": 2,  # remove length from unstressed/non-penultimate
            "lopt_alt": True,  # ApplySpecialAttribute2: $alt/$alt2 shift the post-stress e<->E o<->O
            "name_foreign_alphabet": True,  # TranslateLetter: name Cyrillic before the letter (cirillico)
-           "reduce_dict_vowels": True},  # LOPT_REDUCE&1: reduce vowels even in it_list entries
+           # a $u monosyllable as the clause nucleus runs its phoneme programs UNstressed (so
+           # gli's final i laxes ʎi->ʎɪ via the ph_italian i->I program), the clause primary
+           # overlaid after; il/in/non keep their lexical vowels unchanged
+           "reduce_dict_vowels": True,  # LOPT_REDUCE&1: reduce vowels even in it_list entries
+           "unstress_u_words": True},
     "sl": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž", "lopt_alt": True,
            "unstress_u_words": True, "drop_u_length": True},  # $u words: short, open vowels

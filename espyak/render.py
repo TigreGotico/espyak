@@ -144,6 +144,20 @@ def encode_phoneme_string(s, table):
             continue
         ph = table.phonemes[m]
         i += len(m)
+        if m == "-" and pending_newword:
+            # phonSYLLABIC immediately after a || word break (translate.c:585): it marks the
+            # phoneme that PRECEDED the break syllabic and resets that phoneme's stress to the
+            # pending next_stress (1, unstressed, since the previous vowel already consumed its
+            # mark) — a flag, NOT an output phoneme, so it is consumed and never emitted. it_list
+            # ``й = 'I||-b@-*'eve`` -> ɪ ... (the leading ``'I`` de-stresses to ɪ and no literal
+            # hyphen renders). The pending newword carries on to the next real phoneme. A `-`
+            # NOT after a || (zigano ``ts-ig'a/no``) is a normal syllabic-consonant marker and is
+            # kept (rendered ts-iɡˈano), so this branch is gated on pending_newword.
+            if entries:
+                entries[-1].synthflags |= SFLAG_SYLLABLE
+                entries[-1].stresslevel = pending_stress if pending_stress is not None else 1
+            pending_stress = None
+            continue
         if ph.type == phSTRESS and not m.isdigit():
             # punctuation stress markers ('/,/%/=) attach to the next vowel; digit-named
             # stress phonemes are tone marks (Vietnamese 1-7) that render in place.
