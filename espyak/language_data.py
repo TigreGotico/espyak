@@ -352,6 +352,7 @@ LANGS["jbo"] = {"stress_rule": K.STRESSPOSN_2R, "caps_in_word": True, "extra_vow
 LANGS["my"] = {"tone_collapse": True}
 LANGS["cmn"] = {"palatal_u_to_y": True, "neutral_tone_unstress": True,  # pinyin ü; neutral tone (5) is unstressed
                 "tone_numbers": 1,  # a number after letters is a tone number (pinyin); tr_languages.c:1628
+                "switch_segment_tone5": True,  # cmn tone post-pass runs over an (en)…(cmn) word switch
                 "listx": True}  # langopts.listx=1: compile _listx AFTER _list, so _listx wins ties
 # yue/hak (and zh): a number after letters indicates a tone number (jyutping). tr_languages.c:867/1628.
 LANGS["yue"] = {"tone_numbers": 1, "listx": True}

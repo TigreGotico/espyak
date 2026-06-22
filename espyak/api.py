@@ -1162,6 +1162,68 @@ class G2P:
             result = _re.sub(r"([%s]ː?)r(?= [ˈˌ]?[%s])" % (_V, _V), r"\1ɹ", result)
         return result
 
+    # cmn switch-segment vowel set + the unstressed-reduction map espeak's cmn render applies to the
+    # English phonemes of an (en)…(cmn) word switch. A non-final word de-stresses and its vowels
+    # reduce; the rhotic ɑː ("R" name) collapses to a syllabic r (no tone follows it).
+    _CMN_EN_VOWELS = ("aɪ", "aʊ", "eɪ", "oʊ", "ɔɪ", "ɪə", "eə", "ʊə",
+                      "ɑː", "ɔː", "uː", "iː", "ɜː",
+                      "ə", "ɪ", "ʊ", "e", "æ", "ʌ", "ɒ", "ɔ", "ɑ", "a", "i", "u", "o", "ɛ", "ɐ")
+
+    def _cmn_switch_segment_tone5(self, inner):
+        """cmn render-time tone post-pass over an (en)…(cmn) WORD switch — applied ONLY to the
+        switched English segment, never to native cmn words.
+
+        espeak re-translates a pinyin $text token (雄 -> ``xiong2``) whose first Latin letter trips
+        ``_^_EN``: the whole token switches to English (``kʃˈəŋ tˈuː``). cmn's render-time post-pass
+        then runs ACROSS the (en)…(cmn) boundary (translate.c: source-language stress/tone over the
+        switched phonemes) — exactly the shn cross-boundary effect of d921a45 but over a word switch:
+        the NON-FINAL English words de-stress and their vowels reduce (dʒɪˈɒŋ -> dʒɪ5ə5ŋ: stress
+        dropped, ɒ->ə; ˈɑː -> r), the FINAL word keeps its primary stress, and cmn's default tone 5
+        is appended to every English vowel (tˈuː -> tˈuː5, wˈɒn -> wˈɒ5n -> kʃə5ŋtˈuː5).
+        """
+        words = inner.split(" ")
+        out = []
+        for wi, w in enumerate(words):
+            out.append(self._cmn_tone5_word(w, final=(wi == len(words) - 1)))
+        return "".join(out)
+
+    def _cmn_tone5_word(self, w, final):
+        vowels = self._CMN_EN_VOWELS
+        res = []
+        i = 0
+        n = len(w)
+        while i < n:
+            ch = w[i]
+            if ch in ("ˈ", "ˌ"):
+                if final:
+                    res.append(ch)  # the final word keeps its stress mark
+                i += 1
+                continue
+            # longest-match a vowel nucleus at this position
+            matched = None
+            for v in vowels:
+                if w.startswith(v, i):
+                    matched = v
+                    break
+            if matched is None:
+                res.append(ch)
+                i += 1
+                continue
+            i += len(matched)
+            # length mark belongs to the nucleus (tone goes AFTER it: tˈuː -> tˈuː5)
+            length = ""
+            if i < n and w[i] == "ː":
+                length = "ː"
+                i += 1
+            if not final and matched == "ɑː":
+                # the rhotic "R" name reduces to a syllabic r with NO tone digit (ˈɑː -> r)
+                res.append("r")
+                continue
+            if not final and matched == "ɒ":
+                matched = "ə"  # an unstressed ɒ reduces to schwa (dʒɪˈɒŋ -> dʒɪ5ə5ŋ)
+            res.append(matched + length + "5")
+        return "".join(res)
+
     _EN_FALLBACK = None
 
     @classmethod
@@ -1243,6 +1305,9 @@ class G2P:
             tg = self._switch_g2p(target)
             if tg is not None:
                 inner = tg._render_word(switch_word, tonic, ipa, tie, separator)
+                if (ipa and target == "en"
+                        and self._config.get("switch_segment_tone5") and " " in inner):
+                    inner = self._cmn_switch_segment_tone5(inner)
                 # TranslateLetter (translateword.c): an isolated letter from a foreign alphabet that
                 # the current language neither owns (our_alphabet) nor aliases (alt_alphabet) and that
                 # isn't AL_DONT_NAME is preceded by the alphabet's spoken name (it cirillico: а ->

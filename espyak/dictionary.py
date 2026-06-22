@@ -1804,6 +1804,15 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
         if match1 is None or match1.phonemes is None:
             continue
         if match1.points > 0:
+            if (match1.phonemes and match1.phonemes.startswith("_^_")
+                    and not (word_flags & K.FLAG_DONT_SWITCH_TRANSLATOR)):
+                # phonSWITCH (dictionary.c:2297): a rule producing a language switch as its
+                # FIRST phoneme returns IMMEDIATELY with only the switch marker — espeak
+                # re-translates the whole word in the named language and discards any phonemes
+                # accumulated before the switch. cmn `xiong2` ($text pinyin for 雄): the first
+                # Latin letter trips `_^_EN`, so the whole token switches to English, not the
+                # per-letter `_^_EN_^_EN…yN35` glue espyak used to accumulate.
+                return match1.phonemes, 0, ""
             end_type = match1.end_type & ~K.SUFX_UNPRON
             if want_endings and end_type != 0:
                 # a standard ending matched: stop, return the affix phonemes + type
