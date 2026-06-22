@@ -367,6 +367,7 @@ class G2P:
         self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
         self._neutral_tone = False  # cmn neutral tone (pinyin 5): the syllable is unstressed
         self._spelled = False     # set by _translate_core for a $abbrev spelled-out word
+        self._spell_prerendered = False  # name-first spell returns final IPA (as foreign-letter spell)
         self._textmode_empty = False  # a $text->spell word that loops to '' (mto english)
         ph, flags = self._translate_core(word.lower(), ctx)
         if _SPELL_CP_OPEN in ph:
@@ -580,6 +581,24 @@ class G2P:
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
             dict_flags=flags)
+        if (not ph.strip() and word and word.isascii() and any(c.isalpha() for c in word)
+                and self._config.get("letter_bits_offset")
+                and not (flags & K.FLAG_TEXTMODE and getattr(self, "_textmode_empty", False))):
+            # alphabets[] block-switch (dictionary.c:2252-2261): a $text dictionary entry whose
+            # value is Latin text (pa ਸੋਫਟਵਿਅਰ -> "software") re-translates that text, but the
+            # current language's script is non-Latin (letter_bits_offset != 0). The Latin letters
+            # belong to the implicit Latin/English block, an AL_WORDS alphabet whose language is
+            # not the current one, so espeak emits a word-level phonSWITCH to English and brackets
+            # the run (en)…(orig). Carry the replacement text in the _^_ switch marker so the
+            # switched language translates that text (software), not the original Gurmukhi token.
+            return "_^_en|" + word, flags
+        if ph.lstrip("\"'").startswith("_^_") and word.isascii():
+            # the rules emitted a phonSWITCH directly (pa_rules has explicit `_^_EN` rules for some
+            # Latin sequences) AND also tripped FLAG_SPELLWORD on an untranslatable letter. espeak
+            # returns immediately on a phonSWITCH (dictionary.c:2297), so the switch wins over the
+            # spell-word: carry the replacement text so English translates `software`, not the token.
+            target = ph.lstrip("\"'")[3:].split("|")[0].lower().strip()
+            return "_^_%s|%s" % (target, word), flags
         if getattr(self._tr, "_spell_word", False):
             self._spelled = True
             if flags & K.FLAG_TEXTMODE:
@@ -636,7 +655,14 @@ class G2P:
     def _spell_letters(self, word):
         """FLAG_SPELLWORD: re-translate the word as individual letters, each its OWN primary
         word (mto amsterdam -> ˈa ˈm̩ s tʰ ˈe ɾ dˈe ˈa ˈm̩): the letter's SOUND via the rules,
-        falling back to its spelled NAME only when the rules give nothing (mto 'd' -> de)."""
+        falling back to its spelled NAME only when the rules give nothing (mto 'd' -> de).
+
+        A non-Latin script that opts in (spell_word_foreign_letter, as) instead spells each letter
+        by its NAME first (TranslateLetter/LookupLetter, name-first: as ম -> mˈɔ not the rule mV),
+        and a letter with no name in the source is rendered through its alphabet's language
+        (as র -> (bn)ɾˈɔ(as)) — the per-letter phonSWITCH espeak uses for an unnamed in-block char."""
+        if self._config.get("spell_word_foreign_letter"):
+            return self._spell_letters_named(word)
         parts = []
         for ch in word:
             ph, _, _ = translate_rules(self._tr, ch, self._mnem)
@@ -645,6 +671,58 @@ class G2P:
             if ph:
                 parts.append(set_word_stress(self._tr, ph, self._mnem, tonic=4))
         return "||".join(parts)
+
+    def _spell_letters_named(self, word):
+        """Name-first spell-word (TranslateLetter, as): each letter by its NAME, a letter with no
+        name switched to its alphabet's language. The named-letter runs are rendered together via
+        _render_phonemes (so the ||-break spacing/stress matches mto), the foreign-letter segments
+        (already IPA `(bn)…(as)`) spliced between. Returns fully-rendered IPA; _render_word returns
+        it verbatim (self._spell_prerendered)."""
+        self._spell_prerendered = True
+        out = []
+        run = []  # consecutive named letters (rendered as one ||-group)
+        for ch in word:
+            ph = self._lookup_letter(ch, at_end=False, first=True)
+            if ph:
+                run.append(set_word_stress(self._tr, ph, self._mnem, tonic=4))
+                continue
+            sw = self._spell_foreign_letter(ch)
+            if sw is None:
+                continue
+            if run:
+                out.append(self._render_phonemes("||".join(run), True, None, None))
+                run = []
+            out.append(sw)
+        if run:
+            out.append(self._render_phonemes("||".join(run), True, None, None))
+        return " ".join(s for s in out if s)
+
+    def _spell_foreign_letter(self, ch):
+        """A single letter with no name in the source language is spelled through its alphabet's
+        language (TranslateLetter, translateword.c:910): as র (no `র` name) switches to its
+        alphabet `_bn` language bn and renders the letter's name there -> (bn)ɾˈɔ(as). The bn
+        marker/return are wrapped exactly as a phonSWITCH; the result is one ||-segment so it sits
+        as its own spelled word in the joined output."""
+        from espyak import language_data
+        entry = language_data.alphabet_from_char(ord(ch))
+        if entry is None:
+            return None
+        lo, hi, name_key, switch_lang, flags = entry
+        if (switch_lang is None or switch_lang == self.lang
+                or (flags & language_data.AL_NOT_LETTERS)):
+            return None
+        tg = self._switch_g2p(switch_lang)
+        if tg is None:
+            return None
+        # the letter's NAME in the switch language (bn র -> rO -> ɾˈɔ), stressed as a spelled letter.
+        inner = tg._lookup_letter(ch, at_end=False, first=True)
+        if not inner:
+            return None
+        rendered = tg._render_phonemes(
+            set_word_stress(tg._tr, inner, tg._mnem, tonic=4), True, None, None)
+        if not rendered.strip():
+            return None
+        return "(%s)%s(%s)" % (switch_lang, rendered, self._ph_table_name)
 
     def _check_dotted_abbrev(self, word):
         """Port of CheckDottedAbbrev (translateword.c:1046).
@@ -1141,12 +1219,20 @@ class G2P:
                 return " ".join(x for x in _r if x)
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
                                  first_upper=first_upper)
+        if getattr(self, "_spell_prerendered", False):
+            # name-first spell-word (_spell_letters_named) already produced final IPA with its own
+            # (lang)…(orig) switches spliced in; return it verbatim (do not re-encode as phonemes).
+            return ph
         if ph.startswith("_^_"):
             # foreign word: re-translate in the named language and wrap (lang)...(orig)
-            target = ph[3:].split("|")[0].lower().strip()
+            _payload = ph[3:].split("|", 1)
+            target = _payload[0].lower().strip()
+            # a `_^_<lang>|<text>` marker (alphabets[] $text block-switch, pa software) carries the
+            # replacement text the switched language must translate, not the original token.
+            switch_word = _payload[1] if len(_payload) > 1 else word
             tg = self._switch_g2p(target)
             if tg is not None:
-                inner = tg._render_word(word, tonic, ipa, tie, separator)
+                inner = tg._render_word(switch_word, tonic, ipa, tie, separator)
                 # TranslateLetter (translateword.c): an isolated letter from a foreign alphabet that
                 # the current language neither owns (our_alphabet) nor aliases (alt_alphabet) and that
                 # isn't AL_DONT_NAME is preceded by the alphabet's spoken name (it cirillico: а ->
@@ -1156,7 +1242,66 @@ class G2P:
                 # the return tag is the phoneme-table language (ms uses `phonemes id` -> (id))
                 return "%s(%s)%s(%s)" % (prefix, target, inner, self._ph_table_name)
             ph = ""
+        if not ph.strip():
+            named = self._name_and_render_foreign_letter(word, tonic, ipa, tie, separator)
+            if named is not None:
+                return named
         return self._render_phonemes(ph, ipa, tie, separator)
+
+    def _name_and_render_foreign_letter(self, word, tonic, ipa, tie, separator):
+        """TranslateLetter single-letter-word path (translateword.c:786, dictionary.c:2252).
+
+        A whole-word that is ONE character of a foreign AL_WORDS alphabet block which the current
+        language cannot translate is NOT switched as a word (that needs >1 char, dictionary.c:2270
+        `any_alpha > 1`); instead espeak spells it as an isolated letter: it announces the block's
+        alphabet name, then renders the letter in the block's language. The current language has no
+        local `_xx` name for the block, so the name is spoken by the default English voice
+        ((en)hˈɪndi(gu)), and the letter render in the switch language is appended (xˈə).
+
+        gu ख़ (nukta-combined ખ઼ -> Devanagari U+0959): (en)hˈɪndi(gu)xˈə.
+        """
+        from espyak import language_data
+        # the .replace table already ran inside translate_word; reapply it to see the real char(s).
+        w = _apply_replacements(getattr(self._rules, "replacements", None), word.lower())
+        if len(w) != 1:
+            return None
+        cp = ord(w)
+        entry = language_data.alphabet_from_char(cp)
+        if entry is None:
+            return None
+        lo, hi, name_key, switch_lang, flags = entry
+        my_off = self._config.get("letter_bits_offset", 0)
+        if (switch_lang is None or switch_lang == self.lang
+                or not (flags & language_data.AL_WORDS)
+                or (flags & language_data.AL_DONT_NAME)
+                or lo == my_off):
+            return None
+        tg = self._switch_g2p(switch_lang)
+        if tg is None:
+            return None
+        inner = tg._render_word(w, tonic, ipa, tie, separator)
+        if not inner.strip():
+            return None
+        # the block's alphabet name: the source language's own `_xx` *_list entry if present,
+        # otherwise the English name spoken by the default (en) voice ((en)hˈɪndi(gu)).
+        local_ph, _ = self._dict.lookup(name_key, LookupContext())
+        if local_ph and local_ph.strip():
+            name = self._render_phonemes(
+                set_word_stress(self._tr, local_ph, self._mnem, tonic=4), ipa, tie, separator)
+            prefix = name
+        else:
+            # Lookup(translator3, alphabet->name, ...): the English voice's *_list entry keyed by
+            # the alphabet NAME (`_hi` -> h'Indi = "hindi"), not the literal letters of the key.
+            en = self._en_fallback()
+            en_ph, _ = en._dict.lookup(name_key, LookupContext())
+            if not en_ph or not en_ph.strip():
+                return None
+            en_name = en._render_phonemes(
+                set_word_stress(en._tr, en_ph, en._mnem, tonic=4), ipa, tie, separator)
+            if not en_name.strip():
+                return None
+            prefix = "(en)%s(%s)" % (en_name, self._ph_table_name)
+        return prefix + inner
 
     # Foreign alphabets named before an isolated letter (TranslateLetter): map the unicode block to
     # the *_list mnemonic key holding the spoken name. Only blocks WITHOUT AL_DONT_NAME are listed,

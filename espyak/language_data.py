@@ -417,6 +417,11 @@ for _l, _off in _INDIC_OFFSETS.items():
     LANGS[_l] = _indic_config(
         _off, stress_rule=_INDIC_STRESS_RULE.get(_l, K.STRESSPOSN_1L),
         stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
+# as: the Bengali letter র (U+09B0, RA) has no rule in as_rules, so a word containing it can't be
+# translated and espeak spells the WHOLE word letter by letter (FLAG_SPELLWORD): each letter by its
+# NAME, and র — having no name in as — switches to its alphabet's language bn (আমার -> ˈa mˈɔ ˈakaɾ
+# (bn)ɾˈɔ(as)). See _spell_letters / _spell_foreign_letter.
+LANGS["as"]["spell_word_foreign_letter"] = True
 # Indic $u function words reduce their schwa despite carrying the clause accent (pa ਤੱਕ -> tˈək,
 # hi तक -> tˈək): the phoneme programs must see the un-tonic stress so the inherent vowel V laxes to ə.
 for _l in ("pa", "ne", "hi"):
@@ -532,6 +537,61 @@ LANGS["ko"] = {
         (K.LETTERGP_G, [0x02, 0x05, 0x06, 0xab, 0xaf, 0xb7, 0xbc]),        # voiced
     ],
 }
+
+
+# alphabets[] (tr_languages.c:65): maps a Unicode block to its alphabet *_list name key, the
+# language to switch to when a character of that block can't be translated by the current
+# language, and the espeak AL_* flags. A block with AL_WORDS triggers a WORD-LEVEL phonSWITCH
+# to `language` (dictionary.c:2257); range_min/range_max/name/lang/flags mirror the C entries.
+AL_DONT_NAME = 0x01
+AL_NOT_LETTERS = 0x04
+AL_WORDS = 0x10
+AL_NOT_CODE = 0x20
+AL_NO_SYMBOL = 0x40
+
+# (range_min, range_max, name_key, switch_lang or None, flags)
+ALPHABETS = (
+    (0x380, 0x3ff, "_el", "el", AL_DONT_NAME | AL_NOT_LETTERS | AL_WORDS),
+    (0x400, 0x52f, "_cyr", None, 0),
+    (0x530, 0x58f, "_hy", "hy", AL_WORDS),
+    (0x590, 0x5ff, "_he", None, 0),
+    (0x600, 0x6ff, "_ar", None, 0),
+    (0x700, 0x74f, "_syc", None, 0),
+    (0x900, 0x97f, "_hi", "hi", AL_WORDS),
+    (0x980, 0x9ff, "_bn", "bn", AL_WORDS),
+    (0xa00, 0xa7f, "_gur", "pa", AL_WORDS),
+    (0xa80, 0xaff, "_gu", "gu", AL_WORDS),
+    (0xb00, 0xb7f, "_or", None, 0),
+    (0xb80, 0xbff, "_ta", "ta", AL_WORDS),
+    (0xc00, 0xc7f, "_te", "te", 0),
+    (0xc80, 0xcff, "_kn", "kn", AL_WORDS),
+    (0xd00, 0xd7f, "_ml", "ml", AL_WORDS),
+    (0xd80, 0xdff, "_si", "si", AL_WORDS),
+    (0xe00, 0xe7f, "_th", None, 0),
+    (0xe80, 0xeff, "_lo", None, 0),
+    (0xf00, 0xfff, "_ti", None, 0),
+    (0x1000, 0x109f, "_my", None, 0),
+    (0x10a0, 0x10ff, "_ka", "ka", AL_WORDS),
+    (0x1100, 0x11ff, "_ko", "ko", AL_WORDS),
+    (0x1200, 0x139f, "_eth", None, 0),
+    (0x2800, 0x28ff, "_braille", None, AL_NO_SYMBOL),
+    (0x3040, 0x30ff, "_ja", None, AL_NOT_CODE),
+    (0x3100, 0x9fff, "_zh", None, AL_NOT_CODE),
+    (0xa700, 0xd7ff, "_ko", "ko", AL_NOT_CODE | AL_WORDS),
+    (0x10450, 0x1047f, "_shaw", "en", 0),
+)
+
+
+def alphabet_from_char(cp):
+    """Port of AlphabetFromChar (tr_languages.c:97): the alphabets[] entry whose range
+    contains `cp`, or None. Ranges are in ascending order; the first whose range_max >= cp
+    either contains cp (range_min <= cp) or falls in an unmapped gap (None)."""
+    for lo, hi, name, lang, flags in ALPHABETS:
+        if cp <= hi:
+            if cp >= lo:
+                return (lo, hi, name, lang, flags)
+            return None
+    return None
 
 
 def get_config(lang):

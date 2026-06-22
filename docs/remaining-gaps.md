@@ -73,6 +73,30 @@ switched run differs from espyak's.
 verbalization with tone copy), `pt`=7, `cmn`=6, `gu`=5, `pa`=5, `as`=5, `de`=5, plus
 single fails in `it`/`fr`/`af`. shn alone is 31% of all 649 fails and 85% of category A.
 
+**Block→language switch (`alphabets[]`), as/gu/pa — CLOSED.** The `alphabets[]` table
+(`tr_languages.c:73`) maps a Unicode block to a language; a character a language's rules
+cannot pronounce is named/switched through that block's language. This is now ported
+(`language_data.ALPHABETS` / `alphabet_from_char`):
+- **as** (`আমার`…): a Bengali-block letter (`র`, no rule in `as_rules`) trips FLAG_SPELLWORD,
+  spelling the whole word by letter NAME; the unnamed `র` switches to its alphabet language
+  `bn` → `ˈa mˈɔ ˈakaɾ (bn)ɾˈɔ(as)` (`spell_word_foreign_letter`, `_spell_letters_named`).
+- **gu** (`ખ઼`…): a nukta letter `.replace`d to a single Devanagari char that gu can't
+  translate → the TranslateLetter single-letter path names the `_hi` alphabet via the default
+  English voice, then renders the letter in `hi` → `(en)hˈɪndi(gu)xˈə`
+  (`_name_and_render_foreign_letter`).
+- **pa** (`ਸੋਫਟਵਿਅਰ`…): a `$text` dict entry whose value is Latin text (`software`) re-translates
+  to that text; the non-Latin source switches it to English at the word level (dictionary.c:2257)
+  → `(en)sˈɒftweə(pa)`.
+
+**cmn — DEFERRED.** `雄`→`xiong2` ($text pinyin) → cmn rules give nothing → a WORD-level en
+switch of `xiong` plus the digit `2` spoken "two", with cmn's render-time **tone post-pass
+crossing the `(en)…(cmn)` boundary** (`kʃˈəŋ`→`kʃə5ŋ`, en stress stripped, default tone 5
+inserted) — exactly the shn cross-boundary effect of `d921a45`, but over a foreign **word**
+switch rather than a codepoint spelling. Closing it needs the cmn tone normalization to run
+over the en-switched phonemes; the risk to cmn's 3823 passing cases makes it a separate change.
+The two non-switch cmn fails (`都` `tˈu5`→`tˈou5`, `識` `s.ˈi.ɜ`→`s.i.1`) are vowel-quality /
+spelled-letter-tone bugs, category C/B, not `alphabets[]`.
+
 **Closable?** Only by replacing the string-level switch with a phoneme-level one: a shared
 phoneme buffer the source-language post-processor runs over, plus espeak's full Myanmar/
 codepoint `TranslateLetter` segmentation. This is the single highest-leverage refactor —

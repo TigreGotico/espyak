@@ -1756,8 +1756,14 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                     # unrecognised ASCII letter in a multi-letter word: espeak sets
                     # FLAG_SPELLWORD and re-translates as individual letters (dictionary.c:2274).
                     # mto foreign names (no rule for 'd' in amsterdam). Scoped to ASCII so non-ASCII
-                    # special letters (es ª ordinal) take their own path instead.
-                    if any_alpha > 1 and is_alpha(wc) and wc < 0x80:
+                    # special letters (es ª ordinal) take their own path instead — EXCEPT a non-Latin
+                    # script that opts in (spell_word_foreign_letter): an in-block letter its rules
+                    # cannot pronounce (as র U+09B0, no `র` rule) triggers the same whole-word spell
+                    # (আমার -> ˈa mˈɔ ˈakaɾ (bn)ɾˈɔ(as)), each letter by NAME and the unnamed letter
+                    # switched to its alphabet's language (dictionary.c:2270, IsAlpha not ASCII-gated).
+                    cfg = getattr(tr, "config", None) or {}
+                    if any_alpha > 1 and is_alpha(wc) and (
+                            wc < 0x80 or cfg.get("spell_word_foreign_letter")):
                         tr._spell_word = True
                         return phonemes, 0, ""
                     # unrecognised character: skip it
