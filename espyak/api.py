@@ -850,7 +850,12 @@ class G2P:
         names = []
         n = len(word)
         for idx, ch in enumerate(word):
-            name = self._lookup_letter(ch, at_end=(idx == n - 1), first=(idx == 0))
+            # SpeakIndividualLetters translates each letter via its OWN TranslateLetter/LookupLetter
+            # pass, so a `$atend` letter-NAME entry (ga `d  di: $atend`) matches for EVERY letter,
+            # not just the last (ga dh -> dˌiːˈeɪtʃ, dd -> dˌiːdˈiː). at_end is therefore per-letter
+            # true; the connected-acronym RULE_SPELLING form belongs to the FLAG_SPELLWORD path
+            # (_spell_letters), not this name-spelling path.
+            name = self._lookup_letter(ch, at_end=True, first=(idx == 0))
             if name:
                 names.append(name)
         return self._join_spelled(names)
