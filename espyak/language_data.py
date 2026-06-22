@@ -497,7 +497,6 @@ def _ar_codes(s):
 
 
 LANGS["ar"] = {
-    "compound_first_stress": True,  # 2-word unit abbreviations (كغ = kilo gram) stress the first
     # Arabic stress is antepenultimate with an auto-secondary on the final (ذلك ->
     # ðˈaːlikˌa, الذين -> ʔallˈaðiːnˌa): STRESSPOSN_3R matches the oracle. (espeak reaches
     # this via the weight logic inside its default 2R; 3R is the faithful approximation.)
@@ -522,7 +521,7 @@ LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R)
 # Urdu uses the Hindi phoneme table, so a lengthened retroflex stop renders doubled like bn
 # (ٹٹو -> ʈʈ, پٹھو -> ʈʰʈʰ), not with ː — the retroflex ʈ/ɖ ipa is repeated by the IPA writer.
 LANGS["ur"] = {"stress_rule": K.STRESSPOSN_1RH, "unstress_u_words": True,
-               "double_rfx_stop": True, "whole_word_stress": True,
+               "double_rfx_stop": True,
                # lexical lowercase `r` (ر) is the tap ɾ prevocalically/word-finally, but espeak's
                # `CALL base1/r` does `IF nextPh(isNotVowel) THEN ChangePhoneme(r/)` — before ANY
                # consonant the coda r becomes the trill r/ (ipa r): فرسٹ -> fˈarsʈ, مگرمچھ ->

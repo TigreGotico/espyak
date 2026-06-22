@@ -449,92 +449,19 @@ class G2P:
             self._u_out_str = set_word_stress(self._tr, ph, self._mnem,
                                               dict_flags=flags, tonic=tonic)
             return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1)
-        if "||" in ph and "|" in ph.replace("||", ""):
-            # the value contains a `|` MORPHEME barrier (one multi-morpheme sub-word, ar صلعم
-            # s[alla:|?allahu|Alajhi||wa||sallam): espeak treats the WHOLE thing as ONE word for
-            # stress (a single SetWordStress over all 11 vowels; the || only break the rendering),
-            # so the language stress rule (ar 3R) lands the primary near the antepenult -> wˈa.
-            return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
-        if "||" in ph and self._config.get("whole_word_stress"):
-            # ur: a `||` multi-word letter/abbreviation name is ONE stress domain. espeak's
-            # SetWordStress scans the whole phoneme buffer across the word-break spaces, so the
-            # language rule (ur stressRule 1RH = last heaviest non-final syllable) places a single
-            # primary over all the vowels and the auto-secondary loop fills the rest — NOT a primary
-            # per sub-word. (ح bar.i:||He: -> bar.ˈiː heː, not bˈar.i hˈeː.)
-            return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
         if "||" in ph:
-            # multi-word dictionary entry: stress each sub-word separately, preserving the
-            # word break for the renderer. A non-final sub-word is unstressed when it has no
-            # explicit `'` AND is either a single vowel (a non-tonic monosyllable: gn
-            # espeak -> i||sp'ik -> i spˈik) or the language is S_PRIORITY_STRESS (it
-            # a||bi||tʃ'i -> a/bi unstressed). Multi-syllable unmarked parts keep their
-            # lexical stress (es uβe||doβle -> uˈβe doˈβle); `'`-marked parts stay primary
-            # (it fbi -> 'ef||b'i||'ai -> ˈef bˈi ˈai).
-            priority = bool(self._config.get("stress_flags", 0) & K.S_PRIORITY_STRESS)
-            parts = ph.split("||")
-            last = len(parts) - 1
-            # If a part already carries an explicit primary (`'`), the clause accent is placed
-            # there — an unmarked LAST part is NOT forced to the tonic (ms com = d'Ot||kOm ->
-            # dˈɔt kɔm, the kɔm bare, not dˈɔt kˈɔm).
-            has_primary = any("'" in p for p in parts)
-
-            def _part_tonic(p, is_last, idx):
-                # honour explicit stress marks in the part (gn nvda -> ,ene||B,e||D,e_'a
-                # keeps each letter's secondary, final primary): no forced tonic.
-                if "'" in p or "," in p:
-                    return -1
-                if is_last and not has_primary:
-                    if self._config.get("compound_first_stress") and len(parts) == 2:
-                        return 3  # ar compound unit (كغ = kilu:||gHra:m): nucleus is the FIRST
-                        # element, so the last part takes a secondary (kˈiluː ɣɹˌaːm).
-                    return tonic
-                # an unmarked part FLANKED by explicit primaries takes a secondary (ms dymm
-                # d'uli||jang||mah'a||m'uli@ -> the bare jang -> jˌanɡ); an EDGE unmarked part
-                # (gn i before the only primary) stays bare.
-                if (any("'" in parts[j] for j in range(idx))
-                        and any("'" in parts[j] for j in range(idx + 1, len(parts)))):
-                    return 3  # STRESS_IS_SECONDARY
-                # a 3+-word phrase with NO lexical accent gets clause intonation: onset (first)
-                # secondary, interior bare, nucleus (last) primary (ku hwd hEr||wEki||dIn ->
-                # hˌɛr wɛki dˈɪn). A 2-word phrase keeps both accented (es uβe||doβle).
-                if not has_primary and len(parts) >= 3:
-                    return 3 if idx == 0 else 1
-                single = sum(1 for _m, ph_ in self._mnem.tokenize(p)
-                             if ph_.type == phVOWEL and "nonsyllabic" not in ph_.flags) <= 1
-                return 1 if (single or priority) else 4
-            def _stress_part(p, i):
-                # A non-last part that carries an explicit SECONDARY (`,`) but no primary, while
-                # another part owns the primary, keeps ONLY that secondary: espeak stresses the
-                # whole ||-string once, so its single (last-part) primary suffices and the rule
-                # never promotes this part. Per-part SetWordStress WOULD add a spurious primary
-                # (it videogames v,ideo||g'eIm -> vˌidˈeo, castelmezzano kast,el||... -> kˈastˌel),
-                # so skip the stress pass and keep the part's explicit marks (-> vˌideo, kastˌel).
-                if (i != last and has_primary and "," in p and "'" not in p):
-                    return p
-                return set_word_stress(self._tr, p, self._mnem,
-                                       dict_flags=(flags if i == last else 0),
-                                       tonic=_part_tonic(p, i == last, i))
-            stressed = [_stress_part(p, i) for i, p in enumerate(parts)]
-            for _i in range(1, len(stressed)):
-                # stress clash: a part whose FIRST stressed syllable is a secondary (,,) drops it
-                # when the previous part ends in a primary — the two stressed syllables are adjacent
-                # across the word break (es é = 'e||aTEntw'aDa -> ˈe aθɛntwˈaða; ü = 'u||k,,on||... ->
-                # ˈu kon ...). Only the first mark, so an interior primary is kept.
-                _part = stressed[_i]
-                _marks = [(_part.find(m), m) for m in ("'", ",,", "%%") if _part.find(m) >= 0]
-                if not _marks:
-                    continue
-                _pos, _mark = min(_marks)
-                _prev = stressed[_i - 1]
-                _lp = _prev.rfind("'")
-                # the previous part must END in a primary syllable (the primary on its LAST vowel)
-                # for the syllables to be adjacent — ms d'uli||jang keeps jˌanɡ (primary on u, not li).
-                _prev_ends_primary = _lp > _prev.rfind(",,") and sum(
-                    1 for _m, _ph in self._mnem.tokenize(_prev[_lp + 1:])
-                    if _ph.type == phVOWEL) == 1
-                if _mark == ",," and _prev_ends_primary:
-                    stressed[_i] = _part[:_pos] + _part[_pos + 2:]
-            return "||".join(stressed)
+            # a `||` multi-part dict `_list` value is ONE stress domain. espeak stores the part
+            # breaks as `phonEND_WORD` (code 15) bytes inside a SINGLE phoneme buffer and runs
+            # SetWordStress over the whole thing: phonEND_WORD is neither phSTRESS nor phVOWEL, so
+            # GetVowelStress copies it through without resetting the count — the vowels are counted
+            # straight ACROSS the breaks, the language stress_rule places ONE primary over the whole
+            # span, and the auto-secondary loop fills the rest. (de nordrhein nOrd||raIn -> nˈɔɾt
+            # raɪn not nɔɾt rˈaɪn; en lunchroom -> lˈʌntʃ ɹuːm; es w uBe||d'oBle -> ˌuβe ðˈoβle.)
+            # The `||` (and any inner `|` morpheme barrier, ar صلعم s[alla:|?allahu|Alajhi||wa||
+            # sallam) tokenize to inert _BARRIER (phINVALID) tokens, which get_vowel_stress already
+            # skips, so feeding the whole string to set_word_stress reproduces this exactly (ar 3R
+            # rule lands the single primary near the antepenult -> wˈa).
+            return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
         if (flags & K.FLAG_STRESS_END) and tonic >= 4:
             # $u+/$u1+/$u2+/$u3+ word that is the clause nucleus: espeak renders it with its
             # unstressed/lexical marks (SetWordStress, no tonic) and then runs ChangeWordStress(4)
