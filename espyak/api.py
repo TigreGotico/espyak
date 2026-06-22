@@ -401,6 +401,7 @@ class G2P:
         )
         self._tr.expect_verb = 0
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
+        self._suffix_t_ph = ""    # a SUFX_T suffix: stress runs on the stem, suffix appended after
         self._suffix_dict_flags = 0  # a flags-only stem entry's flags adopted by the suffix path
         self._from_dict = False   # set by _translate_core when phonemes come from a dict entry
         self._neutral_tone = False  # cmn neutral tone (pinyin 5): the syllable is unstressed
@@ -436,6 +437,10 @@ class G2P:
         ph_clean = ph.strip("\"'")
         if ph_clean.startswith("_^_"):
             return ph_clean  # language-switch marker, resolved in phonemize
+        # a SUFX_T suffix is held out: stress the stem (ph) here, then append the suffix. control&2
+        # (add_suffix_phonemes) suppresses S_FINAL_VOWEL_UNSTRESSED while the suffix is pending.
+        suf = self._suffix_t_ph
+        ctrl = 2 if suf else 0
         if (self._config.get("unstress_u_words") and (flags & 0x8)
                 and not (flags & K.FLAG_STRESS_END) and "||" not in ph and tonic >= 4):
             # $u (unstressed function word) carrying the clause accent in a language that
@@ -468,9 +473,9 @@ class G2P:
             # in TranslateWord, which promotes the FIRST max-stress syllable to primary — NOT the
             # last (which set_word_stress's tonic placement would pick). ro dumneata -> dˈumneatˌa.
             base = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
-                                   suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+                                   control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
             return self._apply_alt_attribute(
-                change_word_stress(self._tr, base, self._mnem, 4), flags)
+                change_word_stress(self._tr, base, self._mnem, 4), flags) + suf
         if (flags & 0x8) and (flags & 0x3) and tonic >= 4:
             # $u1/$u2/$u3 (explicit syllable, NO trailing +/FLAG_STRESS_END) as the clause
             # nucleus: espeak renders it UNSTRESSED (SetWordStress, tonic=-1 — the $uN only
@@ -479,12 +484,23 @@ class G2P:
             # would instead drop the primary on the dict's early stressed_syllable (the $uN),
             # fighting the nucleus (ro cărora $u1 -> kˌəɾoɾˈa, not kˈəɾoɾˌa).
             base = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
-                                   suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+                                   control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+            return self._apply_alt_attribute(
+                change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags) + suf
+        if suf and (flags & 0x8) and tonic >= 4:
+            # a plain $u word (no explicit $N, no $u+) carrying a SUFX_T suffix as the clause
+            # nucleus: espeak's SUFX_T SetWordStress runs on the stem with tonic=-1 (so the $u stem
+            # stays unstressed), the suffix is appended, and the intonation nucleus then promotes
+            # the LAST max-stress vowel of the WHOLE word — which is the suffix vowel (ro ale: stem
+            # `a` -> a, + `le` -> ale -> alˈe). Append the suffix BEFORE change_word_stress so the
+            # nucleus can land on it (unlike the $N path above, whose primary is fixed in the stem).
+            base = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
+                                   control=ctrl) + suf
             return self._apply_alt_attribute(
                 change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags)
         return self._apply_alt_attribute(
             set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
-                            suffix_vowels=getattr(self, "_suffix_nvowels", 0)), flags)
+                            control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0)), flags) + suf
 
     def _apply_alt_attribute(self, ph, flags):
         """ApplySpecialAttribute2 (translateword.c, LOPT_ALT&2: it/pt/sl). A $alt/$alt2 word
@@ -1059,6 +1075,18 @@ class G2P:
             stem_ph, _, _ = translate_rules(
                 self._tr, stem, self._mnem,
                 word_flags=end_flags | K.FLAG_SUFFIX_REMOVED, dict_flags=stem_flags)
+        # SUFX_T (the `_S..t` ro suffixes): espeak determines the word's stress over the STEM
+        # ALONE, holding the suffix phonemes in `end_phonemes`, and appends them only AFTER the
+        # stress pass (translateword.c:525-529 skip the AppendPhonemes, :583-587 append later).
+        # So the dict's $N stress position clamps to the stem's vowel count: gale $2 -> stem `ga`
+        # (1 vowel) -> $2 clamps to syllable 1 -> ɡˈale (not ɡalˈe); iisus $2 -> stem `iis` ->
+        # ˈiɪsus. We carry the suffix on _suffix_t_ph; _render_word stresses the stem then appends
+        # it. SetWordStress runs with control&2 (add_suffix_phonemes) so S_FINAL_VOWEL_UNSTRESSED
+        # is suppressed for the pending suffix. (suffix_keeps_stress langs are not SUFX_T.)
+        if (end_type & K.SUFX_T) and stem_ph.strip("\"'") \
+                and not self._config.get("suffix_keeps_stress"):
+            self._suffix_t_ph = end_ph
+            return stem_ph
         # record the suffix's vowel count so set_word_stress runs the auto-secondary on the
         # stem only (espeak stresses the stem, then appends the suffix unstressed). Only when
         # there is a real stem — some endings span the whole word (stem empty, e.g. en
