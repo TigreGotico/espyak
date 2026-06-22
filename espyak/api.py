@@ -873,10 +873,12 @@ class G2P:
         for idx, ch in enumerate(word):
             # SpeakIndividualLetters translates each letter via its OWN TranslateLetter/LookupLetter
             # pass, so a `$atend` letter-NAME entry (ga `d  di: $atend`) matches for EVERY letter,
-            # not just the last (ga dh -> dˌiːˈeɪtʃ, dd -> dˌiːdˈiː). at_end is therefore per-letter
-            # true; the connected-acronym RULE_SPELLING form belongs to the FLAG_SPELLWORD path
-            # (_spell_letters), not this name-spelling path.
-            name = self._lookup_letter(ch, at_end=True, first=(idx == 0))
+            # not just the last (ga dh -> dˌiːˈeɪtʃ, dd -> dˌiːdˈiː): at_end is per-letter true.
+            # Independently, LookupLetter keys RULE_SPELLING ('W') off the NEXT character
+            # (numbers.c:522), so the connected-acronym form fires for every non-final letter
+            # of a name-spelled word too (pt adsl internal s -> sʲ via `_) s (_W -> Es|;`).
+            name = self._lookup_letter(ch, at_end=True, first=(idx == 0),
+                                       spelling=(idx != n - 1))
             if name:
                 names.append(name)
         return self._join_spelled(names)
@@ -983,9 +985,19 @@ class G2P:
     # dict (`_X`) or with unconditional rules are unaffected.
     _SPELL_CONDITION = 1 << 1
 
-    def _lookup_letter(self, ch, at_end, first):
+    def _lookup_letter(self, ch, at_end, first, spelling=None):
         """Look up a single letter's name: the spelling entry `_X`, else the plain
-        letter `X`, else letter-to-sound rules (LookupLetter)."""
+        letter `X`, else letter-to-sound rules (LookupLetter).
+
+        ``spelling`` drives the RULE_SPELLING ('W') zero-width assertion (a letter named
+        WITHIN an acronym, connected to the next letter). espeak's LookupLetter keys this
+        off the FOLLOWING character (numbers.c:522 `if (next_byte != ' ') next_byte =
+        RULE_SPELLING`), i.e. it fires for every NON-last letter regardless of $atend; the
+        two are independent, so callers that spell a whole word pass it explicitly. When
+        unset it defaults to ``not at_end`` (the accented-letter base path: a base letter is
+        never word-final there)."""
+        if spelling is None:
+            spelling = not at_end
         ctx = LookupContext(dict_condition=self._tr.dict_condition,
                             at_end=at_end, first_word=first)
         for key in ("_" + ch, ch):
@@ -999,9 +1011,9 @@ class G2P:
         saved = self._tr.dict_condition
         self._tr.dict_condition = saved | self._SPELL_CONDITION
         # RULE_SPELLING ('W') marks a letter named WITHIN an acronym (connected to the next
-        # letter) — it applies to non-final letters (pt internal s -> sʲ in adsl) but NOT the
-        # last letter, which keeps its full name (pt final g -> ge in ecg, not the (_W -> Ze rule).
-        self._tr._spelling = not at_end
+        # letter): pt internal s -> sʲ in adsl, but the LAST letter keeps its full name
+        # (pt final g -> ge in ecg, not the (_W -> Ze rule).
+        self._tr._spelling = spelling
         try:
             ph, _, _ = translate_rules(self._tr, ch, self._mnem)
         finally:
