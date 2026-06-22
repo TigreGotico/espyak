@@ -506,7 +506,12 @@ LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R)
 # Urdu uses the Hindi phoneme table, so a lengthened retroflex stop renders doubled like bn
 # (ٹٹو -> ʈʈ, پٹھو -> ʈʰʈʰ), not with ː — the retroflex ʈ/ɖ ipa is repeated by the IPA writer.
 LANGS["ur"] = {"stress_rule": K.STRESSPOSN_1RH, "unstress_u_words": True,
-               "double_rfx_stop": True}
+               "double_rfx_stop": True, "whole_word_stress": True,
+               # lexical lowercase `r` (ر) is the tap ɾ prevocalically/word-finally, but espeak's
+               # `CALL base1/r` does `IF nextPh(isNotVowel) THEN ChangePhoneme(r/)` — before ANY
+               # consonant the coda r becomes the trill r/ (ipa r): فرسٹ -> fˈarsʈ, مگرمچھ ->
+               # maɡˈarmacʰ. (Uppercase R in the dict is already the trill, ipa r.)
+               "coda_trill_r": True}
 # Hawaiian: a macron (long vowel) holding the lexical primary on a non-final syllable
 # demotes to secondary, the clause nucleus moving to the final syllable (kākou -> kˌaːkoˈu).
 LANGS["haw"] = {"macron_clause_final": True}

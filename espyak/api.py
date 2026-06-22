@@ -196,6 +196,13 @@ def _double_long_consonants(plist, double_rfx_stop=False):
                 and prev.place == "rfx" and prev.ipa is not None):
             e.ph = prev
             continue
+        if prev.type not in _DOUBLE_TYPES and "rhotic" in getattr(prev, "flags", ()) and prev.ipa:
+            # a geminate rhotic FLAP (`*`, ipa ɾ) doubles rather than taking ː: espeak's length
+            # phoneme after a flap repeats the segment (ur متفرق r: -> ɾɾ), so the coda copy can
+            # then trill (coda_trill_r -> rɾ). A flap is a synth phoneme (not a liquid type), so
+            # it isn't caught by _DOUBLE_TYPES.
+            e.ph = prev
+            continue
         if prev.type in _DOUBLE_TYPES or (
                 prev.type == phVOWEL and (
                     # a MONOPHTHONG with an explicit ipa string (mto i/a/o/e, af a) is lengthened
@@ -431,6 +438,13 @@ class G2P:
             # s[alla:|?allahu|Alajhi||wa||sallam): espeak treats the WHOLE thing as ONE word for
             # stress (a single SetWordStress over all 11 vowels; the || only break the rendering),
             # so the language stress rule (ar 3R) lands the primary near the antepenult -> wˈa.
+            return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
+        if "||" in ph and self._config.get("whole_word_stress"):
+            # ur: a `||` multi-word letter/abbreviation name is ONE stress domain. espeak's
+            # SetWordStress scans the whole phoneme buffer across the word-break spaces, so the
+            # language rule (ur stressRule 1RH = last heaviest non-final syllable) places a single
+            # primary over all the vowels and the auto-secondary loop fills the rest — NOT a primary
+            # per sub-word. (ح bar.i:||He: -> bar.ˈiː heː, not bˈar.i hˈeː.)
             return set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic)
         if "||" in ph:
             # multi-word dictionary entry: stress each sub-word separately, preserving the
