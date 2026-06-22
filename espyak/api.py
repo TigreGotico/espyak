@@ -13,6 +13,7 @@ from espyak.dictionary import (
     remove_ending, _apply_replacements, _unpronounceable,
 )
 from espyak import constants as K
+from espyak import voice as _voice_mod
 import unicodedata
 
 # UCase_ga (translate.c): Irish eclipsis/lenition prefixes where a lowercase prefix directly
@@ -286,17 +287,27 @@ class G2P:
         self.force_compat = force_compat
         self._phsource = get_source()
         self._voice = data_paths.voice_path(lang)
-        # phoneme table name defaults to the language code; voice file may override.
-        self._ph_table_name = self._resolve_phoneme_table(lang)
+        # A sub-dialect VARIANT (pt-br, en-us, es-419, ...) is a voice file that declares a
+        # base `language` (strtok'd on '-') whose SHARED rules/dict/translator-config it
+        # layers over; only the phoneme table, dictrules and `replace`s are variant-local.
+        # When `lang` is itself a base language, base_lang == lang and nothing changes.
+        self._voice_cfg = _voice_mod.load(lang)
+        base_lang = self._voice_cfg.base_lang   # translator config (SelectTranslator)
+        dict_name = self._voice_cfg.dict_name   # rules / dict / _list base (dictionary override)
+        self._base_lang = base_lang
+        self._dict_name = dict_name
+        self._voice_dictrules = list(self._voice_cfg.dictrules)
+        # phoneme table name defaults to the variant code (then base), voice may override.
+        self._ph_table_name = self._resolve_phoneme_table(lang, dict_name)
         self._mnem = MnemIndex(self.phoneme_table)
         self._interp = Interpreter(self._phsource, self.phoneme_table)
-        # rule engine (letter-to-sound). Loaded lazily per language.
-        self._config = language_data.get_config(lang)
+        # rule engine (letter-to-sound). Loaded from the BASE language for variants.
+        self._config = language_data.get_config(base_lang)
         if self._voice_dictrules:
             # voice-file `dictrules` are authoritative; union with any hardcoded config value.
             merged = sorted(set(self._config.get("dictrules", ())) | set(self._voice_dictrules))
             self._config = {**self._config, "dictrules": merged}
-        self._rules = RuleSet.compile_file(data_paths.rules_path(lang))
+        self._rules = RuleSet.compile_file(data_paths.rules_path(dict_name))
         self._sort_rules_by_phoneme_code()
         self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
@@ -310,10 +321,10 @@ class G2P:
         # last-loaded entry (reversed(entries)), so load the winning file LAST. _extra is
         # compiled after both in espeak, so it always wins -> load it last of all.
         if self._config.get("listx"):
-            _list_files = [data_paths.list_path(lang), data_paths.listx_path(lang)]
+            _list_files = [data_paths.list_path(dict_name), data_paths.listx_path(dict_name)]
         else:
-            _list_files = [data_paths.listx_path(lang), data_paths.list_path(lang)]
-        self._dict = DictList.load(*_list_files, data_paths.extra_path(lang))
+            _list_files = [data_paths.listx_path(dict_name), data_paths.list_path(dict_name)]
+        self._dict = DictList.load(*_list_files, data_paths.extra_path(dict_name))
         self._dict.case_sensitive_letters = bool(self._config.get("case_sensitive_letters"))
         # the matcher's $p_alt / $list DollarRule needs a part-word dict lookup (LookupFlags)
         self._tr.dict = self._dict
@@ -337,34 +348,14 @@ class G2P:
             for rules in d.values():
                 rules.sort(key=key)
 
-    def _resolve_phoneme_table(self, lang):
-        # voice file `phonemes <table>` line(s), else the lang code, else base1/base.
-        # A voice may list several `phonemes` lines (e.g. xex: "phonemes pt-br" then
-        # "phonemes pt"); a later line overrides, so try them last-first, falling back to
-        # earlier ones when a name isn't a real table (pt-br -> pt).
-        voiced = []
-        self._voice_dictrules = []
-        if self._voice:
-            try:
-                with open(self._voice, encoding="utf-8") as fh:
-                    for line in fh:
-                        parts = line.split()
-                        if not parts:
-                            continue
-                        if parts[0] == "phonemes" and len(parts) > 1:
-                            voiced.append(parts[1])
-                        elif parts[0] == "dictrules":
-                            # `dictrules N M ...` permanently sets those numbered ?-conditions
-                            # (pt/ca/es/fr final-s->ʃ etc. are gated on ?1). Numbers up to a
-                            # trailing comment.
-                            for p in parts[1:]:
-                                if p.isdigit():
-                                    self._voice_dictrules.append(int(p))
-                                else:
-                                    break
-            except OSError:
-                pass
-        candidates = list(reversed(voiced)) + [lang, "base1", "base"]
+    def _resolve_phoneme_table(self, lang, dict_name):
+        # voice file `phonemes <table>` line(s), else the variant code, else the dict base
+        # name, else base1/base. A voice may list several `phonemes` lines (e.g. xex:
+        # "phonemes pt-br" then "phonemes pt"); a later line overrides, so try them
+        # last-first, falling back to earlier ones when a name isn't a real table.
+        # The `dictrules` are already parsed into self._voice_dictrules by voice.load().
+        voiced = list(self._voice_cfg.phoneme_tables)
+        candidates = list(reversed(voiced)) + [lang, dict_name, "base1", "base"]
         for name in candidates:
             if self._phsource.table(name) is not None:
                 return name
@@ -1656,6 +1647,45 @@ class G2P:
         # the vowel (before the length ː), so swap a tone-digit immediately before a ː back after it.
         return _re_tone_after_length(out)
 
+    def _apply_voice_replaces(self, plist):
+        """Apply the voice file's `replace <flags> <old> <new>` phoneme substitutions to the
+        final phoneme list (port of MakePhonemeList, phonemelist.c:86). Each non-deleted
+        phoneme whose mnemonic matches `old` is rewritten to `new` (or deleted for NULL),
+        subject to the flags:
+            bit 1 -> only at word end       bit 4 -> only at word start
+            bit 2 -> NOT in a stressed syllable (stresslevel & 7 > 3)
+        Tokens are rendered one word at a time, so word-end is the last live phoneme and
+        word-start is the first."""
+        live = [e for e in plist if not e.deleted]
+        if not live:
+            return
+        first, last = live[0], live[-1]
+        table = self.phoneme_table
+        for e in plist:
+            if e.deleted:
+                continue
+            mnem = e.ph.mnemonic
+            for flags, old, new in self._voice_cfg.replaces:
+                if mnem != old:
+                    continue
+                if (flags & 1) and e is not last:
+                    continue  # word-end only
+                if (flags & 2) and (e.stresslevel & 7) > 3:
+                    continue  # not in stressed syllables
+                if (flags & 4) and e is not first:
+                    continue  # word-start only
+                if new is None:
+                    e.deleted = True
+                else:
+                    repl = table.get(new)
+                    if repl is not None:
+                        e.ph = repl
+                        # the replacement must be unstressed if it's an unstressed phoneme
+                        # (phUNSTRESSED) and the syllable carried real stress (phonemelist.c:101)
+                        if e.stresslevel > 1 and ("unstressed" in repl.flags):
+                            e.stresslevel = 0
+                break
+
     def _render_phonemes(self, ph, ipa, tie, separator):
         if _SPELL_CP_OPEN in ph:
             # the phoneme string carries one or more in-band codepoint-spelling sentinels
@@ -1675,6 +1705,8 @@ class G2P:
                     out.append(self._render_phonemes(part, ipa, tie, separator))
             return "".join(out).strip(" ")
         plist = encode_phoneme_string(ph, self.phoneme_table)
+        if self._voice_cfg.replaces:
+            self._apply_voice_replaces(plist)
         if getattr(self, "_from_dict", False) and not self._config.get("reduce_dict_vowels"):
             # dict-entry phonemes: skip stress-condition reductions (espeak's SFLAG_DICTIONARY)
             for e in plist:

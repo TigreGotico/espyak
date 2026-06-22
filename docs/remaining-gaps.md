@@ -272,6 +272,32 @@ Together these put a permanent floor a few hundredths of a percent below 100%; a
 byte-for-byte* 100% across all headwords is not attainable for a port that does not embed
 espeak's undefined behaviour.
 
+## Sub-dialect VARIANT system (voices)
+
+`espyak/voice.py` ports espeak's voice/variant mechanism (`LoadVoice`, `voices.c`): a
+sub-dialect (`pt-br`, `en-us`, `es-419`, `ca-va`, ...) is a small voice/lang file under
+`espyak/data/lang/<family>/<code>` that LAYERS over a SHARED base language. The base
+translator config comes from the voice's first `language` line (`strtok`'d on `-`: `pt-br`
+→ `pt`, `en-us` → `en`); the rules/dict/_list base name is that same value unless a
+`dictionary <name>` keyword overrides it (nb: `language nb` + `dictionary no` → dict `no`).
+The variant then layers: the **phoneme table** (`phonemes <t>`), the **dict conditionals**
+(`dictrules N` → `dict_condition` bits selecting `?N` entries in the shared dict), and
+**post-translation phoneme `replace`s** (`replace <flags> <old> <new>`, applied on the
+final phoneme list with word-end / unstressed / word-start gating, `phonemelist.c:86`).
+
+All 24 declared variants load; major dialects match the oracle at base-language parity
+(sample, cap≈800–1500): en-us 99.6% (`replace 03 I i`), en-gb 99.7%, pt-br 97.6%
+(`dia`→`dʒˈiæ`), es-419 97.4% (seseo θ→s), ca-va/ba/nw 99.3–99.5%, fr-be/ch/fr 99.1%
+(= base fr), en-029/en-gb-*/en-us-nyc/en-shaw 99.1–99.6%, ru-cl/lv 96–99%, fa-latn 99.9%.
+Residual misses are the SAME base-language abbreviation/loanword classes counted above, not
+variant-layer bugs.
+
+**Deferred** (load but not at parity — a base-language limit, not the voice layer):
+`cmn-latn-pinyin` (Latin-pinyin input needs base-cmn tokenization espyak lacks; Hanzi input
+works), `chr-US-Qaaa-x-west` (base `chr` Cherokee-syllabary G2P emits nothing for real
+syllabary text — identical in the oracle), and `vi-vn-x-{central,south}` (~92%, base-vi
+secondary-stress tail).
+
 ## Prioritized path (most gain first)
 
 1. **Phoneme-level language switch refactor** (A, **240**, ≈0.52 pp, ~85% of it is `shn`).
