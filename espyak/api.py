@@ -996,10 +996,15 @@ class G2P:
             base = base.replace("''", "'", 1).replace("'", ",,", 1)
         return base + "".join(nm + "_|" for nm in accent_names)
 
-    # spelling sets dict_condition group 1 so the rules' letter-NAME forms (gated `?1`,
-    # e.g. pt "n" -> ɛn) win over the letter's sound. Languages that name letters via the
-    # dict (`_X`) or with unconditional rules are unaffected.
-    _SPELL_CONDITION = 1 << 1
+    # Letter-NAME spelling forms are gated only by the voice's PERSISTENT dict_condition
+    # (its `dictrules N`), exactly as in espeak: there is no separate spelling condition.
+    # The base languages that name letters with `?N`-gated rules/dict entries (pt/ga `?1`
+    # letter names, pt `?1` `_ced`/`_tld` accent names) declare `dictrules 1` in their voice
+    # file, so `?1` is already set — and a sub-dialect that sets a DIFFERENT condition
+    # (pt-br `dictrules 2`) must NOT inherit `?1`, or it would borrow the base dialect's
+    # letter names (pt-br `s` is `ɛsy`, not the pt `?1` `ɛs`; `fbi` -> `ɛfybˌeˈi`). Hence 0:
+    # `dict_condition` already carries every condition spelling should see.
+    _SPELL_CONDITION = 0
 
     def _lookup_letter(self, ch, at_end, first, spelling=None):
         """Look up a single letter's name: the spelling entry `_X`, else the plain
@@ -1487,6 +1492,12 @@ class G2P:
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
                      first_upper=False, at_end=True):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
+        # A switched sub-translator (G2P._SWITCH_CACHE) is reused across words AND across the
+        # outer languages that switch into it; the number/letter-spell paths below reach
+        # _render_phonemes WITHOUT going through translate_word, so reset the dict-entry flag
+        # here too — else a stale `_from_dict` (left True by a spelled foreign letter) suppresses
+        # the next word's reductions and the shared ru returns '' for книга. (it а then книга.)
+        self._from_dict = False
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
         dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
@@ -1762,12 +1773,32 @@ class G2P:
             bit 1 -> only at word end       bit 4 -> only at word start
             bit 2 -> NOT in a stressed syllable (stresslevel & 7 > 3)
         Tokens are rendered one word at a time, so word-end is the last live phoneme and
-        word-start is the first."""
+        word-start is the first.
+
+        bit 2 tests the SYLLABLE's stress, not the phoneme's own. espeak's SetWordStress
+        propagates each vowel's stresslevel onto its syllable's consonants, so a coda consonant
+        (en-029 `replace 03 N n`: word-final unstressed ŋ -> n) is gated by the stress of its
+        VOWEL: `boing`/`sing`/`among` keep ŋ (stressed `ˈɔɪŋ`/`ˈɪŋ`/`ˈʌŋ`, vowel level 4 > 3),
+        but `underling` drops it (final `lɪŋ`, vowel level 3). encode_phoneme_string leaves
+        consonants at level 0, so resolve each consonant's level to its nearest preceding vowel."""
         live = [e for e in plist if not e.deleted]
         if not live:
             return
         first, last = live[0], live[-1]
         table = self.phoneme_table
+        # syllable stress per live phoneme: a vowel keeps its own level; a consonant inherits
+        # the nearest preceding vowel's level (falling back to the nearest following one).
+        syl = []
+        cur = None
+        for e in live:
+            if e.ph.type == K.phVOWEL:
+                cur = e.stresslevel
+            syl.append(cur)
+        for i in range(len(syl) - 1, -1, -1):  # back-fill leading consonants from the first vowel
+            if syl[i] is None and i + 1 < len(syl):
+                syl[i] = syl[i + 1]
+        syl_of = {id(e): (syl[i] if syl[i] is not None else e.stresslevel)
+                  for i, e in enumerate(live)}
         for e in plist:
             if e.deleted:
                 continue
@@ -1777,7 +1808,8 @@ class G2P:
                     continue
                 if (flags & 1) and e is not last:
                     continue  # word-end only
-                if (flags & 2) and (e.stresslevel & 7) > 3:
+                level = e.stresslevel if e.ph.type == K.phVOWEL else syl_of.get(id(e), e.stresslevel)
+                if (flags & 2) and (level & 7) > 3:
                     continue  # not in stressed syllables
                 if (flags & 4) and e is not first:
                     continue  # word-start only

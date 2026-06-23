@@ -285,11 +285,13 @@ class DictList:
             return
         flag_codes = []
         rest_words = ""
-        # a condition can precede the word, e.g. "?!3 _0and  @n"
+        # a condition can precede the word, e.g. "?!3 _0and  @n" — separated from the word
+        # by ANY whitespace (the _list files mix spaces and TABs, e.g. "?2\teste\t...$u+\t'estSy").
         leading_cond = []
         while line and line[0] == "?":
-            ctok, _, line = line.partition(" ")
-            line = line.lstrip()
+            parts = line.split(None, 1)
+            ctok = parts[0]
+            line = parts[1] if len(parts) > 1 else ""
             neg = len(ctok) > 1 and ctok[1] == "!"
             num = "".join(ch for ch in ctok if ch.isdigit())
             if num:

@@ -30,6 +30,22 @@ VARIANT_CASES = [
         ("dia", "dʒˈiæ"),
         ("tia", "tʃˈiæ"),
         ("verdade", "vˌeɾədˈadʒy"),
+        # `?2` letter NAMES (the dictrules-2 spelling form): a letter spelled inside an acronym
+        # uses the br name (s -> ɛsy, f -> ɛfy), not the pt `?1` form (ɛs/ɛf). Regression guard for
+        # the spelling-condition fix (variant must not inherit the base dialect's `?1` names).
+        ("fbi", "ˌɛfybˌeˈi"),
+        ("adsl", "ˌadˌeˌɛsyˈɛly"),
+        # `?2`-gated dict entries keyed with TAB separators (este/esse): closed `e`, br -y/-i ending.
+        ("este", "ˈestʃy"),
+        ("esse", "ˈesi"),
+    ]),
+    # en-029 (Caribbean): base en + `replace 03 N n` (word-final UNSTRESSED ŋ -> n). The bit-2
+    # "not in a stressed syllable" gate reads the syllable's vowel stress, so a ŋ in a STRESSED
+    # syllable is kept (these guard the syllable-stress fix; underling -> -ɪn shows the drop).
+    ("en-029", "en", [
+        ("boing", "bˈɔɪŋ"),
+        ("among", "amˈʌŋ"),
+        ("sing", "sˈɪŋ"),
     ]),
     # es-419: base es + phonemes es-la (seseo: θ -> s) + dictrules 2.
     ("es-419", "es", [

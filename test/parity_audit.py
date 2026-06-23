@@ -76,6 +76,31 @@ def headwords(lang, cap):
     return out
 
 
+def variant_map():
+    """Map every loadable sub-dialect VARIANT voice code -> its base language (pt-br -> pt,
+    en-029 -> en, ca-nw -> ca, ...). A variant is a lang/<group>/<code> voice file whose
+    resolved base language differs from the code itself (voice.VoiceConfig.is_variant). The
+    base language's headwords are run through G2P(variant) and `espeak-ng -v <variant>` so the
+    dialect's `dictrules`/`replace`/phoneme-table layer is checked, not just the base dict."""
+    from espyak import voice as _voice
+    from espyak import data_paths
+    out = {}
+    for group in sorted(os.listdir(data_paths.LANG_DIR)):
+        gdir = os.path.join(data_paths.LANG_DIR, group)
+        if not os.path.isdir(gdir):
+            continue
+        for name in sorted(os.listdir(gdir)):
+            if not os.path.isfile(os.path.join(gdir, name)):
+                continue
+            try:
+                cfg = _voice.load(name)
+            except Exception:
+                continue
+            if cfg.is_variant and headwords(cfg.base_lang, 1):
+                out[name] = cfg.base_lang
+    return out
+
+
 def categorize(word):
     if len(word) == 1:
         return "single-char" if word.isalpha() else "single-symbol"
@@ -92,6 +117,11 @@ def main(argv):
     ap.add_argument("--langs", default="", help="comma-separated subset")
     ap.add_argument("--out", default="parity_headwords")
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--variants", action="store_true",
+                    help="audit sub-dialect VARIANTS (pt-br, en-029, ca-nw, ...) instead of base "
+                         "languages: base-language headwords through G2P(variant) vs "
+                         "`espeak-ng -v <variant>`, so the dialect's dictrules/replace/table layer "
+                         "is tracked. --langs filters to specific variant codes.")
     args = ap.parse_args(argv)
     if not os.path.isfile(ORACLE_BIN):
         print("oracle binary not built:", ORACLE_BIN, file=sys.stderr)
@@ -99,15 +129,27 @@ def main(argv):
     from espyak.api import G2P
     signal.signal(signal.SIGALRM, _alarm)  # guard against any single-input phonemize hang
 
-    if args.langs:
-        langs = args.langs.split(",")
+    if args.variants:
+        # each unit is (variant_code, base_lang); headwords come from the BASE language's _list,
+        # but both espyak and the oracle run under the variant voice so the dialect layer applies.
+        vmap = variant_map()
+        if args.langs:
+            # voice files are file-cased (pt-BR, en-GB-x-gbcwmd, ru-cl); match case-insensitively
+            # so `--langs pt-br,en-029` selects them as espeak/G2P would (case-insensitive codes).
+            wanted = {c.lower() for c in args.langs.split(",")}
+            vmap = {v: b for v, b in vmap.items() if v.lower() in wanted}
+        units = [(v, vmap[v]) for v in sorted(vmap)]
     else:
-        langs = sorted(f[:-6] for f in os.listdir(DICTSOURCE) if f.endswith("_rules"))
+        if args.langs:
+            langs = args.langs.split(",")
+        else:
+            langs = sorted(f[:-6] for f in os.listdir(DICTSOURCE) if f.endswith("_rules"))
+        units = [(lang, lang) for lang in langs]
 
     rows, mismatches, cats = [], [], {}
     pool = ThreadPoolExecutor(max_workers=args.workers)
-    for lang in langs:
-        words = headwords(lang, args.cap)
+    for lang, base in units:
+        words = headwords(base, args.cap)
         if not words:
             continue
         try:
@@ -141,7 +183,8 @@ def main(argv):
                                        "oracle": e, "cat": c})
         n = len(words)
         rows.append((lang, ok, n, "%.1f%%" % (100.0 * ok / max(n, 1)) + (" err=%d" % err if err else "")))
-        print("%-8s %5d/%-5d %s" % (lang, ok, n, rows[-1][3]), flush=True)
+        label = "%s (%s)" % (lang, base) if lang != base else lang
+        print("%-22s %5d/%-5d %s" % (label, ok, n, rows[-1][3]), flush=True)
 
     rows.sort(key=lambda r: (r[1] / max(r[2], 1), r[2]))
     with open(os.path.join(HERE, args.out + ".jsonl"), "w", encoding="utf-8") as fh:
@@ -149,8 +192,11 @@ def main(argv):
             fh.write(json.dumps(m, ensure_ascii=False) + "\n")
     tot_ok = sum(r[1] for r in rows)
     tot_n = sum(r[2] for r in rows)
-    lines = ["# Full-headword parity vs espeak-ng 1.52.0 (cap=%s)" % (args.cap or "all"), "",
-             "Overall **%d/%d = %.2f%%** across %d languages." % (tot_ok, tot_n, 100.0 * tot_ok / max(tot_n, 1), len(rows)), "",
+    kind = "dialect-variant" if args.variants else "base-language"
+    lines = ["# Full-headword %s parity vs espeak-ng 1.52.0 (cap=%s)" % (kind, args.cap or "all"), "",
+             "Overall **%d/%d = %.2f%%** across %d %s." % (
+                 tot_ok, tot_n, 100.0 * tot_ok / max(tot_n, 1), len(rows),
+                 "variants" if args.variants else "languages"), "",
              "Mismatch categories: " + ", ".join("%s=%d" % kv for kv in sorted(cats.items(), key=lambda x: -x[1])), "",
              "| lang | pass | n | rate |", "| --- | --- | --- | --- |"]
     for lang, ok, n, note in rows:
