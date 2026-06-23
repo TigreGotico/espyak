@@ -18,7 +18,11 @@ g2p = G2P(lang="en")
 ```
 
 - **`lang`** — an espeak-ng language/voice code (`"en"`, `"es"`, `"ru"`, `"hi"`, `"ar"`, …).
-  See `espyak/data/dictsource/*_rules` for the full list (117 languages).
+  See `espyak/data/dictsource/*_rules` for the full list (117 languages). A sub-dialect
+  **variant** code works too (`"pt-br"`, `"en-us"`, `"es-419"`, `"fr-be"`, …, case-
+  insensitive): espeak-ng models it as a voice file that layers a phoneme table, dictionary
+  conditionals and phoneme `replace`s over a shared base language. The 22 variants are listed
+  in the [README](../README.md#dialects--sub-dialect-variants).
 
 Construct one `G2P` per language and reuse it — construction parses that language's rule
 data, so it is not free.
