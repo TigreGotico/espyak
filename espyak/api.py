@@ -1528,6 +1528,19 @@ class G2P:
             ph = translate_ordinal(self._dict, word[:-2], word[-2:], flags=num_flags)
             if ph:
                 return self._render_phonemes(ph, ipa, tie, separator)
+        if _dig(word) and 1 <= len(word) <= 4:
+            # espeak looks the WHOLE word up in the dictionary (LookupDictList, translateword.c:168)
+            # BEFORE falling to number translation (translateword.c:213). A bare-digit headword with
+            # an explicit pronunciation (mt `3000` tlett / `4000` erbatelef, mr `100` ʃʌmbər) is taken
+            # verbatim instead of being read digit-by-magnitude. espeak only matches such a literal
+            # entry for short numbers — a 7-digit one (mt's dead `2000000`) decomposes normally — so
+            # cap the literal lookup at 4 digits (no bare-digit headword longer than that exists). A
+            # flags-only entry (hu `95` $unstressend) returns no phonemes, so it falls through here to
+            # ordinary number translation and only its stress flag applies.
+            dword = self.translate_word(word, tonic=tonic, caps_stress=caps_stress,
+                                        all_upper=all_upper, first_upper=first_upper, at_end=at_end)
+            if dword.strip():
+                return self._render_phonemes(dword, ipa, tie, separator)
         if word and (_dig(word) or (_dig(word.replace(dsep, "", 1))
                                     and dsep in word and not word.startswith(dsep)
                                     and not word.endswith(dsep))):

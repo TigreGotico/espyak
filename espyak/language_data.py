@@ -449,9 +449,11 @@ for _l in ("bn", "mr", "hi"):
 # bn: a lengthened retroflex stop renders doubled, not with ː (দশটা -> dɔʃʈʈˈa, not ʈː) —
 # the retroflex ʈ/ɖ carries an explicit single-char ipa that espeak's IPA writer repeats.
 LANGS["bn"]["double_rfx_stop"] = True
-# fo: a geminate rr is the trill r + approximant ɹ (rɹ), not ɹɹ — the first r of the cluster trills
-# (fyrri -> fɪrɹˈɪ, verri -> ʋɛrɹˈɪ, teirri -> taɟrɹˈɪ).
+# fo/mt: a geminate rr is the trill r + approximant ɹ (rɹ), not ɹɹ — the first r of the cluster
+# trills (fo fyrri -> fɪrɹˈɪ, verri -> ʋɛrɹˈɪ; mt irrespettivament -> ˌirɹespˌetivˈament, arra ->
+# ˈarɹaː). Both voices use the same r phoneme whose geminate first segment trills.
 LANGS.setdefault("fo", {})["geminate_r_trill"] = True
+LANGS.setdefault("mt", {})["geminate_r_trill"] = True
 # fo: a word-final `r` after a vowel is the trill `r` only clause-finally; when another word
 # follows it weakens to the approximant `ɹ` (ognar -> ɔɡnˈar, but `ognar og` -> ɔɡnˈaɹ ɔˈœː).
 # Only surfaces in a multi-word ('_'-joined compound) render, where a non-final word's `r`
