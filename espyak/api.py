@@ -438,6 +438,13 @@ class G2P:
             # a spelled-out abbreviation is already stressed by _join_spelled (SetSpellingStress);
             # don't re-run set_word_stress, which would put the clause tonic on the last sub-word
             # of a multi-word letter name (bs acw 'w' = dvostruko və -> vˈə instead of və).
+            if (flags & K.FLAG_UNSTRESS_END) and tonic >= 4 and "||" not in ph:
+                # a spelled $unstressend abbreviation as the clause nucleus (hu kb/KFT/tts): the
+                # letters carry first-letter primary from SetSpellingStress (spelling_stress), but
+                # the clause accent lands on the LAST letter — demote every primary to secondary,
+                # then promote the last max-stress vowel (kb kˈaːbˌeː -> kˌaːbˈeː, tts -> tˌeːtˌeːˈɛʃ).
+                demoted = change_word_stress(self._tr, ph, self._mnem, 3)
+                return change_word_stress(self._tr, demoted, self._mnem, 4, pick_last=True)
             return ph
         if caps_stress and not (flags & 0x8):  # caps-marked syllable (not a $u word)
             flags = (flags & ~0x7) | (caps_stress & 0x7)
@@ -576,6 +583,11 @@ class G2P:
         dotted_letters = self._check_dotted_abbrev(word)
         if dotted_letters is not None:
             word = ".".join(dotted_letters)
+            # the clause reader sets FLAG_HAS_DOT on a word followed by a dot (translate.c:1343), so a
+            # single-letter dotted run carries it: the reconstructed key can then match a $hasdot entry
+            # (FLAG_NEEDS_DOT, hu `u.n -> u:JnEvEzEt:` = úgynevezett) whose pronunciation wins over the
+            # letter-by-letter spelling. Without the dot the same key is absent, so this is safe.
+            ctx.has_dot = True
         elif len(word) > 1 and word.endswith(".") and not word[-2].isdigit():
             # A trailing dot that is NOT part of a single-letter dotted run (a.b.c, handled
             # above) is clause punctuation: espeak's clause reader (readclause.c) consumes it
@@ -641,10 +653,16 @@ class G2P:
                 # (fo hina -> hiːna).
                 self._from_dict = True
                 return dict_ph, flags
+        # A spelled-out abbreviation that ALSO carries $unstressend (FLAG_UNSTRESS_END, hu kb/KFT/tts):
+        # the letters are SetSpellingStress'd (spelling_stress -> first-letter primary), but as the
+        # clause nucleus the primary moves to the LAST letter (kb -> kˌaːbˈeː not kˈaːbˌeː). Carry the
+        # flag out of these spell paths so _render_word can apply that move; other dict flags are
+        # dropped (the spelled string is already fully stressed and must not be re-interpreted).
+        spell_flags = flags & K.FLAG_UNSTRESS_END
         if dict_flags is not None and (flags & K.FLAG_ABBREV):
             # $abbrev with no pronunciation -> spell out as individual letter names
             self._spelled = True
-            return self._spell_word(word), 0
+            return self._spell_word(word), spell_flags
         if not dict_ph and dotted_letters is not None:
             # CheckDottedAbbrev (translateword.c:1046): a run of single letters separated by dots
             # (a.b.c, A.C., m.a.) with no matching dict entry is spelled out letter by letter
@@ -652,7 +670,7 @@ class G2P:
             # dict entries win and are NOT respelled); reaching here means the reconstructed key
             # had no pronunciation, so SpeakIndividualLetters spells the joined letters.
             self._spelled = True
-            return self._spell_word("".join(dotted_letters)), 0
+            return self._spell_word("".join(dotted_letters)), spell_flags
         if not dict_ph and not accent_entry and _unpronounceable(self._tr, word):
             # Unpronouncable (translateword.c:278): a word with no dict pronunciation whose first
             # vowel is too deep is spoken letter by letter FROM THE FRONT until the remainder is
@@ -671,8 +689,10 @@ class G2P:
                 rest = rest[1:]
             if not rest.strip() or len(peeled) == len(word):
                 # nothing pronounceable left: the whole word was spelled letter by letter.
+                # spell_flags preserves FLAG_UNSTRESS_END for $unstressend spelled abbreviations
+                # (0 for ordinary unpronounceable words like th/Mgfc that carry no such flag).
                 self._spelled = True
-                return self._spell_word(word), 0
+                return self._spell_word(word), spell_flags
             # The spelled letters carry their own SetSpellingStress; the remainder is stressed by
             # translate_word. Hold the spelled prefix and return the remainder for the normal pass.
             self._unpron_prefix = self._spell_word("".join(peeled))
