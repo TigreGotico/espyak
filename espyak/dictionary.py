@@ -1585,6 +1585,37 @@ def _match_pre(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
             add_points = 1
         else:
             failed = 1
+    elif rb == K.RULE_SKIPCHARS:
+        # 'xyJ)': skip word characters BACKWARDS until xy matches (dictionary.c:1995). The post-
+        # context branch (J in '(Jxy') was already handled; the PRE branch was missing, so any
+        # `...J)` left-context rule always failed and fell through to a lower-scoring rule. lv
+        # `L41J) e` / `L41J) ē` (skip back over consonants to an L41 'international' letter ->
+        # narrow [e]/[e:], not wide [E]/[E:]): flamenko -> flamˈeŋkoː (was …æŋ…), gofrēto ->
+        # ɡˈofreːtuo (was …ræː…). The target prog[k] (a literal byte, or RULE_LETTERGP2 + group)
+        # is NOT consumed here — the next pre-iteration re-reads prog[k] and matches the found xy.
+        target = prog[k]
+        is_lg = (target == K.RULE_LETTERGP2)
+        tgroup = _letter_group_no(prog[k + 1]) if is_lg else None
+        # p starts one byte forward (C: pre_ptr+1) so an empty jump leaves pre_ptr unchanged.
+        p = pre_ptr + 1
+        p2 = p
+        g_bytes = -1
+
+        def _b(idx):
+            return buf[idx] if 0 <= idx < len(buf) else 0
+        # C: while ((*p != *rule) && (*p != SPACE) && (*p != 0) && (g_bytes == -1))
+        while (_b(p) != target and _b(p) != K.RULE_SPACE and _b(p) != 0
+               and g_bytes == -1):
+            p2 = p
+            p -= 1
+            if is_lg:
+                g_bytes = _is_letter_group(tr, buf, p2, tgroup, 1)
+        if _b(p) == target and not is_lg:
+            pre_ptr = p2
+        elif g_bytes >= 0:
+            pre_ptr = p2 + 1
+        else:
+            failed = 1
     elif rb == K.RULE_NOVOWELS:
         # X) — no vowel between here and the start of the word (scanning backward)
         p = pre_ptr - letter_xbytes
@@ -1906,7 +1937,37 @@ def _append(tr, phonemes, ph, mnem_index):
     if not ph:
         return phonemes
     count_vowels(tr, ph, mnem_index)
-    return phonemes + ph  # AppendPhonemes uses strcat (no separator)
+    # espeak's AppendPhonemes strcats already-ENCODED phoneme byte arrays (one byte per
+    # phoneme), so each rule output's phoneme boundaries are baked in: a word-final letter pair
+    # `t`+`s` stays two phonemes and can never re-merge into the `ts` affricate. espyak carries
+    # mnemonic *text* and re-encodes it greedily at render, so `ts`(from c)+..+`t`+`s` -> "tsyts"
+    # and the trailing `t`+`s` wrongly merge to the `ts` affricate (lv cyts -> t͡sˈyt͡s, pats ->
+    # pˈat͡s). Guard that one case: if (and only if) the join would form a multi-char mnemonic
+    # spanning the boundary, drop a `|` no-tie barrier there to preserve the real boundary. The
+    # barrier is non-rendering and fires only at a genuine cross-output ambiguity, so a clean
+    # join (every ca/smj/.. word) and a real multi-phoneme single output (`o:ts` for Mocarts)
+    # are untouched.
+    if (phonemes and not phonemes.endswith("|") and not ph.startswith("|")
+            and _join_is_spurious(phonemes, ph, mnem_index)):
+        return phonemes + "|" + ph
+    return phonemes + ph
+
+
+def _join_is_spurious(a, b, mnem_index):
+    """True if some suffix of `a` + prefix of `b` (spanning the join, len>=2) is a phoneme
+    mnemonic — i.e. the greedy re-encoder would merge across the boundary. Only such joins
+    need a barrier; a clean concatenation never re-merges and is left exactly as espeak's
+    strcat produces it."""
+    table = mnem_index.table
+    maxlen = mnem_index.maxlen
+    if maxlen < 2:
+        return False
+    na, nb = len(a), len(b)
+    for la in range(1, min(maxlen - 1, na) + 1):
+        for lb in range(1, min(maxlen - la, nb) + 1):
+            if a[na - la:] + b[:lb] in table:
+                return True
+    return False
 
 
 _ADD_E_EXCEPTIONS = ("ion",)
