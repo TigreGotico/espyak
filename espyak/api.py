@@ -408,7 +408,15 @@ class G2P:
         self._spelled = False     # set by _translate_core for a $abbrev spelled-out word
         self._spell_prerendered = False  # name-first spell returns final IPA (as foreign-letter spell)
         self._textmode_empty = False  # a $text->spell word that loops to '' (mto english)
+        self._unpron_prefix = ""  # spelled leading letters of an unpronounceable word (mskraam -> ˈɛm)
         ph, flags = self._translate_core(word.lower(), ctx)
+        if self._unpron_prefix:
+            # an unpronounceable word peeled its leading consonants to spelled letter names (mskraam
+            # -> ˈɛm); `ph` is now the pronounceable remainder (skraam). Stress the remainder (its
+            # own clause-tonic pass) and prepend the spelled prefix — one continuous word.
+            prefix, self._unpron_prefix = self._unpron_prefix, ""
+            return prefix + set_word_stress(self._tr, ph, self._mnem, dict_flags=flags,
+                                            tonic=tonic)
         if _SPELL_CP_OPEN in ph:
             # the rules emitted an in-band codepoint-spelling sentinel (\x01<hex>\x02) for a
             # character they could not pronounce (a Myanmar medial / visarga). Stress the ordinary
@@ -646,10 +654,30 @@ class G2P:
             self._spelled = True
             return self._spell_word("".join(dotted_letters)), 0
         if not dict_ph and not accent_entry and _unpronounceable(self._tr, word):
-            # Unpronouncable (translateword.c): a word with no dict pronunciation and no vowel letter
-            # is spelled out (ca Mgfc, en th). Latin-script + non-tonal only (guard in _unpronounceable).
-            self._spelled = True
-            return self._spell_word(word), 0
+            # Unpronouncable (translateword.c:278): a word with no dict pronunciation whose first
+            # vowel is too deep is spoken letter by letter FROM THE FRONT until the remainder is
+            # pronounceable, then the remainder is translated by the rules and appended. A word with
+            # no vowel at all peels every letter (== spell the whole word: en th, ca Mgfc); one with
+            # a deep vowel peels only the leading consonants (nl mskraam -> ˈɛm + skraam = ˈɛmskrˈaːm).
+            peeled = []
+            rest = word
+            # espeak's loop (translateword.c:278): keep peeling the leading letter while the
+            # remainder is too short (0 < len < 3) or still unpronounceable. A short remainder peels
+            # down to nothing (th -> t + h, both spelled); a deep-vowel word peels only its leading
+            # consonants (mskraam -> ˈɛm, leaving the pronounceable skraam).
+            while (len(rest) >= 1 and rest[0] != "'"
+                   and (0 < len(rest) < 3 or _unpronounceable(self._tr, rest, len(peeled)))):
+                peeled.append(rest[0])
+                rest = rest[1:]
+            if not rest.strip() or len(peeled) == len(word):
+                # nothing pronounceable left: the whole word was spelled letter by letter.
+                self._spelled = True
+                return self._spell_word(word), 0
+            # The spelled letters carry their own SetSpellingStress; the remainder is stressed by
+            # translate_word. Hold the spelled prefix and return the remainder for the normal pass.
+            self._unpron_prefix = self._spell_word("".join(peeled))
+            rctx = LookupContext(dict_condition=self._tr.dict_condition)
+            return self._translate_core(rest, rctx, word_flags=word_flags)
         if self._config.get("decompose_hangul") and any("가" <= c <= "힣" for c in word):
             # syllable -> conjoining jamo (with fillers) for the rules (already NFC above).
             word = _decompose_hangul(word)

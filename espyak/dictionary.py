@@ -42,6 +42,13 @@ REPLACED_E = ord("E")
 # codepoint-spelling TranslateLetter for them — so they are excluded from compat_spell_codepoint.
 _SPELL_CODEPOINT_SKIP = frozenset((0x1037, 0x1039, 0x103A))
 
+# diereses_list (dictionary.c:61): vowels-with-dieresis that mark the START of a separate
+# syllable. With LOPT_DIERESES (nl/af/la/ky/lt), an unmatched one is replaced by its base
+# letter IN PLACE and matching continues from that point (keeping the phonemes produced so
+# far), rather than restarting the whole word — so a digraph the dieresis breaks does NOT
+# re-form (nl ingrediënt: i + ënt -> di'Ent, not the ie-digraph dient -> d'int).
+_DIERESES_LIST = frozenset((0xE4, 0xEB, 0xEF, 0xF6, 0xFC, 0xFF))  # ä ë ï ö ü ÿ
+
 # remove_accent[] (dictionary.c:66), indexed by codepoint-0xC0: the 7-bit base letter an
 # accented char reduces to. espeak, on finding no rule for a letter, substitutes this base
 # and re-translates the word (dictionary.c:2228). Covers 0xC0..0x25D.
@@ -1047,6 +1054,21 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         for _v in range(1, vowel_count + 1):
             if vowel_stress[_v] == STRESS_IS_SECONDARY:
                 vowel_stress[_v] = STRESS_IS_UNSTRESSED
+    # A clause-tonic word with NO syllabic vowel (vowel_count == 1: its only vowel is a
+    # nonsyllabic schwa @-, excluded from the count) gets no stress mark from the loops above
+    # (max_stress_posn stays 0). espeak's intonation, however, treats @- as a syllable
+    # (MakePhonemeList counts it: translate.c phVOWEL test ignores phNONSYLLABIC) and, finding
+    # no primary, promotes the highest-stress (here only) syllable to the clause nucleus
+    # (count_pitch_vowels PRIMARY_LAST) — so an isolated `ən` renders ˈən. Mark the LAST
+    # nonsyllabic vowel for the output loop to stress.
+    nonsyl_tonic_pi = -1
+    if (tonic >= STRESS_IS_PRIMARY and vowel_count == 1
+            and not unstressed_word):
+        for _pi in range(len(phonetic) - 1, -1, -1):
+            _p = phonetic[_pi][1]
+            if _p.type == phVOWEL and "nonsyllabic" in _p.flags:
+                nonsyl_tonic_pi = _pi
+                break
     # produce output: walk phonetic, insert stress mnemonic before each vowel
     opt_length = getattr(tr, "it_lengthen", 0)  # LOPT_IT_LENGTHEN
     out = []
@@ -1059,6 +1081,12 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             # yue/zh `ng` onset before a vowel is not a syllable nucleus (see get_vowel_stress):
             # emit it as a plain consonant so `v` stays aligned with the real vowels and the
             # stress mark lands on the following vowel, not the onset.
+            out.append(mnem)
+            continue
+        if _pi == nonsyl_tonic_pi:
+            # clause nucleus on a word with no syllabic vowel: stress its (only) nonsyllabic
+            # vowel (ən -> ˈən). espeak's intonation places PRIMARY_LAST here.
+            out.append(_STRESS_MNEM.get(STRESS_IS_PRIMARY, ""))
             out.append(mnem)
             continue
         if (opt_length & 1) and mnem == ":":
@@ -1731,21 +1759,40 @@ def _is_vowel_letter(tr, ch):
     return c == "y" or c in vowels or c in extra or c in syll or c in _ACCENTED_VOWELS
 
 
-def _unpronounceable(tr, word):
-    """Port of Unpronouncable (translateword.c:1114), restricted to the robust no-vowel case: a word
-    with no dictionary pronunciation and NO vowel letter is spelled out (ca Mgfc, en th). Latin-script,
-    non-tonal languages only — others render native/tone-marked vowels not in the Latin vowel set."""
+def _unpronounceable(tr, word, posn=0):
+    """Port of Unpronouncable (translateword.c:1114): a word with no dict pronunciation whose first
+    vowel is deeper than max_initial_consonants+1 letters in (counting from the start, NOT counting a
+    leading LOPT_UNPRONOUNCABLE char — default 's') is "unpronouncable" and spoken letter by letter
+    from the front until a pronounceable remainder is reached (nl mskraam -> ˈɛm + skraam). A word
+    with no vowel at all (vowel_posn stays 9 > max+1) is the limiting case (en th, ca Mgfc).
+
+    Latin-script, non-tonal languages only — others render native/tone-marked vowels not in the
+    Latin vowel set. `posn` is the peel position (an apostrophe is only an end-marker after posn 0)."""
+    cfg = tr.config
     if not word or len(word) < 2:
         return False
-    if tr.config.get("letter_bits_offset", 0) or tr.config.get("tone_language"):
+    if cfg.get("letter_bits_offset", 0) or cfg.get("tone_language"):
+        return False
+    lopt = cfg.get("lopt_unpronouncable", ord("s"))
+    if lopt == 1:  # LOPT_UNPRONOUNCABLE==1: check disabled (many langs)
         return False
     if word[0] in (" ", "'"):
         return False
+    count = 0
+    c1 = None
+    vowel_posn = 9
     for ch in word:
         if ch == " ":
             break
+        if ch == "'" and (count > 1 or posn > 0):
+            break  # "tv'" but not "l'"
+        if count == 0:
+            c1 = ch
+        if not (ch == "'" and lopt == 3):  # LOPT_UNPRONOUNCABLE==3: don't count apostrophe
+            count += 1
         if _is_vowel_letter(tr, ch):
-            return False
+            vowel_posn = count
+            break
         if ch != "'" and not ch.isalpha():
             return False
         if ord(ch) >= 0x250:
@@ -1753,7 +1800,16 @@ def _unpronounceable(tr, word):
             # vowel set — not a Latin acronym. Guards languages that don't set letter_bits_offset
             # (ky/mk/nog/ba are Cyrillic but leave it unset, so the offset check alone misses them).
             return False
-    return True
+    if c1 is not None and ord(c1) == lopt:
+        vowel_posn -= 1  # disregard a leading LOPT_UNPRONOUNCABLE char (default 's') when counting
+    if lopt == 2 and vowel_posn < 9:
+        # LOPT_UNPRONOUNCABLE==2 (de/en/es): the deep-vowel decision is made by Unpronouncable2, a
+        # *_rules `$unpron`-marker test (a known cluster like de `tsch`, en `str` stays whole). That
+        # rules pass is not ported, so for these languages only the limiting NO-vowel case peels
+        # (en th, brrr); a word that HAS a vowel is left to the rules, exactly as before the peel
+        # path existed (de tschechien -> tʃˈɛçɪən, not a peeled ˈteːʃ…).
+        return False
+    return vowel_posn > (cfg.get("max_initial_consonants", 3) + 1)
 
 
 def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0):
@@ -1839,6 +1895,17 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                     # accented letter is spelled out instead). Fire for ASCII-letter bases.
                     base = (_REMOVE_ACCENT[wc - 0xC0]
                             if 0xC0 <= wc < 0xC0 + len(_REMOVE_ACCENT) else 0)
+                    if (0x61 <= base <= 0x7A and len(wb) > wc_bytes
+                            and getattr(tr, "config", {}).get("lopt_dieres")
+                            and wc in _DIERESES_LIST):
+                        # vowel with dieresis (dictionary.c:2238): replace it with its base letter
+                        # IN PLACE and continue from this point, KEEPING the phonemes produced so
+                        # far. The dieresis breaks a digraph, so the two vowels stay separate
+                        # syllables (nl diënt -> i + ent -> di'Ent, not the ie-digraph d'int).
+                        buf[p_start:p_start + wc_bytes] = bytes([base])
+                        end -= (wc_bytes - 1)
+                        p = p_start
+                        continue
                     if 0x61 <= base <= 0x7A and len(wb) > wc_bytes:
                         # slice from the CHAR START (p_start), not the advanced p: the failed
                         # default match leaves p mid-character, which split the multi-byte

@@ -41,6 +41,7 @@ LANGS = {
         "stress_rule": K.STRESSPOSN_1L,
         "stress_flags": 0x08,  # diminish consecutive unstressed syllables (unstressed words)
         "suffix_add_e": "e",
+        "lopt_unpronouncable": 2,  # tr_languages.c L('e','n'): rules-based Unpronouncable2 (str ok)
         "set_letter_bits": [(K.LETTERGP_Y, "aeiouy")],  # group Y = all vowels incl. y
     },
     "eo": {
@@ -52,11 +53,12 @@ LANGS = {
         "extra_vowels": "ŭ",
         "encoding": "iso-8859-3",
     },
-    "es": {"spirantize": True, 
+    "es": {"spirantize": True,
         "stress_rule": K.STRESSPOSN_2R,
         "stress_flags": K.S_FINAL_SPANISH | K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
         "unstressed_wd1": 0,
         "unstressed_wd2": 2,
+        "lopt_unpronouncable": 2,  # tr_languages.c L('e','s') else-branch (NOT ca/an/ia, which keep 's')
         "extra_vowels": "áéíóúü",
         "encoding": "iso-8859-1",
         "numbers": K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
@@ -88,6 +90,7 @@ LANGS = {
     "de": {"trill_r_not_after_stop": True, "lopt_prefixes": True,
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)
         "stress_flags": 0,
+        "lopt_unpronouncable": 2,  # tr_languages.c L('d','e'): rules-based Unpronouncable2 (tsch ok)
         "extra_vowels": "äöü",
         "encoding": "iso-8859-1",
         "regression": 0x100,  # LOPT_REGRESSIVE_VOICING: devoice word-final obstruents (Auslautverhärtung)
@@ -106,16 +109,20 @@ LANGS = {
     # so $u function words reduce despite carrying the clause accent (li->lˈɪ, ili->ˈɪlɪ).
     "sr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [2, 4],
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
+           "max_initial_consonants": 5,  # tr_languages.c L('s','r')
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "hr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [1],
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
+           "max_initial_consonants": 5,  # tr_languages.c L('s','r')
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "bs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [3, 4],
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
+           "max_initial_consonants": 5,  # tr_languages.c L('s','r')
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
     "cs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (však -> fʃak)
+           "max_initial_consonants": 5,  # tr_languages.c L('c','s') (shared sk)
            "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž"},
     # Finnish/Estonian: fixed initial stress (espeak's zero-init default 1L; my default is 2R)
     # fi/et: fixed initial stress, secondary on alternating NON-final syllables. espeak's
@@ -144,6 +151,7 @@ LANGS = {
     # (alebo -> alˈebo instead of ˈalebo). Regressive voicing assimilation (však -> fʃak).
     "sk": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "regression": 0x03,
+           "max_initial_consonants": 5,  # tr_languages.c L('c','s')/L('s','k')
            "extra_vowels": "áäéíóôúýyr", "extra_consonants": "čďľĺňŕšťž"},
     # fixed-initial-stress langs that had no config (-> wrong 2R default). espeak's per-lang
     # stress_rule (tr_languages.c); _list headwords are mostly dict-stressed so these were
@@ -164,7 +172,8 @@ LANGS = {
     "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
     "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "y"},
     "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},
-    "tr": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
+    "tr": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
+           "max_initial_consonants": 2},  # tr_languages.c L('t','r') (shared az)
     # Papiamento: stress the last syllable unless the word ends in a vowel (1R +
     # S_FINAL_VOWEL_UNSTRESSED). No config -> wrong 2R default (algun -> ˈalɡuŋ not alɡˈuŋ).
     "pap": {"stress_rule": K.STRESSPOSN_1R, "unstressed_wd1": 0, "unstressed_wd2": 2,
@@ -199,9 +208,12 @@ LANGS = {
     "lt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "extra_vowels": "ąęėįųū", "extra_consonants": "čšž"},
     "az": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
+           "max_initial_consonants": 2,  # tr_languages.c L('a','z')
            "extra_vowels": "əıöü", "extra_consonants": "çğş"},
-    "kk": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2},
-    "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş"},
+    "kk": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
+           "max_initial_consonants": 2},  # tr_languages.c L('k','k')
+    "ku": {"stress_rule": K.STRESSPOSN_1RU, "extra_vowels": "êîû", "extra_consonants": "çş",
+           "max_initial_consonants": 2},  # tr_languages.c L('k','u')
     # Farsi keeps the 2R default stress/flags, but tr_languages.c case L('f','a') swaps the
     # default chars_ignore table for chars_ignore_zwnj_hyphen (readclause.c IgnoreOrReplaceChar):
     # U+0640 TATWEEL is dropped, and — unlike every other language, which deletes it — U+200C
@@ -256,12 +268,13 @@ LANGS = {
            "set_letter_vowel": "y",  # SetLetterVowel(tr,'y') (tr_languages.c L('p','t'))
            "priority_stress_demote": True},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
-           "regression": 0x100, "lopt_prefixes": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp)
+           "regression": 0x100, "lopt_prefixes": True, "lopt_dieres": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp); LOPT_DIERESES (tr_languages.c L('n','l'))
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
            "stress_flags": K.S_FINAL_DIM_ONLY,  # mark unstressed final syllables diminished (tr_languages.c L('p','l'))
            # SetLetterVowel(tr,'y') (tr_languages.c): Polish puts 'y' in vowel group A too
            # (default A = "aeiou", except y), so `A) ł (_` fires after y: był -> bˈɨw, not bˈɨ.
            "set_letter_bits": [(K.LETTERGP_A, "y"), (K.LETTERGP_VOWEL2, "y")],
+           "max_initial_consonants": 7,  # tr_languages.c L('p','l'): "wchrzczony" (brzmi stays whole)
            "regression": 0x9},  # LOPT_REGRESSIVE_VOICING (usb -> uɛzbɛ)
     # Norwegian Bokmål (tr_languages.c case L('n','b')): first-syllable stress, 'y' a vowel.
     # No config -> wrong 2R default for rules-based words.
