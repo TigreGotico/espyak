@@ -538,6 +538,15 @@ LANGS.setdefault("piqd", {})["stress_rule"] = K.STRESSPOSN_1R
 LANGS.setdefault("quc", {})["stress_rule"] = K.STRESSPOSN_1R
 LANGS.setdefault("py", {})["stress_rule"] = K.STRESSPOSN_1L
 
+# Quechua: a word-boundary apostrophe is NOT part of the word. espeak's clause reader
+# turns a word-final/initial ' into a space before the word reaches dictionary lookup
+# (translate.c:1361 — qu sets neither LOPT_APOSTROPHE nor char_plus_apostrophe), so an
+# isolated glottalised letter like k' is looked up as bare `k` and spelled (kˈaː), NOT
+# matched against the dead `k' k`?a:` _list entry (which would add a spurious glottal stop
+# k`ʔ). A word-INTERNAL apostrophe between letters is kept (hayk'a -> hˈajk`ʔa), so the
+# ejective cluster still renders where the glyph is genuinely an ejective.
+LANGS.setdefault("qu", {})["strip_boundary_apostrophe"] = True
+
 # --- Armenian (tr_languages.c case L('h','y'), OFFSET_ARMENIAN 0x530) -----------------
 _HY_VOWELS = [0x31, 0x35, 0x37, 0x38, 0x3b, 0x48, 0x55]
 _HY_CONSONANTS = [0x32, 0x33, 0x34, 0x36, 0x39, 0x3a, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41,

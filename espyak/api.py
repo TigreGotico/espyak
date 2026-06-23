@@ -1216,6 +1216,17 @@ class G2P:
             raw_tok = raw_tok.rstrip("-")
             if not raw_tok:
                 continue
+            # A word-boundary apostrophe is not part of the word: espeak's clause reader turns a
+            # word-final/initial ' (and any ' not between two letters) into a space before the word
+            # reaches dictionary lookup (translate.c:1361, for languages that set neither
+            # LOPT_APOSTROPHE nor char_plus_apostrophe). Strip leading/trailing ' so e.g. qu `k'`
+            # is looked up as bare `k` (kˈaː) instead of hitting the dead `k'` _list entry (which
+            # would add a spurious glottal stop). A ' BETWEEN two letters stays in the word, so the
+            # genuine ejective cluster (hayk'a) is untouched.
+            if self._config.get("strip_boundary_apostrophe"):
+                raw_tok = raw_tok.strip("'")
+                if not raw_tok:
+                    continue
             # a '-' between two letters is a word break (espeak translate.c:1316: "'-'
             # between two letters is a hyphen, treat as a space"): Cèit-Ùna -> Cèit, Ùna.
             parts = []
