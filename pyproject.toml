@@ -16,7 +16,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "JarbasAi", email = "jarbasai@mailfence.com" }]
 keywords = ["g2p", "phonemizer", "espeak", "espeak-ng", "ipa", "tts", "grapheme-to-phoneme"]
-dependencies = []
+dependencies = ["scriptconv>=0.0.2"]
 
 [project.optional-dependencies]
 test = ["pytest"]

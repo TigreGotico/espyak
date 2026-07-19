@@ -1190,13 +1190,29 @@ class G2P:
                 start = j + len(peel)
         words.append((tok[start:], first_sub and sub_first))
 
-    def phonemize(self, text, ipa=True, tie=None, separator=None):
+    def phonemize(self, text, ipa=True, tie=None, separator=None, alphabet=None):
         """Translate text to phonemes (word-by-word; full clause handling is P5).
 
         The last word carries the clause tonic stress (STRESS_IS_PRIMARY); this matches
         espeak's single-clause behavior and is what makes an isolated monosyllable like
         "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
+
+        *alphabet* selects the output notation, transcoded from IPA via scriptconv:
+        ``"ipa"`` (default), ``"kirshenbaum"`` (espeak's native ASCII-IPA),
+        ``"x-sampa"``, ``"arpa"``, ``"lexique"``, ``"cotovia"`` or ``"rfe"``. When
+        given it overrides the *ipa* flag. ``"ipa"``/``"kirshenbaum"`` use espeak's
+        own output; the rest transcode the IPA result with ``scriptconv.convert``.
         """
+        _post_convert = None
+        if alphabet is not None:
+            _a = alphabet.lower()
+            if _a == "kirshenbaum":
+                ipa = False
+            elif _a == "ipa":
+                ipa = True
+            else:
+                ipa = True
+                _post_convert = _a  # IPA → <alphabet> via scriptconv at return
         # Malayalam chillu: base consonant + virama + ZWJ is the atomic chillu (a dead
         # consonant). espeak normalises the sequence to the atomic char so the la+virama rules
         # (ി (ल्K -> I) don't mis-fire, then breaks after it. Map + break: നിര്‍ഝ -> നിർ ഝ ->
@@ -1453,6 +1469,12 @@ class G2P:
             import re as _re
             _V = "aɑeɛiɪoɔuʊyʏøœəɐ"
             result = _re.sub(r"([%s]ː?)r(?= [ˈˌ]?[%s])" % (_V, _V), r"\1ɹ", result)
+        if _post_convert is not None:
+            from scriptconv.notation import convert as _sc_convert
+            # Transcode the IPA output to the requested notation. scriptconv
+            # passes symbols outside the target inventory (stress marks,
+            # spaces, separators) through unchanged.
+            result = _sc_convert(result, "ipa", _post_convert)
         return result
 
     # cmn switch-segment vowel set + the unstressed-reduction map espeak's cmn render applies to the
