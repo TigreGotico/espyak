@@ -34,6 +34,7 @@ render → IPA / Kirshenbaum / stress / tie / separator
 | `dictionary.py` | `dictionary.c` | `LookupDict2`, `TranslateRules`, `MatchRule` (the scoring state machine), `SetWordStress`, endings, `GetVowelStress` |
 | `phoneme_program.py` | `phonemelist.c` programs | `ChangePhoneme`/`InsertPhoneme`/`AppendPhoneme`, `prevPh`/`nextPh` conditions, place/voicing predicates |
 | `language_data.py` | `tr_languages.c` + `lang/` voice files | per-language translator config: stress rule/flags, letter bits, conditions, number system |
+| `voice.py` | `voices.c` `LoadVoice` | sub-dialect VARIANT loader — a `pt-br`/`en-us`/`es-419`/… voice file layers a phoneme table, `dictrules` conditionals and `replace`s over its shared base language |
 | `numbers.py` | `numbers.c` | `TranslateNumber` + ordinals/fractions/romans, decimal-comma, lakh/crore, CJK myriads |
 | `render.py` | `dictionary.c` output path | `WritePhMnemonic` + `GetTranslatedPhonemeString` → IPA / Kirshenbaum / stress / tie / separator |
 | `api.py` / `__main__.py` | public surface | `G2P(lang).phonemize(...)` / `.render(...)` and the `espyak` CLI |
@@ -59,11 +60,13 @@ render → IPA / Kirshenbaum / stress / tie / separator
 ## Verification harness
 
 A pinned `espeak-ng 1.52.0` build is the reference ("oracle"): used only to generate the
-expected outputs in `test/fixtures/`; the engine never calls it at runtime. Two sweeps keep
-parity honest:
+expected outputs in `test/fixtures/`; the engine never calls it at runtime. The harnesses
+keep parity honest, all run in `force_compat` mode (byte-for-byte espeak, bugs included):
 
 - `test/sweep.py N` — the first `N` headwords of every `dictsource/*_list` (free test cases),
-  diffed against `espeak-ng -q --ipa`. **1703/1703** at N=25 across 86 languages.
-- `test/corpus_sweep.py` — real sentences across 31 languages. **438/438**.
-
-`test/report.md` holds the per-language pass rate.
+  diffed against `espeak-ng -q --ipa`. `test/report.md` holds the per-language rate.
+- `test/corpus_sweep.py` — real sentences across many languages.
+- `test/parity_audit.py [--cap N]` — **every** headword, every language: **99.71%**
+  (105 languages, `--cap 2000`), 59 at 100%. `--variants` audits the 22 sub-dialect voices
+  at **99.69%**. Writes a per-language table + a JSONL of every mismatch; the residue is
+  classified in `docs/remaining-gaps.md`.

@@ -122,8 +122,8 @@ groups A/B/C/H/F/G/Y/VOWEL2 are byte-identical.
 | **de** | 1L ✓ | 0 ✓ | 0x100 ✓ | SWAP_TENS\|DEC_COMMA (C also ALLOW_SPACE\|ORDINAL_DOT\|ROMAN) | match + JUSTIFIED number subset |
 | **lv** | 1L ✓ | NO_AUTO_2\|FD\|FDO\|EO_CLAUSE1 ✓ | – | **no entry** (C: DEC_COMMA\|OMIT_1H\|DFRACTION_4\|ORDINAL_DOT) | stress match; numbers UNIMPLEMENTED |
 | **ms** | 2R ✓ | FDO\|FN2 ✓ | – | DEC_COMMA\|ALLOW_SPACE\|ROMAN ✓ | match |
-| **pl** | 2R ✓ | **0 (C: S_FINAL_DIM_ONLY)** | 0x9 ✓ | **no entry** (C: DEC_COMMA\|ALLOW_SPACE\|DFRACTION_2) | **POTENTIAL-BUG (stress_flags)** + numbers UNIMPLEMENTED |
-| **sr/hr/bs** | 1L ✓ | S_FINAL_NO_2 ✓ | **0 (C: 0x3)** | **no entry** (C: rich SINGLE_STRESS\|HUNDRED_AND\|… set) | **POTENTIAL-BUG (regression)** + numbers UNIMPLEMENTED |
+| **pl** | 2R ✓ | S_FINAL_DIM_ONLY ✓ | 0x9 ✓ | **no entry** (C: DEC_COMMA\|ALLOW_SPACE\|DFRACTION_2) | stress match (RESOLVED) + numbers UNIMPLEMENTED |
+| **sr/hr/bs** | 1L ✓ | S_FINAL_NO_2 ✓ | 0x3 ✓ | **no entry** (C: rich SINGLE_STRESS\|HUNDRED_AND\|… set) | regression match (RESOLVED) + numbers UNIMPLEMENTED |
 | **eu** | EU(15) | FVU\|MID_DIM ✓ | – | (default) (C: SINGLE_STRESS\|DEC_COMMA\|HUNDRED_AND\|OMIT_1H\|OMIT_1T\|VIGESIMAL) | stress JUSTIFIED (rule 15 from voice file `lang/eu`); numbers UNIMPLEMENTED |
 | **bn** | 1L ✓ | S_MID_DIM\|S_FINAL_DIM ✓ | – | **no entry** (C: SWAP_TENS + BREAK_LAKH_BN) | stress match; numbers UNIMPLEMENTED |
 | **cs** | 1L ✓ | FDO\|FN2 (0x16) ✓ | 0x3 ✓ | (number subset) | match (reference: correctly-ported Slavic, contrast to pl/sr) |
@@ -151,26 +151,19 @@ fine-grained letter-classification divergence, not a stress/number one.
 
 ## 4. Deviation classification
 
-### POTENTIAL-BUG (flagged — verified live)
+### POTENTIAL-BUG — both RESOLVED
 
-Both fields below are read by the live engine (`dictionary.py` `SetWordStress`
-reads `stress_flags`; `api.py:992` reads `regression`), so these are not
-cosmetic. Both contradict the otherwise-correct Slavic pattern (cf. `cs`, which
-sets both correctly).
+The two stress/voicing fields flagged in an earlier pass are now set (commit `c669b9a`).
+Retained as RESOLVED notes:
 
-1. **`pl` is missing `stress_flags = S_FINAL_DIM_ONLY` (0x06).**
-   `tr_languages.c` Polish sets `stress_flags = S_FINAL_DIM_ONLY`; the Python
-   `pl` entry sets `stress_rule`, `extra_vowels`, `set_letter_bits('y')` and
-   `regression=0x9` but **no `stress_flags`**, so it falls to `0`. Effect:
-   Polish unstressed final syllables are not marked diminished.
+1. **`pl` `stress_flags = S_FINAL_DIM_ONLY` (0x06)** — now present (with `regression=0x9`,
+   `set_letter_bits('y')`, `max_initial_consonants=7`). Polish unstressed final syllables
+   are marked diminished as in C. pl is 100% in the audit.
 
-2. **`sr` / `hr` / `bs` are missing `regression = 0x3` (LOPT_REGRESSIVE_VOICING).**
-   `tr_languages.c` Serbian (shared by hr/bs) sets
-   `param[LOPT_REGRESSIVE_VOICING] = 0x3`; the three Python entries set
-   `stress_*`, `spelling_stress`, `extra_consonants`, `unstress_u_words` but
-   **no `regression`** → defaults to `0`. Effect: no regressive voicing
-   assimilation. Note `cs` and `sk` (same Slavic family) *do* set `0x3`,
-   confirming this is an oversight rather than an intentional choice.
+2. **`sr` / `hr` / `bs` `regression = 0x3` (LOPT_REGRESSIVE_VOICING)** — now present on all
+   three (with `max_initial_consonants=5`). Note the residual sr/hr/bs `uxd`/`xba`
+   voicing-assimilation fails in `remaining-gaps.md` (C) are a `SetRegressiveVoicing` detail
+   in `phonemelist.c`, not this config flag.
 
 ### JUSTIFIED
 
@@ -198,50 +191,40 @@ ordinal specifics. This is the same coverage gap as §2, surfaced per language.
 
 ## 5. Missing `LANGS` entry but **has** a `tr_languages.c` arm (latent gaps)
 
-These languages have a real `SelectTranslator` arm in C but **no key in
-`LANGS`**, so `get_config()` falls through to `DEFAULTS` (English-like 2R,
-flags=0) — the exact latent gap `an`/`ms` had before this session. Ordered by
-value (a cheap future win = an arm that overrides stress_rule/stress_flags away
-from the default):
+The high-value gaps flagged in an earlier pass — `nb`, `id`, `ia`, `om`, `sw`, `tn`, `kl`,
+`fa` — now have `LANGS` entries (commit `c669b9a`): nb `1L`+`y`-vowel, id ms-block flags, ia
+es-block flags, om `S_FINAL_LONG`, sw/tn final-dim flags, kl `STRESSPOSN_GREENLANDIC`+
+`S_NO_AUTO_2`. All of those are at or near 100% in the audit.
 
-| Lang | C arm sets | Cheap win? |
+The remaining no-entry languages fall through to `DEFAULTS` (English-like 2R, flags=0) but
+are low-value: most are tonal/number-disabled or already correct by default.
+
+| Lang | C arm sets | Status |
 | --- | --- | --- |
-| **nb** (Norwegian Bokmål) | `stress_rule=1L`, `SetLetterVowel('y')`, numbers | **YES** — wrong 2R default today |
-| **id** (Indonesian) | shares **ms** block: `2R`, `S_FINAL_DIM_ONLY\|S_FINAL_NO_2`, numbers | **YES** — identical to ms, auto-secondaries final syllable today |
-| **ia** (Interlingua) | shares **es** block: `2R`, `S_FINAL_SPANISH\|FDO\|FN2`, numbers | **YES** — like `an` was; copy the es flags |
-| **gn** (Guarani) | `stress_rule=1R` (final) | **YES** — wrong 2R default |
-| **om** (Oromo) | `2R`, `S_FINAL_DIM_ONLY\|S_FINAL_NO_2\|S_FINAL_LONG(0x80000)` | **YES** — flags missing |
-| **sw** (Swahili) / **tn** (Setswana) | `2R`, `S_FINAL_DIM_ONLY\|S_FINAL_NO_2` | **YES** — flags missing (rule already default) |
-| **kl** (Greenlandic) | `stress_rule=STRESSPOSN_GREENLANDIC(12)`, `S_NO_AUTO_2` | medium — needs the special rule-12 stressor |
-| **zh** (Chinese compat) | `stress_rule=1R`, `S_NO_DIM`, `NUM2_ZERO_TENS` | medium (cmn already present; zh is a back-compat alias) |
-| **hak** (Hakka) | `S_NO_DIM`, `tone_numbers=1` | low — tone-number Chinese variant |
-| **mt** (Maltese) | `2R` (== default), encoding, numbers | low — stress already correct by default |
-| **fa** (Farsi) | only `numbers = AND_UNITS\|HUNDRED_AND` (stress = default) | low — stress already correct; numbers UNIMPLEMENTED |
-| **ky** (Kyrgyz) | `numbers = NUM_DEFAULT` only | none — no override |
-| **ltg** (Latgalian) | shares **lv** block | low — add as lv alias |
-| **mi, qu, th, uz, xex** | `numbers = 0` (disabled until _list complete in espeak itself) | none — espeak itself leaves these incomplete |
-| **yue** (Cantonese) | shares cmn/zh tone block | low — alias |
-
-**Highest-value cheap wins: `nb`, `id`, `ia`, `gn`, `om`, `sw`/`tn`** — each is
-a one-entry copy of an existing pattern (es/ms block or a single stress_rule/
-stress_flags pair) that today silently mis-stresses rules-based words via the 2R
-default.
+| **gn** (Guarani) | `stress_rule=1R` (final) | no entry, but 100% in the audit (final-stress reached by default for the sampled words) |
+| **zh** (Chinese compat) | `stress_rule=1R`, `S_NO_DIM`, `NUM2_ZERO_TENS` | no entry — `cmn` is the live Chinese config; zh is a back-compat alias |
+| **hak** (Hakka) | `S_NO_DIM`, `tone_numbers=1` | no entry — tone-number Chinese variant |
+| **mt** (Maltese) | `2R` (== default), encoding, numbers | no entry — stress correct by default (98.6% in the audit; fails are abbreviation/voicing) |
+| **ky** (Kyrgyz) | `numbers = NUM_DEFAULT` only | no entry — the ky fails are a missing leading-secondary stress arm, not a config flag |
+| **ltg** (Latgalian) | shares **lv** block | no entry — low (lv alias) |
+| **mi, qu, th, uz, xex** | `numbers = 0` (disabled until _list complete in espeak itself) | no entry — espeak itself leaves these incomplete |
+| **yue** (Cantonese) | shares cmn/zh tone block | no entry — 100% in the audit |
 
 ---
 
 ## Summary counts
 
 - **constants.py:** 0 deviations (faithful 1:1 with `translate.h`).
-- **POTENTIAL-BUG:** 2 (counting sr/hr/bs as one shared block).
-  - `pl` missing `stress_flags = S_FINAL_DIM_ONLY`
-  - `sr`/`hr`/`bs` missing `regression = 0x3`
+- **POTENTIAL-BUG:** 0 outstanding — both prior flags (`pl` stress_flags, `sr`/`hr`/`bs`
+  regression) are now set.
 - **JUSTIFIED:** the implemented-path number subset, the trimmed per-language
   `numbers` bitfields, voice-file stress-rule enrichment (eu et al.), and the
   Python-only `sa`/`haw` entries.
 - **UNIMPLEMENTED:** the non-common `numbers.c` branches (roman, myriads/lakh,
   thousands/feminine variants, locale decimal modes, ordinal sub-machinery,
-  vigesimal, zero-hundred, …) — surfaced per-language for **an, lv, bn, eu, pl,
-  sr/hr/bs** and every other entry lacking a `numbers` key.
-- **Missing-entry latent gaps (have C arm, no `LANGS` key):** nb, id, ia, gn,
-  om, sw, tn, kl, zh, hak, mt, fa, ky, ltg, mi, qu, th, uz, xex, yue. Top cheap
-  wins: **nb, id, ia, gn, om, sw, tn**.
+  vigesimal, zero-hundred, the Devanagari-numeral path, the `$N` dollar fraction) —
+  surfaced per-language (mr/py/it/ro in the audit, plus every entry lacking a `numbers`
+  key); see `remaining-gaps.md` (D).
+- **Missing-entry gaps RESOLVED:** nb, id, ia, om, sw, tn, kl, fa now have `LANGS` keys.
+  Remaining no-entry (low value, at/near 100% or tonal/disabled): gn, zh, hak, mt, ky,
+  ltg, mi, qu, th, uz, xex, yue.
