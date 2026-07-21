@@ -228,15 +228,30 @@ def _double_long_consonants(plist, double_rfx_stop=False):
             # it isn't caught by _DOUBLE_TYPES.
             e.ph = prev
             continue
-        if prev.type in _DOUBLE_TYPES or (
-                prev.type == phVOWEL and (
-                    # a MONOPHTHONG with an explicit ipa string (mto i/a/o/e, af a) is lengthened
-                    # by repeating it (i: -> ii); one rendered via its mnemonic (ipa None: mto u,
-                    # af i) and a CLOSING diphthong (aɪ) take ː instead
-                    (prev.starttype == prev.endtype and prev.ipa is not None)
-                    # a CENTRING diphthong (endtype #@: e@ -> iə) also repeats (e@: -> iəiə)
-                    or (prev.starttype != prev.endtype and prev.endtype == "#@"))):
-            e.ph = prev  # replace the length marker with a copy of the consonant/diphthong
+        if prev.type in _DOUBLE_TYPES:
+            # phonemelist.c:371-378: a lengthened fricative/nasal/liquid is doubled by inserting a
+            # copy BEFORE it — but ONLY when `j > 0`, i.e. it is not the first phoneme after the
+            # clause boundary ph_list3[0] ("can't insert a phoneme at position plist3[0]"). A
+            # clause-initial such consonant keeps its length mark and renders with ː. In espyak's
+            # per-word plist this guard is observable only for a GLIDE (a palatal/labial semivowel:
+            # phLIQUID with a vocalic starttype #i/#u and no explicit ipa — hi j, rendered via its
+            # formant program): a clause-initial geminate glide takes ː (hi य़ुघ्दविराम j:u -> jːu,
+            # not jju) while it still doubles mid-clause. A true fricative/nasal/liquid (ar ʕ, m, l,
+            # s) doubles even clause-initially — espeak's clause list places a linking segment
+            # before it, so its own `j > 0` holds — so those are left to double as before.
+            _glide = (prev.type == phLIQUID and prev.ipa is None
+                      and getattr(prev, "starttype", None) in ("#i", "#u"))
+            if _glide and not any(not plist[k].deleted for k in range(i - 1)):
+                continue
+            e.ph = prev  # replace the length marker with a copy of the consonant
+        elif prev.type == phVOWEL and (
+                # a MONOPHTHONG with an explicit ipa string (mto i/a/o/e, af a) is lengthened
+                # by repeating it (i: -> ii); one rendered via its mnemonic (ipa None: mto u,
+                # af i) and a CLOSING diphthong (aɪ) take ː instead
+                (prev.starttype == prev.endtype and prev.ipa is not None)
+                # a CENTRING diphthong (endtype #@: e@ -> iə) also repeats (e@: -> iəiə)
+                or (prev.starttype != prev.endtype and prev.endtype == "#@")):
+            e.ph = prev  # replace the length marker with a copy of the diphthong
 
 
 def _decompose_hangul(word):
