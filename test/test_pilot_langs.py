@@ -54,3 +54,22 @@ def test_pilot_language(oracle, lang, cases):
     for word, ipa in cases:
         assert g.phonemize(word) == ipa
         assert g.phonemize(word) == oracle(word, lang, "ipa")
+
+
+# Icelandic letter groups: group B (LETTERGP_B) is overridden to the voiceless consonants,
+# so `B) n -> hn#` (pre-aspirated n) fires only after a voiceless letter, not after voiced g;
+# group F=kpst and H=jvr are re-set after ResetLetterBits(0x18); group C stays the default
+# all-consonants set so the `e (CC` vowel-shortening rule still matches across a gn cluster.
+IS_CASES = [
+    ("vegna", "ʋˈɛɡna"),    # no hn# leak after g; ɛ stays short before the cluster
+    ("gegnum", "ɟˈɛɡnym"),
+    ("varðst", "ʋˈarðsd"),  # ð stays voiced before s
+    ("afn", "ˈabhn#"),      # hn# DOES fire: n after voiceless f
+    ("akn", "ˈaɡhn#"),      # hn# after voiceless k
+]
+
+
+def test_icelandic_letter_groups(oracle):
+    g = G2P("is", force_compat=True)
+    for word, ipa in IS_CASES:
+        assert g.phonemize(word) == ipa, word

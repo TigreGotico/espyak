@@ -183,6 +183,14 @@ class Translator:
         for ch in config.get("set_letter_vowel", ""):
             if ord(ch) < 256:
                 self.letter_bits[ord(ch)] = (self.letter_bits[ord(ch)] & 0x40) | 0x81
+        # ResetLetterBits(tr, mask) (tr_languages.c:126): clear the masked group bits from EVERY
+        # letter before the language re-populates them (is clears groups 3,4 with 0x18, then sets
+        # its own F=kpst / H=jvr). Runs after the defaults, before the per-language SetLetterBits.
+        reset_mask = config.get("reset_letter_bits", 0)
+        if reset_mask:
+            inv = ~reset_mask & 0xFF
+            for code in range(256):
+                self.letter_bits[code] &= inv
         # SetLetterBits(group, letters): OR letters into a specific group
         for group, letters in config.get("set_letter_bits", []):
             for ch in letters:
@@ -207,6 +215,12 @@ class Translator:
             vset = frozenset(vov)
             self.letter_groups[K.LETTERGP_A] = vset
             self.letter_groups[K.LETTERGP_VOWEL2] = vset
+        # wchar group override (tr_languages.c `tr->letter_groups[N] = ...`): a fixed membership
+        # for a built-in group A)/B)/C)/H)/F)/G), consulted by IsLetter BEFORE letter_bits. is sets
+        # group B (LETTERGP_B) to the voiceless consonants so `B) n -> hn#` fires only after a
+        # voiceless letter (afn -> …hn#) and NOT after voiced g (vegna -> ʋˈɛɡna, no leak).
+        for group, chars in config.get("letter_groups_override", {}).items():
+            self.letter_groups[group] = frozenset(chars)
 
     def is_letter(self, letter, group):
         # port of IsLetter (dictionary.c:770)
