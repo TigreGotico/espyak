@@ -233,10 +233,18 @@ class Interpreter:
         # (synthdata.c CountVowelPosition stops at sourceix; isFinalVowel/isAfterStress walk to
         # the next/previous word boundary). Use newword&1 marks as the sourceix equivalent.
         ws, we = self._word_bounds(plist, i)
-        vowels = [j for j in range(ws, we) if plist[j].ph.type == phVOWEL]
-        first_vowel = bool(vowels and vowels[0] == i)
-        second_vowel = bool(len(vowels) > 1 and vowels[1] == i)
-        final_vowel = bool(vowels and vowels[-1] == i)
+        # isFirstVowel/isSecondVowel (synthdata.c:635-638) test CountVowelPosition(plist)==1/==2,
+        # where CountVowelPosition (synthdata.c:454) walks BACKWARD from this phoneme to the word
+        # start counting vowels (this phoneme included if it is a vowel). So the flags hold for a
+        # CONSONANT sitting after the 1st/2nd vowel too, not only at the vowel itself — e.g. the
+        # word-final k of the Malayalam letter name `_ik` counts 1 preceding vowel, so isFirstVowel
+        # is true there and the k->g voicing (guarded by NOT isFirstVowel) is correctly suppressed.
+        vcount = sum(1 for j in range(ws, i + 1) if plist[j].ph.type == phVOWEL)
+        first_vowel = vcount == 1
+        second_vowel = vcount == 2
+        # isFinalVowel (synthdata.c:625-632) walks FORWARD to the next word boundary; true if no
+        # further vowel is found — so it also holds for a trailing consonant after the last vowel.
+        final_vowel = not any(plist[j].ph.type == phVOWEL for j in range(i + 1, we))
         # isMaxStress (synthdata.c:440-441): stress_level >= pl->wordstress, where wordstress
         # is the max stresslevel in THIS word (phonemelist.c:227-239) and stress_level is this
         # vowel's level (or the FOLLOWING vowel's if this is a consonant; StressCondition).
