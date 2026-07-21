@@ -22,6 +22,17 @@ import unicodedata
 _UCASE_GA = ("bp", "bhf", "dt", "gc", "hA", "mb", "nd", "ng", "ts", "tA", "nA")
 _IRISH_VOWELS = set("aeiouáéíóúàèìòùAEIOUÁÉÍÓÚÀÈÌÒÙ")
 
+# Clause punctuation consumed by espeak's clause reader (readclause.c) before a token is
+# looked up. Stripped from both ends of a word token so `yes.` is translated as `yes`
+# instead of falling through to the letter rules, which would spell the symbol out.
+# `:` is included: attached to a word it terminates the clause (`Warning:` -> wˈɔːnɪŋ),
+# even though ALONE it has a spoken name (colon) — a lone symbol is left untouched below.
+_CLAUSE_PUNCT = ".,;:!?…\"'“”‘’«»()[]{}"
+# The subset that stays silent even STANDING ALONE: pure clause structure. `!` and `:`
+# are deliberately absent — English names them (exclamation, colon) while Dutch does not,
+# so those are left to the per-language dictionary rather than hardcoded here.
+_SILENT_ALONE = ".,;?…\"'“”‘’«»()[]{}"
+
 
 def _ga_caps_prefix(tok, j):
     """True if tok[:j] + the uppercase tok[j] is an Irish capitalised-prefix (don't split)."""
@@ -1263,6 +1274,25 @@ class G2P:
                 raw_tok = raw_tok.lstrip("-")
             raw_tok = raw_tok.rstrip("-")
             if not raw_tok:
+                continue
+            # Clause punctuation attached to a word is a CLAUSE TERMINATOR, not part of the
+            # word: espeak's clause reader (readclause.c) consumes `. , ; : ! ?` and the
+            # bracket/quote pairs before the token ever reaches dictionary lookup, so `yes.`
+            # is looked up as `yes`. espyak split on whitespace only, so the punctuation stayed
+            # glued on, missed the dictionary, and fell through to the LETTER RULES — which
+            # spell the symbol out. Every sentence therefore ended in a spoken punctuation
+            # name ("yes." -> jˈɛs+dɒt, "Warning:" -> wˈɔːnɪŋ+kˌəʊlən, nl "." -> pˈɵnt),
+            # which is especially bad for screen-reader use where most utterances end in one.
+            #
+            # A punctuation character STANDING ALONE is a separate case, handled below.
+            _stripped = raw_tok.strip(_CLAUSE_PUNCT)
+            if _stripped:
+                raw_tok = _stripped
+            elif all(c in _SILENT_ALONE for c in raw_tok):
+                # `.` `,` `;` `?` and the quote/bracket pairs are pure clause structure:
+                # espeak renders them as nothing even when they stand alone. `!` and `:` are
+                # NOT here — en names them (exclamation, colon) while nl stays silent, so
+                # they fall through to the dictionary, which already encodes that per language.
                 continue
             # A word-boundary apostrophe is not part of the word: espeak's clause reader turns a
             # word-final/initial ' (and any ' not between two letters) into a space before the word
