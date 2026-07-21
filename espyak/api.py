@@ -1216,12 +1216,61 @@ class G2P:
                 start = j + len(peel)
         words.append((tok[start:], first_sub and sub_first))
 
-    def phonemize(self, text, ipa=True, tie=None, separator=None):
-        """Translate text to phonemes (word-by-word; full clause handling is P5).
+    def _render_unit(self, word, tonic, ipa, tie, separator, caps_stress, following,
+                     skip, at_end):
+        """Render one clause word-unit (the normal, non-'&'/non-'\\x02' path) at the given
+        ``tonic``, including espeak's foreign-word phonSWITCH fallback. Sets
+        ``self._switch_consumed`` (words the switched language's multi-word entry consumed).
 
-        The last word carries the clause tonic stress (STRESS_IS_PRIMARY); this matches
-        espeak's single-clause behavior and is what makes an isolated monosyllable like
-        "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
+        Factored out of ``phonemize`` so a unit can be rendered twice: once NATURALLY
+        (tonic=-1) while assembling the clause, then again for the ONE unit chosen as the
+        intonation nucleus (see the nucleus-promotion pass in ``phonemize``)."""
+        self._switch_consumed = 0
+        rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
+                                     caps_stress=caps_stress,
+                                     all_upper=word.isupper() and any(c.isalpha() for c in word),
+                                     first_upper=word[:1].isupper(), at_end=at_end,
+                                     following=(following if skip else ()),
+                                     clause_ctx=bool(skip),
+                                     switch_following=following)
+        if (not rendered and self.lang != "en" and word.isascii()
+                and any(c.isalpha() for c in word)
+                and not getattr(self, "_textmode_empty", False)):
+            # phonSWITCH (translate.c): a word unpronounceable in the current (non-Latin)
+            # script is re-translated by the Latin default voice (English) and bracketed
+            # with the language switch — bg/fa/ka: foot -> (en)fˈʊt(bg). A Latin-script
+            # language never yields an empty translation for an alphabetic word, so the
+            # empty result self-identifies the foreign word. As with the in-band _^_ switch,
+            # espeak re-translates in place with the English voice, so its multi-word dict
+            # entries consume the following source words as one run.
+            en = self._en_fallback()
+            en_first = word[:1].isupper()
+            en_all = word.isupper() and any(c.isalpha() for c in word)
+            sk = en._dict.multiword_skip(
+                word.lower(), list(following), dict_condition=en._tr.dict_condition,
+                first_upper=en_first, all_upper=en_all)
+            en_ph = en._render_word(word.lower(), tonic, ipa, tie, separator,
+                                    first_upper=en_first, all_upper=en_all,
+                                    following=(list(following) if sk else ()),
+                                    clause_ctx=bool(sk))
+            if en_ph:
+                rendered = "(en)" + en_ph + "(" + self.lang + ")"
+                self._switch_consumed = sk
+        return rendered
+
+    def phonemize(self, text, ipa=True, tie=None, separator=None):
+        """Translate text to phonemes with espeak's clause-intonation nucleus placement.
+
+        Each word-unit is first rendered with its NATURAL (lexical) stress. The clause
+        intonation nucleus — espeak's CalcPitches/count_pitch_vowels: the LAST syllable at
+        the highest stress level in the clause — is then located at the word granularity:
+        the nucleus is the LAST unit whose natural render carries the maximum stress mark
+        (primary ˈ > secondary ˌ > none). Trailing unstressed ($u) function words after a
+        higher-stressed word are therefore POST-NUCLEAR and keep their reduced natural form
+        (more or -> mˈɔːɹ ɔː; give it to me -> ɡˈɪv ɪt tə mˌiː), while a clause whose maximum
+        is only secondary/none promotes that nucleus unit to the clause tonic (the -> ðˈə,
+        where is the -> wˈeəɹ ɪz ðə). An isolated word is its own nucleus, so single-word
+        renders are unchanged.
         """
         # Malayalam chillu: base consonant + virama + ZWJ is the atomic chillu (a dead
         # consonant). espeak normalises the sequence to the atomic char so the la+virama rules
@@ -1368,6 +1417,9 @@ class G2P:
         # previous word's phonemes and spelling and the next word's onset — state espeak keeps in
         # its clause-level phoneme list but the per-word render here otherwise loses.
         word_slots = []
+        # Each rendered real unit, recorded so the intonation nucleus can be located after the
+        # whole clause is assembled and that ONE unit re-rendered with the clause tonic.
+        units = []
         i = 0
         n = len(words)
         while i < n:
@@ -1382,24 +1434,6 @@ class G2P:
                 first_upper=word[:1].isupper(),
                 all_upper=word.isupper() and any(c.isalpha() for c in word))
             unit_last = (i + skip == n - 1)
-            # tonic word carries the clause stress; tone languages (vi) reduce it to
-            # secondary since the tone, not stress, carries syllable prominence.
-            tonic = self._config.get("tonic_stress", 4) if unit_last else -1
-            if (tonic >= 0 and self._config.get("u_tonic") is not None
-                    and (self._dict.lookup_flags(word) & 0x8)):
-                # vi: a $u function word as the clause nucleus stays SECONDARY (cho -> tʃˌɔ), unlike a
-                # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
-                tonic = self._config.get("u_tonic")
-            _wflags = self._dict.lookup_flags(word.split("\x02")[0])
-            if (tonic >= 0 and n > 1 and self._config.get("u_post_nuclear")
-                    and (_wflags & 0x8) and not (_wflags & K.FLAG_STRESS_END)):
-                # smj: a TRAILING plain-$u function word in a multi-word render is post-nuclear —
-                # the clause accent already landed on a preceding (spelled letter-name / camelCase)
-                # word, so the $u word keeps its NATURAL stress, not the clause primary
-                # (A:ga -> ˈɑː kɑ, A:dagi -> ˈɑː tˌɑɡɪː, BeGa -> pˈiɛ kɑ). A $u word that is the
-                # ONLY word is still promoted to the nucleus (ga -> kˈɑ). A $u+ word (FLAG_STRESS_END,
-                # da/sij/ma) KEEPS its stress, so it still takes the clause primary (dijA:da -> tˈɑ).
-                tonic = -1
             if out and not nospace:
                 # a preceding empty token (a Burmese break mark: asat ်, dot ့) leaves a trailing
                 # separator already; don't add a second one (espeak emits no double space). The
@@ -1418,78 +1452,95 @@ class G2P:
                         break
                     if ch.lower() in "aeiouy":
                         nv += 1
-            if word[:1] == "&":
-                # smj '&' word ("og"): render the dict letter-name, then append any peeled coda
-                # consonant as its own glyph (FLAG_NOSPACE join): '&m' -> ˈɔːɡm.
-                rendered = self._render_word("&", tonic, ipa, tie, separator) + word[1:]
-                out.append(rendered)
-                i += 1
-                continue
-            if "\x02" in word:
-                # smj long-vowel letter name with a peeled geminate coda (A:\x02l): spell the
-                # letter name (A: -> ˈɑː), then append the coda consonant as its glyph -> ˈɑːl.
-                lname, coda = word.split("\x02", 1)
-                rendered = self._render_word(lname.lower(), tonic, ipa, tie, separator) + coda
-                out.append(rendered)
-                i += 1
-                continue
             # $atend gating is clause-position sensitive for EVERY language: a $atend-flagged
             # dictionary entry (en `has haz $atend`, `a eI $atend`, smj `O` letter name) only wins
             # when the word is the LAST unit in the clause. A non-final word gets at_end=False so its
             # $atend entry is rejected and it falls to the reduced/rule form (mid-clause `has` ->
             # hɐz not hˈaz, `a` -> ɐ not ˈeɪ). A single-word clause is unit_last, so isolated-word
-            # renders are unchanged (still at_end=True).
+            # renders are unchanged (still at_end=True). $atend keys off clause position, NOT the
+            # nucleus, so it stays fixed while the nucleus is chosen below.
             at_end = unit_last
+            # Render NATURALLY (tonic=-1); the clause nucleus is promoted afterwards. `kind`
+            # records how to re-render the nucleus unit (the smj '&'/'\x02' spelled-coda forms
+            # need their own recompose).
             self._switch_consumed = 0
-            rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
-                                         caps_stress=caps_stress,
-                                         all_upper=word.isupper() and any(c.isalpha() for c in word),
-                                         first_upper=word[:1].isupper(), at_end=at_end,
-                                         following=(following if skip else ()),
-                                         clause_ctx=bool(skip),
-                                         switch_following=following)
-            if (not rendered and self.lang != "en" and word.isascii()
-                    and any(c.isalpha() for c in word)
-                    and not getattr(self, "_textmode_empty", False)):
-                # phonSWITCH (translate.c): a word unpronounceable in the current (non-Latin)
-                # script is re-translated by the Latin default voice (English) and bracketed
-                # with the language switch — bg/fa/ka: foot -> (en)fˈʊt(bg). A Latin-script
-                # language never yields an empty translation for an alphabetic word, so the
-                # empty result self-identifies the foreign word. As with the in-band _^_ switch,
-                # espeak re-translates in place with the English voice, so its multi-word dict
-                # entries consume the following source words as one run.
-                en = self._en_fallback()
-                en_first = word[:1].isupper()
-                en_all = word.isupper() and any(c.isalpha() for c in word)
-                sk = en._dict.multiword_skip(
-                    word.lower(), list(following), dict_condition=en._tr.dict_condition,
-                    first_upper=en_first, all_upper=en_all)
-                en_ph = en._render_word(word.lower(), tonic, ipa, tie, separator,
-                                        first_upper=en_first, all_upper=en_all,
-                                        following=(list(following) if sk else ()),
-                                        clause_ctx=bool(sk))
-                if en_ph:
-                    rendered = "(en)" + en_ph + "(" + self.lang + ")"
-                    self._switch_consumed = sk
-            if (not rendered and word == "း" and self.force_compat
-                    and self._config.get("compat_spell_orphan_visarga")):
-                # shn: a visarga း orphaned by the asat split renders empty here (it is its own
-                # token, no surrounding syllable for the rules to attach it to), but espeak's
-                # TranslateLetter still spells its codepoint "Myanmar letter 1038" in place. Use the
-                # same in-band codepoint speller as the mid-word case. The preceding empty break
-                # token (asat) already left a trailing space in `out`; drop it so the spelled run
-                # joins with a single separator (espeak emits no double space).
-                rendered = self._spell_codepoint_inband(ord("း"), ipa, tie, separator)
-                while out and out[-1] in (" ", ""):
-                    out.pop()
-                if out:
-                    out.append(" ")  # exactly one separator before the spelled visarga
+            if word[:1] == "&":
+                # smj '&' word ("og"): render the dict letter-name, then append any peeled coda
+                # consonant as its own glyph (FLAG_NOSPACE join): '&m' -> ˈɔːɡm.
+                kind, kparams = "amp", word[1:]
+                rendered = self._render_word("&", -1, ipa, tie, separator) + word[1:]
+            elif "\x02" in word:
+                # smj long-vowel letter name with a peeled geminate coda (A:\x02l): spell the
+                # letter name (A: -> ˈɑː), then append the coda consonant as its glyph -> ˈɑːl.
+                lname, coda = word.split("\x02", 1)
+                kind, kparams = "x02", (lname.lower(), coda)
+                rendered = self._render_word(lname.lower(), -1, ipa, tie, separator) + coda
+            else:
+                kind, kparams = "normal", None
+                rendered = self._render_unit(word, -1, ipa, tie, separator, caps_stress,
+                                             following, skip, at_end)
+                if (not rendered and word == "း" and self.force_compat
+                        and self._config.get("compat_spell_orphan_visarga")):
+                    # shn: a visarga း orphaned by the asat split renders empty here (it is its own
+                    # token, no surrounding syllable for the rules to attach it to), but espeak's
+                    # TranslateLetter still spells its codepoint "Myanmar letter 1038" in place. Use
+                    # the same in-band codepoint speller as the mid-word case. The preceding empty
+                    # break token (asat) already left a trailing space in `out`; drop it so the
+                    # spelled run joins with a single separator (espeak emits no double space).
+                    rendered = self._spell_codepoint_inband(ord("း"), ipa, tie, separator)
+                    while out and out[-1] in (" ", ""):
+                        out.pop()
+                    if out:
+                        out.append(" ")  # exactly one separator before the spelled visarga
+            out_idx = len(out)
             if rendered and ipa and any(c.isalpha() for c in word):
-                word_slots.append((len(out), word.lower()))
+                word_slots.append((out_idx, word.lower()))
             out.append(rendered)
+            # natural stress level of this unit (from its rendered marks): primary ˈ=4 >
+            # secondary ˌ=3 > none=0. The nucleus (below) is the LAST unit at the clause maximum
+            # EFFECTIVE level: a $strend/$strend2 word (FLAG_STRESS_END/END2, espeak's
+            # SFLAG_PROMOTE_STRESS — "full stress if at clause end", phonemelist.c:167) is a nucleus
+            # candidate even when its own render is reduced (en `there De@ $u $strend2`, `where
+            # ,we@ $strend2`), so its effective level is 4.
+            Lren = 4 if "ˈ" in rendered else (3 if "ˌ" in rendered else 0)
+            _uflags = self._dict.lookup_flags(word.split("\x02")[0].lstrip("&"))
+            promotable = bool(_uflags & (K.FLAG_STRESS_END | K.FLAG_STRESS_END2))
+            units.append(dict(idx=out_idx, word=word, kind=kind, kparams=kparams,
+                              caps_stress=caps_stress, following=following, skip=skip,
+                              at_end=at_end, Lren=Lren, Leff=(4 if promotable else Lren),
+                              is_u=bool(_uflags & 0x8)))
             # a language-switch multi-word run (self._switch_consumed) and an outer-language
             # multi-word entry (skip) are mutually exclusive; advance past whichever fired.
             i += 1 + max(skip, getattr(self, "_switch_consumed", 0))
+        # Intonation nucleus (espeak CalcPitches/count_pitch_vowels): the clause tonic falls on the
+        # LAST unit at the maximum natural stress level; trailing lower-stressed units are post-
+        # nuclear and keep their reduced natural form. When the maximum is already primary (ˈ) the
+        # nucleus render is identical to its natural render (a content word's lexical primary is not
+        # relocated), so no re-render is needed; only a clause whose maximum is secondary/none needs
+        # its nucleus promoted to the clause tonic (the -> ðˈə, where is the -> wˈeəɹ ɪz ðə).
+        if units:
+            maxL = max(u["Leff"] for u in units)
+            nucleus = max(k for k, u in enumerate(units) if u["Leff"] == maxL)
+            u = units[nucleus]
+            ntonic = self._config.get("tonic_stress", 4)
+            if u["is_u"] and self._config.get("u_tonic") is not None:
+                # vi: a $u function word as the clause nucleus stays SECONDARY (cho -> tʃˌɔ), unlike a
+                # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
+                ntonic = self._config.get("u_tonic")
+            # a content nucleus already shows its lexical primary in its natural render (identical to
+            # the clause tonic — no relocation); only a nucleus rendered WITHOUT primary (a promoted
+            # $strend word, or an all-reduced clause's last word) needs re-rendering with the tonic.
+            if ntonic >= 0 and u["Lren"] < 4:
+                if u["kind"] == "amp":
+                    rendered = self._render_word("&", ntonic, ipa, tie, separator) + u["kparams"]
+                elif u["kind"] == "x02":
+                    lname, coda = u["kparams"]
+                    rendered = self._render_word(lname, ntonic, ipa, tie, separator) + coda
+                else:
+                    rendered = self._render_unit(u["word"], ntonic, ipa, tie, separator,
+                                                 u["caps_stress"], u["following"], u["skip"],
+                                                 u["at_end"])
+                out[u["idx"]] = rendered
         # cross-word sandhi over the assembled clause (espeak's clause-level phoneme list):
         # en linking/intrusive r, nl homorganic-stop degemination.
         if ipa and self._config.get("linking_r"):
@@ -1570,7 +1621,27 @@ class G2P:
         intrusive — or one SPELLED with a final 'r' rendered without it (for, car, her) — linking —
         restores a ɹ when the FOLLOWING word begins with a vowel (tilde ex -> tˈɪldəɹ ˈɛks,
         for it -> fɔːɹ ˈɪt). Before a consonant or at clause end no ɹ appears (tilde box, car)."""
-        for pi, ps, ci, _cs in self._slot_pairs(out, word_slots):
+        # A $pause word (FLAG_PREPAUSE — and, or, but, nor) gets a short pause inserted BEFORE it,
+        # which ends the previous word's phoneme run at a pause (not a vowel) and blocks linking/
+        # intrusive ɹ across it. espeak inserts that pause only when the $pause word is NOT the first
+        # or second word and NOT the last word of the clause, and no pause was inserted in the last
+        # few words (translate.c:469: !FIRST_WORD && prev not FIRST_WORD && !LAST_WORD &&
+        # prepause_timeout==0). So `sofa or chair` (or is word 2) links (sˈəʊfəɹ), but `the sofa and
+        # the chair` (and is word 3) does not (sˈəʊfə); `a comma or a colon` blocks comma->or yet
+        # still links or->a. Word position here is the slot index among rendered alphabetic words.
+        _last_slot = len(word_slots) - 1
+        _prepause_timeout = 0
+        for j in range(1, len(word_slots)):
+            _prepause_timeout = max(0, _prepause_timeout - 1)
+            pi, ps = word_slots[j - 1]
+            ci, _cs = word_slots[j]
+            if (self._dict.lookup_flags(_cs) & K.FLAG_PREPAUSE and j >= 2
+                    and j != _last_slot and _prepause_timeout == 0):
+                _prepause_timeout = 3
+                continue  # pause before this $pause word blocks the incoming linking ɹ
+            # only DIRECTLY adjacent words link (exactly one space between, no intervening token)
+            if not (ci == pi + 2 and out[pi + 1] == " "):
+                continue
             prev = out[pi]
             if not prev or prev[-1] == "ɹ" or prev[-1] == "r":
                 continue
