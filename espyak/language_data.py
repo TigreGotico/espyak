@@ -204,7 +204,8 @@ LANGS = {
            | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű",
            # hu reads the fraction as a whole cardinal plus a "tenths"/"hundredths"/… suffix
            # (_0Z<n>, NUM_DFRACTION_5); its decimal separator is ',' (tr_languages.c L('h','u')).
-           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_5},
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_5
+           | K.NUM_OMIT_1_HUNDRED | K.NUM_OMIT_1_THOUSAND},
     "ht": {"stress_rule": K.STRESSPOSN_1R,  # Haitian Creole: final-syllable stress
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM, "extra_vowels": "àèéò"},
     "it": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "àèéìíîòóùú",

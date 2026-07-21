@@ -233,3 +233,13 @@ def test_portuguese_million_singular_form(pt):
     assert _nfc(pt.phonemize("1000000")) == _nfc("ˈũmiljˈɐ̃ʊ̃")
     assert "õ" not in _nfc(pt.phonemize("1000000"))  # not the plural "milhões"
 
+
+
+# Hungarian omits the leading "egy" before both hundred and thousand (NUM_OMIT_1_HUNDRED |
+# NUM_OMIT_1_THOUSAND): 100 is "száz" not "egyszáz", 1000 is "ezer" not "egyezer".
+HU_CARDINAL_CASES = ["100", "105", "200", "999", "1000", "1100", "1234", "20", "21", "3,14"]
+
+
+@pytest.mark.parametrize("num", HU_CARDINAL_CASES)
+def test_hungarian_cardinal_matches_oracle(oracle, num):
+    assert _nfc(G2P("hu").phonemize(num)) == _nfc(oracle(num, "hu"))
