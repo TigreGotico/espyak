@@ -49,3 +49,24 @@ def es():
 @pytest.mark.parametrize("num", ES_CASES)
 def test_spanish_cardinal_matches_oracle(es, oracle, num):
     assert es.phonemize(num) == oracle(num, "es")
+
+
+# A pronounced symbol suffixed to a number ("42%") is not clause punctuation: it is split
+# off and spoken AFTER the number, matching espeak's order.
+@pytest.mark.parametrize("num", ["42%", "50%", "100%", "0%", "1%",
+                                 "3.5%", "1.5%", "0.5%"])
+def test_percent_after_number_matches_oracle(en, oracle, num):
+    assert en.phonemize(num) == oracle(num, "en")
+
+
+@pytest.mark.parametrize("num", ["42%", "50%", "3.5%"])
+def test_percent_number_not_dropped(en, num):
+    """Guard without the oracle: neither the number nor the symbol may vanish."""
+    got = en.phonemize(num)
+    assert got.strip(), "rendered empty: %r" % num
+    assert "s\u02c8\u025bnt" in got, "percent not spoken in %r: %r" % (num, got)
+
+
+# A lone symbol keeps its ordinary lookup.
+def test_lone_percent_matches_oracle(en, oracle):
+    assert en.phonemize("%") == oracle("%", "en")

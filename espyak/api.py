@@ -22,6 +22,25 @@ import unicodedata
 _UCASE_GA = ("bp", "bhf", "dt", "gc", "hA", "mb", "nd", "ng", "ts", "tA", "nA")
 _IRISH_VOWELS = set("aeiouáéíóúàèìòùAEIOUÁÉÍÓÚÀÈÌÒÙ")
 
+# Clause punctuation consumed by espeak's clause reader (readclause.c) before a token is
+# looked up. Stripped from both ends of a word token so `yes.` is translated as `yes`
+# instead of falling through to the letter rules, which would spell the symbol out.
+# `:` is included: attached to a word it terminates the clause (`Warning:` -> wˈɔːnɪŋ),
+# even though ALONE it has a spoken name (colon) — a lone symbol is left untouched below.
+_CLAUSE_PUNCT = ".,;:!?…\"'“”‘’«»()[]{}"
+# The subset that stays silent even STANDING ALONE: pure clause structure. `!` and `:`
+# are deliberately absent — English names them (exclamation, colon) while Dutch does not,
+# so those are left to the per-language dictionary rather than hardcoded here.
+_SILENT_ALONE = ".,;?…\"'“”‘’«»()[]{}"
+
+# Symbols that are PRONOUNCED words rather than clause structure, and that attach to the
+# end of a number ("42%"). Not stripped by the tokenizer; split off in _render_word and
+# spoken after the number. Each keeps its own dictionary entry, so the name stays
+# per-language (en percent, nl procent).
+# `°` is deliberately absent: en "20°" needs a plural/context rule ("degrees") that this
+# simple split does not model, so it is left for a separate change.
+_NUMBER_SUFFIX_SYMBOLS = "%‰"
+
 
 def _ga_caps_prefix(tok, j):
     """True if tok[:j] + the uppercase tok[j] is an Irish capitalised-prefix (don't split)."""
@@ -1264,6 +1283,25 @@ class G2P:
             raw_tok = raw_tok.rstrip("-")
             if not raw_tok:
                 continue
+            # Clause punctuation attached to a word is a CLAUSE TERMINATOR, not part of the
+            # word: espeak's clause reader (readclause.c) consumes `. , ; : ! ?` and the
+            # bracket/quote pairs before the token ever reaches dictionary lookup, so `yes.`
+            # is looked up as `yes`. espyak split on whitespace only, so the punctuation stayed
+            # glued on, missed the dictionary, and fell through to the LETTER RULES — which
+            # spell the symbol out. Every sentence therefore ended in a spoken punctuation
+            # name ("yes." -> jˈɛs+dɒt, "Warning:" -> wˈɔːnɪŋ+kˌəʊlən, nl "." -> pˈɵnt),
+            # which is especially bad for screen-reader use where most utterances end in one.
+            #
+            # A punctuation character STANDING ALONE is a separate case, handled below.
+            _stripped = raw_tok.strip(_CLAUSE_PUNCT)
+            if _stripped:
+                raw_tok = _stripped
+            elif all(c in _SILENT_ALONE for c in raw_tok):
+                # `.` `,` `;` `?` and the quote/bracket pairs are pure clause structure:
+                # espeak renders them as nothing even when they stand alone. `!` and `:` are
+                # NOT here — en names them (exclamation, colon) while nl stays silent, so
+                # they fall through to the dictionary, which already encodes that per language.
+                continue
             # A word-boundary apostrophe is not part of the word: espeak's clause reader turns a
             # word-final/initial ' (and any ' not between two letters) into a space before the word
             # reaches dictionary lookup (translate.c:1361, for languages that set neither
@@ -1565,6 +1603,20 @@ class G2P:
         # normal translation instead of crashing.
         def _dig(s):
             return s.isascii() and s.isdigit()
+
+        # A pronounced symbol suffixed to a number ("42%") is not clause punctuation, so the
+        # tokenizer leaves it attached — and the number branches below require an all-digit
+        # token, so nothing fired and the whole thing rendered as empty. Split the symbol off
+        # and speak it AFTER the number, the order espeak uses ("42%" -> forty two percent).
+        # The symbol keeps its own dictionary entry, so this stays language-correct
+        # (en percent, nl procent) without hardcoding names.
+        num_word, num_tail = word, ""
+        if len(word) > 1 and word[-1] in _NUMBER_SUFFIX_SYMBOLS:
+            _stem = word[:-1]
+            if _dig(_stem) or (_dig(_stem.replace(dsep, "", 1)) and dsep in _stem
+                               and not _stem.startswith(dsep)
+                               and not _stem.endswith(dsep)):
+                num_word, num_tail = _stem, word[-1]
         if not word.isascii():
             # native-script decimal digits (fa ۱, ar ٠, Devanagari ०, ...) -> ASCII so they route to
             # the number path (۱ -> jek). unicodedata.decimal rejects superscripts/subscripts ('²'),
@@ -1589,11 +1641,16 @@ class G2P:
                                         all_upper=all_upper, first_upper=first_upper, at_end=at_end)
             if dword.strip():
                 return self._render_phonemes(dword, ipa, tie, separator)
-        if word and (_dig(word) or (_dig(word.replace(dsep, "", 1))
-                                    and dsep in word and not word.startswith(dsep)
-                                    and not word.endswith(dsep))):
-            ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
+        if num_word and (_dig(num_word) or (_dig(num_word.replace(dsep, "", 1))
+                                            and dsep in num_word
+                                            and not num_word.startswith(dsep)
+                                            and not num_word.endswith(dsep))):
+            ph = translate_number(self._dict, num_word, flags=num_flags, decimal_sep=dsep)
             if ph:
+                if num_tail:
+                    _tph, _ = self._dict.lookup(num_tail, LookupContext())
+                    if _tph:
+                        ph += "||" + _tph
                 ph = self._stress_number_words(ph, tonic=tonic)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
