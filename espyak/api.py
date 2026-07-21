@@ -1503,7 +1503,9 @@ class G2P:
             # candidate even when its own render is reduced (en `there De@ $u $strend2`, `where
             # ,we@ $strend2`), so its effective level is 4.
             Lren = 4 if "ˈ" in rendered else (3 if "ˌ" in rendered else 0)
-            _uflags = self._dict.lookup_flags(word.split("\x02")[0].lstrip("&"))
+            _ucaps = dict(first_upper=word[:1].isupper(),
+                          all_upper=word.isupper() and any(c.isalpha() for c in word))
+            _uflags = self._dict.lookup_flags(word.split("\x02")[0].lstrip("&"), **_ucaps)
             promotable = bool(_uflags & (K.FLAG_STRESS_END | K.FLAG_STRESS_END2))
             units.append(dict(idx=out_idx, word=word, kind=kind, kparams=kparams,
                               caps_stress=caps_stress, following=following, skip=skip,
@@ -1530,7 +1532,17 @@ class G2P:
             # a content nucleus already shows its lexical primary in its natural render (identical to
             # the clause tonic — no relocation); only a nucleus rendered WITHOUT primary (a promoted
             # $strend word, or an all-reduced clause's last word) needs re-rendering with the tonic.
-            if ntonic >= 0 and u["Lren"] < 4:
+            # a $unstressend spelled abbreviation (hu kb/KFT) shows a primary in its natural
+            # render, but the clause tonic MOVES it to the last letter (FLAG_UNSTRESS_END,
+            # translate_word tonic>=4 path) — re-render it with the tonic even though Lren==4.
+            _uw = u["word"]
+            _needs_tonic = u["Lren"] < 4 or (
+                u["kind"] not in ("amp", "x02")
+                and (self._dict.lookup_flags(
+                    _uw, first_upper=_uw[:1].isupper(),
+                    all_upper=_uw.isupper() and any(c.isalpha() for c in _uw))
+                     & K.FLAG_UNSTRESS_END))
+            if ntonic >= 0 and _needs_tonic:
                 if u["kind"] == "amp":
                     rendered = self._render_word("&", ntonic, ipa, tie, separator) + u["kparams"]
                 elif u["kind"] == "x02":

@@ -415,6 +415,13 @@ class DictList:
             flag_codes.append(_MNEM_FLAGS["$onlys"])
         if self.text_mode:
             flag_codes.append(_MNEM_FLAGS["$text"])  # within a $textmode section -> FLAG_TEXTMODE
+        # compile_line (compiledict.c:601-617): every key is lowercased; a key whose letters are
+        # ALL uppercase (en LBS, ca/Greek T, fo L) gets an implicit $allcaps, so it only matches
+        # an all-caps source word. A first-capital key (pt Braille, ?2 Gmail) carries NO case
+        # flag — it is simply the lowercase entry.
+        if (word and word[0] != "_" and word.isalpha() and word.isupper()
+                and _MNEM_FLAGS["$allcaps"] not in flag_codes):
+            flag_codes = flag_codes + [_MNEM_FLAGS["$allcaps"]]
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words,
                           key_upper=word[:1].isupper())
         # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
@@ -443,18 +450,6 @@ class DictList:
             entries = self.words.get(word[0].lower()) or self.words.get(_nfc(word[0].lower()))
         if not entries:
             return None, None
-        if word.isalpha():
-            # espeak buckets dict keys by case (byte-exact match in LookupDict2), so a lowercase
-            # query only matches a lowercase-keyed entry — never an uppercase-keyed one that folds to
-            # the same letters. espyak keys everything lowercase, merging e.g. ca `t t'e` with the
-            # Greek `T t'Eta` (theta), or en `lbs paUndz` with `LBS $abbrev`: the uppercase variant
-            # then wrongly wins the lowercase lookup (spelling out instead of the real pronunciation).
-            # fo relies on the same rule for its geminating uppercase names (l -> ɛl, L -> ɛll).
-            # Restrict to entries whose source key matched the query's case (only when a mix exists).
-            want_upper = bool(ctx.first_upper)
-            cased = [e for e in entries if e.key_upper == want_upper]
-            if cased and len(cased) != len(entries):
-                entries = cased
         for entry in reversed(entries):
             ok, flags1, flags2, stress = self._eval(entry, ctx)
             if not ok:
@@ -491,14 +486,16 @@ class DictList:
                 return len(entry.rest.split()) if entry.multiword else 0
         return 0
 
-    def lookup_flags(self, word, dict_condition=0):
+    def lookup_flags(self, word, dict_condition=0, first_upper=False, all_upper=False):
         """Flags-only lookup (port of LookupFlags): return flags1 for `word`, with FLAG_FOUND set
         if any entry matched (0 if absent). No phoneme translation, so the matcher's DollarRule can
-        call it without recursing back into translation."""
+        call it without recursing back into translation. `first_upper`/`all_upper` gate $capital/
+        $allcaps entries (hu KFT $unstressend is all-caps-only)."""
         entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
         if not entries:
             return 0
-        ctx = LookupContext(dict_condition=dict_condition)
+        ctx = LookupContext(dict_condition=dict_condition, first_upper=first_upper,
+                            all_upper=all_upper)
         for entry in reversed(entries):
             ok, flags1, flags2, stress = self._eval(entry, ctx)
             if ok:

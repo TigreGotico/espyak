@@ -55,3 +55,24 @@ def test_abbrev_letter_case(lang, word, expected):
 def test_abbrev_letter_case_matches_oracle(oracle, lang, word, expected):
     got = unicodedata.normalize("NFC", oracle(word + "\n", lang, "ipa"))
     assert got == expected
+
+
+# An all-uppercase dict key compiles with an implicit $allcaps (compiledict.c:601-617), so it
+# only matches an all-caps source word; a first-capital key (pt Braille, ?2 Gmail) carries no
+# case flag and is just the lowercase entry.
+ALLCAPS_KEY_CASES = [
+    ("en", "lbs", "pˈaʊndz"),      # lowercase entry wins; the LBS $abbrev key needs all-caps
+    ("en", "LBS", "ˌɛlbˌiːˈɛs"),   # all-caps LBS spells out
+    ("pt", "Braille", "bːɹˈailɨ"), # first-capital key: lowercase entry matches
+    ("pt", "braille", "bːɹˈailɨ"),
+    ("pt", "Gmail", "ɡˌemˈeɪl"),
+    ("fo", "l", "ˈɛl"),
+    ("fo", "L", "ˈɛll"),           # all-caps key geminates
+]
+
+
+@pytest.mark.parametrize("lang,word,ipa", ALLCAPS_KEY_CASES)
+def test_allcaps_key_case_matching(oracle, lang, word, ipa):
+    g = G2P(lang, force_compat=True)
+    assert unicodedata.normalize("NFC", g.phonemize(word)) == ipa
+    assert unicodedata.normalize("NFC", oracle(word + "\n", lang, "ipa")) == ipa

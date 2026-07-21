@@ -80,3 +80,21 @@ def test_ipa(g2p_cache, lang, text, ipa):
 @pytest.mark.parametrize("lang,text,ipa", CASES)
 def test_matches_oracle(oracle, g2p_cache, lang, text, ipa):
     assert g2p_cache(lang).phonemize(text) == oracle(text, lang, "ipa")
+
+
+# A $unstressend spelled abbreviation (hu kb/KFT) shows a primary in its natural render, but as
+# the clause nucleus the primary MOVES to the last letter (FLAG_UNSTRESS_END) — the nucleus
+# re-render must fire even though the natural render already carries a primary.
+HU_UNSTRESSEND_ABBREV = [
+    ("kb", "kˌaːbˈeː"),
+    ("KFT", "kˌaːˌɛfftˈeː"),
+    ("tts", "tˌeːtˌeːˈɛʃ"),
+]
+
+
+@pytest.mark.parametrize("word,ipa", HU_UNSTRESSEND_ABBREV)
+def test_hu_unstressend_abbrev_tonic_moves(oracle, word, ipa):
+    import unicodedata
+    g = G2P("hu", force_compat=True)
+    assert unicodedata.normalize("NFC", g.phonemize(word)) == ipa
+    assert unicodedata.normalize("NFC", oracle(word + "\n", "hu", "ipa")) == ipa
