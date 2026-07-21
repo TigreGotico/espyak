@@ -14,7 +14,7 @@ Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 import re
 import unicodedata
 from espyak import constants as K
-from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, Phoneme
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, phINVALID, phPAUSE, Phoneme
 
 # A no-tie barrier ('|' in phoneme strings): keep it as a passthrough token through
 # set_word_stress so the downstream phoneme parser doesn't greedily merge the phonemes it
@@ -1209,7 +1209,8 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 shorten = prev_v_stress < STRESS_IS_PRIMARY
             if shorten:
                 continue
-        _syl_cons = (not _ph_is_vowel(ph) and _pi + 1 < len(phonetic)
+        _syl_cons = (not _ph_is_vowel(ph) and ph.type not in (phINVALID, phPAUSE)
+                     and _pi + 1 < len(phonetic)
                      and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1]))
         if _ph_is_vowel(ph) or _syl_cons:
             # @- excluded from the vowel count in get_vowel_stress when nonsyllabic (its
@@ -1284,7 +1285,8 @@ def change_word_stress(tr, phoneme_str, mnem_index, new_stress, pick_last=False)
                 and _ph_is_vowel(phonetic[_pi + 1][1]):
             out.append(mnem)
             continue
-        _syl_cons = (not _ph_is_vowel(ph) and _pi + 1 < len(phonetic)
+        _syl_cons = (not _ph_is_vowel(ph) and ph.type not in (phINVALID, phPAUSE)
+                     and _pi + 1 < len(phonetic)
                      and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1]))
         if _ph_is_vowel(ph) or _syl_cons:
             vs = vowel_stress[v]
