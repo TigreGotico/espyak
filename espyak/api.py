@@ -1414,12 +1414,14 @@ class G2P:
             # instead (dO:t -> d | O | t, the mid-clause O -> oɔ not the o: letter name). Default
             # languages keep the historical isolated-word at_end=True (one word per phonemize call).
             at_end = (not self._config.get("atend_clause_final")) or unit_last
+            self._switch_consumed = 0
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
                                          caps_stress=caps_stress,
                                          all_upper=word.isupper() and any(c.isalpha() for c in word),
                                          first_upper=word[:1].isupper(), at_end=at_end,
                                          following=(following if skip else ()),
-                                         clause_ctx=bool(skip))
+                                         clause_ctx=bool(skip),
+                                         switch_following=following)
             if (not rendered and self.lang != "en" and word.isascii()
                     and any(c.isalpha() for c in word)
                     and not getattr(self, "_textmode_empty", False)):
@@ -1427,10 +1429,22 @@ class G2P:
                 # script is re-translated by the Latin default voice (English) and bracketed
                 # with the language switch — bg/fa/ka: foot -> (en)fˈʊt(bg). A Latin-script
                 # language never yields an empty translation for an alphabetic word, so the
-                # empty result self-identifies the foreign word.
-                en_ph = self._en_fallback()._render_word(word.lower(), tonic, ipa, tie, separator)
+                # empty result self-identifies the foreign word. As with the in-band _^_ switch,
+                # espeak re-translates in place with the English voice, so its multi-word dict
+                # entries consume the following source words as one run.
+                en = self._en_fallback()
+                en_first = word[:1].isupper()
+                en_all = word.isupper() and any(c.isalpha() for c in word)
+                sk = en._dict.multiword_skip(
+                    word.lower(), list(following), dict_condition=en._tr.dict_condition,
+                    first_upper=en_first, all_upper=en_all)
+                en_ph = en._render_word(word.lower(), tonic, ipa, tie, separator,
+                                        first_upper=en_first, all_upper=en_all,
+                                        following=(list(following) if sk else ()),
+                                        clause_ctx=bool(sk))
                 if en_ph:
                     rendered = "(en)" + en_ph + "(" + self.lang + ")"
+                    self._switch_consumed = sk
             if (not rendered and word == "း" and self.force_compat
                     and self._config.get("compat_spell_orphan_visarga")):
                 # shn: a visarga း orphaned by the asat split renders empty here (it is its own
@@ -1445,7 +1459,9 @@ class G2P:
                 if out:
                     out.append(" ")  # exactly one separator before the spelled visarga
             out.append(rendered)
-            i += 1 + skip
+            # a language-switch multi-word run (self._switch_consumed) and an outer-language
+            # multi-word entry (skip) are mutually exclusive; advance past whichever fired.
+            i += 1 + max(skip, getattr(self, "_switch_consumed", 0))
         # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
         # separator space; espeak emits none, so trim it.
         result = "".join(out).rstrip(" ")
@@ -1677,8 +1693,12 @@ class G2P:
         return " ".join(p for p in pieces if p)
 
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
-                     first_upper=False, at_end=True, following=(), clause_ctx=False):
+                     first_upper=False, at_end=True, following=(), clause_ctx=False,
+                     switch_following=()):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
+        # words consumed by a language-switch multi-word entry (see the `_^_` branch below); reset
+        # every call so the phonemize loop reads a fresh count for this word.
+        self._switch_consumed = 0
         # A switched sub-translator (G2P._SWITCH_CACHE) is reused across words AND across the
         # outer languages that switch into it; the number/letter-spell paths below reach
         # _render_phonemes WITHOUT going through translate_word, so reset the dict-entry flag
@@ -1805,7 +1825,20 @@ class G2P:
             switch_word = _payload[1] if len(_payload) > 1 else word
             tg = self._switch_g2p(target)
             if tg is not None:
-                inner = tg._render_word(switch_word, tonic, ipa, tie, separator)
+                # espeak re-translates in place on the shared clause buffer after a phonSWITCH
+                # (translate.c SetTranslator2), so the SWITCHED language sees the following source
+                # words and its own multi-word dict entries consume them as ONE run: sv `has been`
+                # switches to en, whose `(has been)` entry yields hˈazbiːn across both words. Ask the
+                # switched dict how many following words it swallows and translate the whole run
+                # through it; the loop skips the consumed words via self._switch_consumed.
+                sk = tg._dict.multiword_skip(
+                    switch_word.lower(), list(switch_following),
+                    dict_condition=tg._tr.dict_condition,
+                    first_upper=first_upper, all_upper=all_upper)
+                self._switch_consumed = sk
+                inner = tg._render_word(switch_word, tonic, ipa, tie, separator,
+                                        following=(list(switch_following) if sk else ()),
+                                        clause_ctx=bool(sk))
                 if (ipa and target == "en"
                         and self._config.get("switch_segment_tone5") and " " in inner):
                     inner = self._cmn_switch_segment_tone5(inner)
