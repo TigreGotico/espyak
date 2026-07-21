@@ -33,6 +33,14 @@ _CLAUSE_PUNCT = ".,;:!?…\"'“”‘’«»()[]{}"
 # so those are left to the per-language dictionary rather than hardcoded here.
 _SILENT_ALONE = ".,;?…\"'“”‘’«»()[]{}"
 
+# Symbols that are PRONOUNCED words rather than clause structure, and that attach to the
+# end of a number ("42%"). Not stripped by the tokenizer; split off in _render_word and
+# spoken after the number. Each keeps its own dictionary entry, so the name stays
+# per-language (en percent, nl procent).
+# `°` is deliberately absent: en "20°" needs a plural/context rule ("degrees") that this
+# simple split does not model, so it is left for a separate change.
+_NUMBER_SUFFIX_SYMBOLS = "%‰"
+
 
 def _ga_caps_prefix(tok, j):
     """True if tok[:j] + the uppercase tok[j] is an Irish capitalised-prefix (don't split)."""
@@ -1595,6 +1603,20 @@ class G2P:
         # normal translation instead of crashing.
         def _dig(s):
             return s.isascii() and s.isdigit()
+
+        # A pronounced symbol suffixed to a number ("42%") is not clause punctuation, so the
+        # tokenizer leaves it attached — and the number branches below require an all-digit
+        # token, so nothing fired and the whole thing rendered as empty. Split the symbol off
+        # and speak it AFTER the number, the order espeak uses ("42%" -> forty two percent).
+        # The symbol keeps its own dictionary entry, so this stays language-correct
+        # (en percent, nl procent) without hardcoding names.
+        num_word, num_tail = word, ""
+        if len(word) > 1 and word[-1] in _NUMBER_SUFFIX_SYMBOLS:
+            _stem = word[:-1]
+            if _dig(_stem) or (_dig(_stem.replace(dsep, "", 1)) and dsep in _stem
+                               and not _stem.startswith(dsep)
+                               and not _stem.endswith(dsep)):
+                num_word, num_tail = _stem, word[-1]
         if not word.isascii():
             # native-script decimal digits (fa ۱, ar ٠, Devanagari ०, ...) -> ASCII so they route to
             # the number path (۱ -> jek). unicodedata.decimal rejects superscripts/subscripts ('²'),
@@ -1619,11 +1641,16 @@ class G2P:
                                         all_upper=all_upper, first_upper=first_upper, at_end=at_end)
             if dword.strip():
                 return self._render_phonemes(dword, ipa, tie, separator)
-        if word and (_dig(word) or (_dig(word.replace(dsep, "", 1))
-                                    and dsep in word and not word.startswith(dsep)
-                                    and not word.endswith(dsep))):
-            ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
+        if num_word and (_dig(num_word) or (_dig(num_word.replace(dsep, "", 1))
+                                            and dsep in num_word
+                                            and not num_word.startswith(dsep)
+                                            and not num_word.endswith(dsep))):
+            ph = translate_number(self._dict, num_word, flags=num_flags, decimal_sep=dsep)
             if ph:
+                if num_tail:
+                    _tph, _ = self._dict.lookup(num_tail, LookupContext())
+                    if _tph:
+                        ph += "||" + _tph
                 ph = self._stress_number_words(ph, tonic=tonic)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
