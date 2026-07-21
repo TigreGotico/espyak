@@ -378,7 +378,7 @@ class G2P:
         )
 
     def translate_word(self, word, tonic=-1, caps_stress=0, all_upper=None, first_upper=None,
-                       at_end=True):
+                       at_end=True, following=(), clause_ctx=False):
         """Translate a single lowercase word to its mnemonic phoneme string.
 
         Pipeline: dictionary `_list` lookup -> (fallback) letter-to-sound rules ->
@@ -398,6 +398,10 @@ class G2P:
             if all_upper is None else all_upper,
             at_end=at_end,
             dict_condition=self._tr.dict_condition,
+            # LookupDictList passes the remaining source so a `(w1 w2 ...)` multi-word entry can
+            # match against the following words (has been -> hˈazbiːn as one unit).
+            following=following,
+            clause_ctx=clause_ctx,
         )
         self._tr.expect_verb = 0
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
@@ -1318,17 +1322,30 @@ class G2P:
                     continue
                 self._split_caps_word(tok, words, caps_letters, first_sub=(pi > 0 or join))
         out = []
-        for i, (word, nospace) in enumerate(words):
+        i = 0
+        n = len(words)
+        while i < n:
+            word, nospace = words[i]
+            # LookupDictList multi-word entries: a `(w1 w2 ...)` dict entry keyed on this word whose
+            # follow-words match the source is one pronunciation unit spanning several tokens (has
+            # been -> hˈazbiːn). Probe how many following words it consumes so the clause tonic lands
+            # on the whole unit and the loop skips the consumed tokens.
+            following = [w.lower() for (w, _ns) in words[i + 1:]]
+            skip = self._dict.multiword_skip(
+                word.lower(), following, dict_condition=self._tr.dict_condition,
+                first_upper=word[:1].isupper(),
+                all_upper=word.isupper() and any(c.isalpha() for c in word))
+            unit_last = (i + skip == n - 1)
             # tonic word carries the clause stress; tone languages (vi) reduce it to
             # secondary since the tone, not stress, carries syllable prominence.
-            tonic = self._config.get("tonic_stress", 4) if i == len(words) - 1 else -1
+            tonic = self._config.get("tonic_stress", 4) if unit_last else -1
             if (tonic >= 0 and self._config.get("u_tonic") is not None
                     and (self._dict.lookup_flags(word) & 0x8)):
                 # vi: a $u function word as the clause nucleus stays SECONDARY (cho -> tʃˌɔ), unlike a
                 # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
                 tonic = self._config.get("u_tonic")
             _wflags = self._dict.lookup_flags(word.split("\x02")[0])
-            if (tonic >= 0 and len(words) > 1 and self._config.get("u_post_nuclear")
+            if (tonic >= 0 and n > 1 and self._config.get("u_post_nuclear")
                     and (_wflags & 0x8) and not (_wflags & K.FLAG_STRESS_END)):
                 # smj: a TRAILING plain-$u function word in a multi-word render is post-nuclear —
                 # the clause accent already landed on a preceding (spelled letter-name / camelCase)
@@ -1360,6 +1377,7 @@ class G2P:
                 # consonant as its own glyph (FLAG_NOSPACE join): '&m' -> ˈɔːɡm.
                 rendered = self._render_word("&", tonic, ipa, tie, separator) + word[1:]
                 out.append(rendered)
+                i += 1
                 continue
             if "\x02" in word:
                 # smj long-vowel letter name with a peeled geminate coda (A:\x02l): spell the
@@ -1367,16 +1385,19 @@ class G2P:
                 lname, coda = word.split("\x02", 1)
                 rendered = self._render_word(lname.lower(), tonic, ipa, tie, separator) + coda
                 out.append(rendered)
+                i += 1
                 continue
             # atend_clause_final (smj): a $atend-gated letter name (O -> o:, i -> i:) only applies
             # when the word is the LAST in the clause; a non-final caps-letter token rule-translates
             # instead (dO:t -> d | O | t, the mid-clause O -> oɔ not the o: letter name). Default
             # languages keep the historical isolated-word at_end=True (one word per phonemize call).
-            at_end = (not self._config.get("atend_clause_final")) or (i == len(words) - 1)
+            at_end = (not self._config.get("atend_clause_final")) or unit_last
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
                                          caps_stress=caps_stress,
                                          all_upper=word.isupper() and any(c.isalpha() for c in word),
-                                         first_upper=word[:1].isupper(), at_end=at_end)
+                                         first_upper=word[:1].isupper(), at_end=at_end,
+                                         following=(following if skip else ()),
+                                         clause_ctx=bool(skip))
             if (not rendered and self.lang != "en" and word.isascii()
                     and any(c.isalpha() for c in word)
                     and not getattr(self, "_textmode_empty", False)):
@@ -1402,6 +1423,7 @@ class G2P:
                 if out:
                     out.append(" ")  # exactly one separator before the spelled visarga
             out.append(rendered)
+            i += 1 + skip
         # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
         # separator space; espeak emits none, so trim it.
         result = "".join(out).rstrip(" ")
@@ -1549,7 +1571,7 @@ class G2P:
             for w in ph.split("||"))
 
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
-                     first_upper=False, at_end=True):
+                     first_upper=False, at_end=True, following=(), clause_ctx=False):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
         # A switched sub-translator (G2P._SWITCH_CACHE) is reused across words AND across the
         # outer languages that switch into it; the number/letter-spell paths below reach
@@ -1652,7 +1674,8 @@ class G2P:
                         all_upper=_up, first_upper=_up))
                 return " ".join(x for x in _r if x)
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
-                                 first_upper=first_upper, at_end=at_end)
+                                 first_upper=first_upper, at_end=at_end, following=following,
+                                 clause_ctx=clause_ctx)
         if getattr(self, "_spell_prerendered", False):
             # name-first spell-word (_spell_letters_named) already produced final IPA with its own
             # (lang)…(orig) switches spliced in; return it verbatim (do not re-encode as phonemes).
