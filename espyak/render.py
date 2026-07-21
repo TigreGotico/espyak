@@ -103,7 +103,15 @@ def encode_phoneme_string(s, table):
             continue
         if c == "|":
             if s[i:i + 2] == "||":
-                pending_newword = True  # "||" is a word break in the phoneme string
+                # "||" is a word break in the phoneme string. But the bare phonPAUSE `_`
+                # immediately before the break swallows the word-boundary space: espeak's
+                # [[hai_||Ent]] renders `haiˈɛnt` while [[hai||Ent]] renders `hai ˈɛnt`
+                # (compound joins spelled `_||` in a dict entry — de highend hˌaiˈɛnt, it
+                # bestseller bˈɛst̪sˈeller — vs a plain `||` join, nordrhein nˈɔɾt raɪn). Only
+                # the bare `_` suppresses: a longer pause such as `_:` (phonPAUSE_SHORT) keeps
+                # the space (ru `три и один`: [[…_:||…]] -> `… …`, still spaced).
+                if not (entries and entries[-1].ph.mnemonic == "_"):
+                    pending_newword = True
                 i += 2
             else:
                 i += 1  # single "|" is a morpheme/tie barrier — not a phoneme
@@ -151,6 +159,13 @@ def encode_phoneme_string(s, table):
             continue
         ph = table.phonemes[m]
         i += len(m)
+        if m == ":" and entries and entries[-1].ph.type == phPAUSE:
+            # phonLENGTHEN (`:`) applies SFLAG_LENGTHEN to the PRECEDING list phoneme
+            # (translate.c:590). A `_` pause is that phoneme when a length mark trails a `_||`
+            # compound join (de highend hai_||::Ent), and a lengthened pause renders nothing —
+            # espeak's [[hai_||::Ent]] and [[hai_::Ent]] both yield `haiˈɛnt`. Drop it so the
+            # `::` doesn't surface as a stray ː (-> hˌaiˈɛnt, not hˌaiːˈɛnt).
+            continue
         if m == "-" and pending_newword:
             # phonSYLLABIC immediately after a || word break (translate.c:585): it marks the
             # phoneme that PRECEDED the break syllabic and resets that phoneme's stress to the

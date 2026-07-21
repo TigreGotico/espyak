@@ -263,7 +263,14 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         out = translate_number(tr_dict, intpart or "0", ctx, flags)
         out += "||" + _frag(tr_dict, "dpt", ctx)
         out += _translate_fraction(tr_dict, frac, ctx, flags)
-        return out
+        # A spoken-number word break is a REAL word boundary (espeak spaces it via sourceix),
+        # but the decimal-point word and the fraction digit fragments carry a trailing `_`
+        # word-gap phoneme, leaving `_||` at the join. A bare `_` immediately before `||` is a
+        # compound-join pause that SWALLOWS the break's space (render.encode_phoneme_string) —
+        # correct for a dict compound (bestseller `_||`), wrong here. Reorder to `||_`: the pause
+        # moves past the break so the space renders, while still blocking cross-boundary voicing
+        # assimilation (pl `trzy przecinek zero…`: k stays k, not ɡ, and the space is kept).
+        return out.replace("_||", "||_")
     n = int(digits)
     if n == 0:
         return _frag(tr_dict, "0", ctx)
