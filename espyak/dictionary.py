@@ -122,6 +122,7 @@ class Translator:
         self.expect_verb = 0
         self.word_vowel_count = 0
         self.word_stressed_count = 0
+        self._dict_ref = None
         self.phsource = phsource
         if config is None:
             config = {
@@ -148,6 +149,19 @@ class Translator:
         for _n in config.get("dictrules", ()):
             self.dict_condition |= (1 << _n)
         self._setup_letters(config)
+
+    @property
+    def dict(self):
+        return self._dict_ref
+
+    @dict.setter
+    def dict(self, dictlist):
+        # Stamp the translator's dict_condition onto the DictList so lookups that build their
+        # own LookupContext without the translator in hand (number translation, numbers.py)
+        # still select the voice's `?N`-gated entries (pt dictrules 1 -> ?1_14 "catorze").
+        self._dict_ref = dictlist
+        if dictlist is not None:
+            dictlist.dict_condition = self.dict_condition
 
     def _setup_letters(self, config):
         for group, letters in config.get("letter_bits", _DEFAULT_LETTER_BITS).items():
@@ -260,6 +274,9 @@ class DictList:
         self.text_mode = False
         # fo: single-letter NAME lookups respect the source key's case (see DictEntry.key_upper).
         self.case_sensitive_letters = False
+        # the owning Translator stamps its dict_condition here (Translator.dict setter) so
+        # context-less lookups (number translation) still select `?N`-gated entries.
+        self.dict_condition = 0
 
     def has_exact(self, key):
         """True if `key` existed verbatim (case-sensitive). espeak's LookupLetter is
@@ -293,17 +310,30 @@ class DictList:
             return
         flag_codes = []
         rest_words = ""
-        # a condition can precede the word, e.g. "?!3 _0and  @n" — separated from the word
-        # by ANY whitespace (the _list files mix spaces and TABs, e.g. "?2\teste\t...$u+\t'estSy").
+        # a condition can precede the word: "?N" or "?!N" (N up to two digits). compile_line
+        # (compiledict.c:435) consumes ONLY `?`, an optional `!`, and up to two digits, then the
+        # word follows — so the condition need NOT be whitespace-separated from the word. Both
+        # "?!3 _0and  @n" (spaced) and "?1_14" (glued, pt teens/tens) are the same shape: the
+        # word is whatever remains after the fixed-width condition token. Reading the whole
+        # whitespace token as the condition (and scraping its digits) mis-parsed "?1_14" as
+        # condition 114 and dropped `_14`, so the pt cardinals 13/14/16-19/2X/4X/6X/7X/9X and
+        # the en `?3_.p` abbreviation never loaded.
         leading_cond = []
         while line and line[0] == "?":
-            parts = line.split(None, 1)
-            ctok = parts[0]
-            line = parts[1] if len(parts) > 1 else ""
-            neg = len(ctok) > 1 and ctok[1] == "!"
-            num = "".join(ch for ch in ctok if ch.isdigit())
-            if num:
-                leading_cond.append(int(num) + (132 if neg else 100))
+            p = 1
+            neg = p < len(line) and line[p] == "!"
+            if neg:
+                p += 1
+            ndig = 0
+            num = 0
+            while ndig < 2 and p < len(line) and line[p].isdigit():
+                num = num * 10 + int(line[p])
+                p += 1
+                ndig += 1
+            if ndig == 0:
+                break  # a bare leading `?` is not a condition (leave it for the word/phonemes)
+            leading_cond.append(num + (132 if neg else 100))
+            line = line[p:].lstrip()
         if not line:
             return
         flag_codes.extend(leading_cond)

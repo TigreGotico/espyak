@@ -1,6 +1,12 @@
 """Cardinal-number translation vs the espeak-ng oracle (English core)."""
+import unicodedata
+
 import pytest
 from espyak.api import G2P
+
+
+def _nfc(s):
+    return unicodedata.normalize("NFC", s)
 
 # cardinal core (NUM_HUNDRED_AND). NUM_THOUSAND_AND ("one million and five"), ordinals,
 # decimals/years and the per-language NUM_* variants are not yet modelled.
@@ -94,3 +100,58 @@ def test_welsh_tens_precede_units(cy, num, unit_core):
     out = cy.phonemize(num)
     assert "ðˌ" in out  # the "deg" tens marker is present
     assert out.index("ðˌ") < out.rindex(unit_core)
+
+
+# Portuguese: teens, tens and hundreds live in `?N`-gated `_list` entries whose condition prefix
+# is glued to the key ("?1_14", "?1_4X", "?1_2C"). The voice's `dictrules 1` sets condition 1,
+# so those entries must load AND be selected by the number path (which builds its own lookup
+# context). The tens/units connective is NUM_AND_UNITS ("vinte e um"); the thousands use the
+# combined `_1M1` "mil" and `_1M2` "um milhão" forms.
+PT_CARDINAL_EXACT = {
+    "13": "tɹˈezɨ", "14": "kɐtˈorzɨ", "15": "kˈiŋzɨ", "40": "kwɐɾˈeŋtɐ",
+    "100": "sˈeɪŋ", "21": "vˈiŋtɨiˈum", "24": "vˈiŋtɨikwˈatɹu",
+    "1000": "mˈil", "2000": "dˈoɪʒ mˈil", "1005": "mˈil i sˈiŋku",
+    # "um milhão": ũ/ɐ̃/ʊ̃ are base letter + U+0303 combining tilde (espeak's un-normalised form).
+    "1000000": "ˈũmiljˈɐ̃ʊ̃",
+}
+
+
+@pytest.fixture(scope="module")
+def pt():
+    return G2P("pt")
+
+
+@pytest.mark.parametrize("num,expected", sorted(PT_CARDINAL_EXACT.items()))
+def test_portuguese_cardinal_exact(pt, num, expected):
+    assert _nfc(pt.phonemize(num)) == _nfc(expected)
+
+
+@pytest.mark.parametrize("num,expected", sorted(PT_CARDINAL_EXACT.items()))
+def test_portuguese_cardinal_matches_oracle(pt, oracle, num, expected):
+    assert pt.phonemize(num) == oracle(num, "pt")
+
+
+@pytest.mark.parametrize("num", ["13", "14", "16", "17", "18", "19", "40", "60", "70", "90"])
+def test_portuguese_conditional_number_entries_load(pt, num):
+    # These cardinals only exist as condition-gated entries ("?1_14" etc.); before the glued
+    # condition prefix parsed correctly they yielded an empty string.
+    assert pt.phonemize(num) != ""
+
+
+def test_portuguese_and_units_connective(pt):
+    # NUM_AND_UNITS inserts the "e" (rendered "i") between tens and units: vinte + i + um.
+    assert "tɨiˈum" in pt.phonemize("21")  # vˈiŋtɨiˈum
+    assert "tɨiˈum" not in pt.phonemize("20")  # plain "vinte" has no connective/unit
+
+
+def test_portuguese_thousand_omits_um(pt):
+    # 1000 is "mil", never "um mil": the combined _1M1 form supersedes value+magnitude.
+    out = pt.phonemize("1000")
+    assert out == "mˈil"
+    assert "um" not in out
+
+
+def test_portuguese_million_singular_form(pt):
+    # 1_000_000 uses the singular _1M2 "um milhão", not the plural _0M2 "milhões".
+    assert _nfc(pt.phonemize("1000000")) == _nfc("ˈũmiljˈɐ̃ʊ̃")
+    assert "õ" not in _nfc(pt.phonemize("1000000"))  # not the plural "milhões"
