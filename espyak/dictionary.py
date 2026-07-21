@@ -1866,7 +1866,8 @@ def _unpronounceable(tr, word, posn=0):
     return vowel_posn > (cfg.get("max_initial_consonants", 3) + 1)
 
 
-def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0):
+def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0,
+                    left_ctx="", right_ctx=""):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 
     Returns (phonemes, end_type, end_phonemes). When `want_endings` and a standard
@@ -1874,13 +1875,23 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
     pronunciation, and `end_type` encodes the affix (the caller removes it and
     retranslates the stem). Otherwise end_type=0.
     (Accent removal, spell-word fallback, and language-switch are not yet wired.)
+
+    ``left_ctx``/``right_ctx`` supply neighbouring-word text so a rule's pre/post
+    context (RULE_SPACE ``_`` / RULE_DIGIT ``D``) can match ACROSS a word boundary the
+    way espeak's MatchRule reads the shared clause buffer. Only the core ``word`` is
+    translated; the context bytes sit in the buffer purely for pre/post matching (each
+    separated from the word by a space, framed by the \\x00 sentinels). This is what
+    lets the digit-context punctuation rules fire — ``D_) : (_DD_`` (omit colon in a
+    time), ``D_) - (_D`` (dash), ``__) - (_D`` (minus) — for an isolated ``:`` or ``-``.
     """
     rules = tr.rules
     word = _apply_replacements(getattr(rules, "replacements", None), word)
     wb = word.encode("utf-8")
-    buf = bytearray(b"\x00 " + wb + b" \x00")
-    p = 2                       # index of first letter
-    end = len(buf) - 2          # index of trailing space
+    lb = (left_ctx.encode("utf-8") + b" ") if left_ctx else b""
+    rb = (b" " + right_ctx.encode("utf-8")) if right_ctx else b""
+    buf = bytearray(b"\x00 " + lb + wb + rb + b" \x00")
+    p = 2 + len(lb)             # index of first letter of the word (past any left context)
+    end = 2 + len(lb) + len(wb)  # index of the space right after the word
     phonemes = ""
     tr.word_vowel_count = 0
     tr.word_stressed_count = 0

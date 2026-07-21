@@ -1273,7 +1273,11 @@ class G2P:
             # internal-hyphen branches fire). fo `barna-` keeps its word-final `rn`->`dn` rule
             # (badnˈa, not bˈarna); `test-` == `test` in every language.
             if not nospace_join:
-                raw_tok = raw_tok.lstrip("-")
+                # keep a single leading '-' that is a MINUS sign directly before a digit
+                # (translate.c: `-5` -> "minus five"); a double `--` is a pause, not a minus,
+                # so it is still stripped (`--5` -> "five").
+                if not (raw_tok[:1] == "-" and raw_tok[1:2].isdigit()):
+                    raw_tok = raw_tok.lstrip("-")
             raw_tok = raw_tok.rstrip("-")
             if not raw_tok:
                 continue
@@ -1579,6 +1583,90 @@ class G2P:
             set_word_stress(self._tr, w, self._mnem, tonic=tonic) if w else w
             for w in ph.split("||"))
 
+    def _render_numeric_punct(self, word, tonic, ipa, tie, separator,
+                              all_upper=False, first_upper=False):
+        """Render a token mixing digits with time/range/sign punctuation (':' and '-').
+
+        espeak's clause reader isolates each ':'/'-' as its own space-delimited token, so a
+        digit-first group goes to the number translator while the punctuation mark is matched
+        by the letter-to-sound rules — whose pre/post context reads the neighbouring digits
+        ('D_) : (_DD_' omits a time colon, 'D_) - (_D' is a dash, '__) - (_D' a minus). Each
+        language supplies its own phonemes (en drops the time colon, de says "Uhr", nl "nul",
+        ...), so nothing here is hard-coded. Reproduce that split: render every number/word
+        group as its own word and every punctuation mark through the rules with context.
+        """
+        segs, puncts = [], []
+        cur = ""
+        for ch in word:
+            if ch in ":-":
+                segs.append(cur)
+                cur = ""
+                puncts.append(ch)
+            else:
+                cur += ch
+        segs.append(cur)
+
+        def _spc(s):
+            # espeak breaks a word at a digit<->non-digit boundary; mirror it so a rule's
+            # RULE_SPACE '_' context still matches ('12:30pm' -> the colon sees '30 pm', so
+            # its '(_DD_' post-context — two digits then a boundary — holds and the colon drops).
+            out = []
+            for i, c in enumerate(s):
+                if i and (c.isdigit() != s[i - 1].isdigit()):
+                    out.append(" ")
+                out.append(c)
+            return "".join(out)
+
+        def _render_group(seg, speak_leading_zero):
+            if not seg:
+                return ""
+            if seg.isascii() and seg.isdigit():
+                if speak_leading_zero and seg[0] == "0":
+                    # a non-initial time group speaks its leading zeros digit by digit
+                    # ('09:05' -> "nine ZERO FIVE"); an all-zero group -> "zero zero".
+                    if set(seg) == {"0"}:
+                        digits = list(seg)
+                    else:
+                        digits = ["0"] * (len(seg) - len(seg.lstrip("0"))) + [seg.lstrip("0")]
+                    return " ".join(
+                        x for x in (self._render_word(d, 4, ipa, tie, separator) for d in digits)
+                        if x)
+                return self._render_word(seg, 4, ipa, tie, separator)
+            # a letter or mixed group ('pm', 'a', ...): translate as its own word
+            return self._render_word(seg, 4, ipa, tie, separator,
+                                     all_upper=all_upper, first_upper=first_upper)
+
+        def _render_mark(ch, left, right, at_start):
+            # a trailing mark with nothing pronounceable after it is dropped, as espeak's number
+            # translator swallows a suffix colon/hyphen ('12:' -> "twelve", '3-' -> "three").
+            if not right:
+                return ""
+            # two adjacent marks ('3--4') are a pause in espeak, not a sign — the mark whose left
+            # neighbour is empty yet is NOT at clause start sits against a preceding mark, so drop it.
+            if not left and not at_start:
+                return ""
+            # at clause start the mark's left is empty; espeak's buffer still has the leading
+            # clause-pad spaces there, so the minus rule '__) - (_D' (two RULE_SPACE) can match.
+            # Our \x00 sentinel fails RULE_SPACE, so supply an explicit space as the boundary.
+            lc = _spc(left) if left else " "
+            ph, _, _ = translate_rules(self._tr, ch, self._mnem,
+                                       left_ctx=lc, right_ctx=_spc(right))
+            if not ph.strip():
+                return ""
+            # the mark is not the clause nucleus (tonic=-1): a spoken punctuation name keeps its
+            # own lexical stress ("colon" -> kˈəʊlən, "dash" -> dˈaʃ, "minus" -> mˈaɪnəs) while a
+            # de time connector's repositionable-secondary '%u:r' stays unstressed (uːɾ, not ˈuːɾ).
+            ph = set_word_stress(self._tr, ph, self._mnem, dict_flags=0, tonic=-1)
+            return self._render_phonemes(ph, ipa, tie, separator)
+
+        pieces = []
+        for i, seg in enumerate(segs):
+            speak_lz = i > 0 and puncts[i - 1] == ":"
+            pieces.append(_render_group(seg, speak_lz))
+            if i < len(puncts):
+                pieces.append(_render_mark(puncts[i], segs[i], segs[i + 1], at_start=(i == 0)))
+        return " ".join(p for p in pieces if p)
+
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
                      first_upper=False, at_end=True, following=(), clause_ctx=False):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
@@ -1603,6 +1691,16 @@ class G2P:
             word = "".join(
                 str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None else c
                 for c in word)
+        # digit-adjacent time/range/sign punctuation ('12:30', '3-4', '-5'): espeak's clause
+        # reader isolates the ':'/'-' as its own token surrounded by spaces, so the digit-context
+        # rules ('D_) : (_DD_', 'D_) - (_D', '__) - (_D') fire across the word boundary. Reproduce
+        # that here — render each number group and each isolated punctuation mark separately, giving
+        # the punctuation rules their neighbouring-digit context (see _render_numeric_punct).
+        if any(c.isdigit() for c in word) and (":" in word or "-" in word):
+            r = self._render_numeric_punct(word, tonic, ipa, tie, separator,
+                                           all_upper=all_upper, first_upper=first_upper)
+            if r is not None:
+                return r
         if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and _dig(word[:-2])):
             ph = translate_ordinal(self._dict, word[:-2], word[-2:], flags=num_flags)
             if ph:
