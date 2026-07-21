@@ -14,3 +14,20 @@ dist/
 .pytest_cache/
 .tox/
 .venv/
+.claude/
+# scratch parity/audit outputs (regenerated on demand, never committed)
+/test/*.jsonl
+/test/parity_*.md
+/test/base_*.md
+/test/r.md
+/test/r2.md
+/test/r3.md
+/test/rbase.md
+/test/rhu.md
+/test/gaps2.md
+/test/it_dev_head.md
+/test/report_generated_corpus.md
+/test/shn_chk.md
+/test/corpus_hf.py
+/test/coverage_full.py
+/test/gap_corpus.py
