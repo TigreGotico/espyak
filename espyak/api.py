@@ -1707,15 +1707,32 @@ class G2P:
         `num_stress_flags` (nl S_FIRST_PRIMARY) augments the language's stress_flags for the number
         phrase only — espeak applies these flags in every SetWordStress, but espyak scopes them to
         the number here to avoid disturbing $-forced lexical stress in ordinary words."""
+        # A `_!` phrase-break pause (inserted by numbers.py after a "long" magnitude group) splits
+        # the number into separate intonation phrases: espeak runs SetWordStress once per clause-word,
+        # so each phrase keeps its OWN first primary (nl 12345 -> tʋˈaːlf dˌœyzɛnt drˈihˌɔndərt… —
+        # twaalf AND drie primary, not just twaalf). Stress each phrase segment independently and
+        # rejoin on the pause so the break survives to the render/degemination pass. (Split on the
+        # distinct `_!` marker, NOT a bare `_`, which is a fragment-internal pause such as nl komma
+        # `_kˈɔmaː` — splitting there would wrongly give the decimal-separator word its own primary.)
+        segments = ph.split("_!") if "_!" in ph else [ph]
+        out_segs = []
+        last = len(segments) - 1
         extra = self._config.get("num_stress_flags", 0)
+        saved = self._tr.stress_flags
         if extra:
-            saved = self._tr.stress_flags
             self._tr.stress_flags = saved | extra
-            try:
-                return set_word_stress(self._tr, ph, self._mnem, tonic=tonic)
-            finally:
-                self._tr.stress_flags = saved
-        return set_word_stress(self._tr, ph, self._mnem, tonic=tonic)
+        try:
+            for si, seg in enumerate(segments):
+                if not seg:
+                    out_segs.append(seg)
+                    continue
+                # only the final phrase carries the clause tonic; earlier phrases stand on their
+                # own lexical stress (tonic passed through so a non-nucleus number takes none).
+                seg_tonic = tonic if si == last else (4 if tonic >= 0 else tonic)
+                out_segs.append(set_word_stress(self._tr, seg, self._mnem, tonic=seg_tonic))
+        finally:
+            self._tr.stress_flags = saved
+        return "_!".join(out_segs)
 
     def _render_numeric_punct(self, word, tonic, ipa, tie, separator,
                               all_upper=False, first_upper=False):
@@ -1814,6 +1831,10 @@ class G2P:
         # here too — else a stale `_from_dict` (left True by a spelled foreign letter) suppresses
         # the next word's reductions and the shared ru returns '' for книга. (it а then книга.)
         self._from_dict = False
+        # ru number tokens are exempt from the regressive-voicing pass (see language_data
+        # "number_skip_voicing"): the citation fragments keep their word-final obstruents across
+        # the join. Set on the number-render branches below, gated on the language flag.
+        self._skip_voicing = False
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
         dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
@@ -1870,6 +1891,7 @@ class G2P:
                 # (StressCondition control&1) — cy `pedwar deg dau` keeps `deg`'s eː when it is
                 # only secondary-stressed in the compound (ðˌeːɡ, not the reduced ðˌɛɡ).
                 self._from_dict = True
+                self._skip_voicing = self._config.get("number_skip_voicing", False)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if _dig(word) and 1 <= len(word) <= 4:
             # espeak looks the WHOLE word up in the dictionary (LookupDictList, translateword.c:168)
@@ -1893,6 +1915,7 @@ class G2P:
                 # number fragments come from the `_list` dictionary (SFLAG_DICTIONARY), so their
                 # vowels are exempt from stress-condition reductions the same way a dict headword is.
                 self._from_dict = True
+                self._skip_voicing = self._config.get("number_skip_voicing", False)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
             # a mixed digit/letter token that is neither a pure number nor an ordinal (handled above)
@@ -2235,7 +2258,7 @@ class G2P:
             for e in plist:
                 e.dict_no_reduce = True
         reg = self._config.get("regression", 0)
-        if reg:
+        if reg and not getattr(self, "_skip_voicing", False):
             set_regressive_voicing(plist, self.phoneme_table, reg)
         self._interp._translation_given = getattr(self, "_from_dict", False)
         self._interp.run(plist)  # P1b: context-dependent phoneme programs

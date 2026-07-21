@@ -422,6 +422,15 @@ LANGS["ru"]["letter_bits_codes"] = LANGS["ru"]["letter_bits_codes"] + [
 # Translator_Russian (tr_languages.c): NUM_DECIMAL_COMMA | NUM_OMIT_1_HUNDRED ("сто" not
 # "один сто"). Fraction digit-by-digit between "_dpt" ("и") and a "_dpt2" tail ("десятых").
 LANGS["ru"]["numbers"] = K.NUM_DECIMAL_COMMA | K.NUM_OMIT_1_HUNDRED
+# Number fragments are NOT regressively cross-voiced in ru: each `_list` fragment
+# (сорок, два, двадцать, …) keeps its citation-form final obstruent across the fragment
+# join — сорок+два -> sˈorɔk-dvˈɑ (NOT sˈorɔɡ-), девятьсот+девяносто keeps its final t,
+# двадцать+два keeps its t;. This is unlike the other 0x03-regression Slavic voices (cs/sr
+# voice tset+dva -> sed dva); ru is handled by a dedicated Translator_Russian and its
+# citation number fragments are read as separate words whose word-final obstruents are not
+# re-voiced by the following fragment. (The whole-clause voicing pass still runs for ordinary
+# ru words — так+делать -> tʌɡdʲ… — only the assembled number token is exempt.)
+LANGS["ru"]["number_skip_voicing"] = True
 LANGS["uk"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT, K.S_NO_AUTO_2)
 LANGS["uk"]["letter_bits_codes"] = LANGS["uk"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),

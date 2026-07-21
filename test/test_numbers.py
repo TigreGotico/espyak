@@ -296,3 +296,68 @@ GROUPED_NUMBER_CASES = [
 @pytest.mark.parametrize("lang,num", GROUPED_NUMBER_CASES)
 def test_grouped_numbers_match_oracle(oracle, lang, num):
     assert _nfc(G2P(lang).phonemize(num)) == _nfc(oracle(num, lang))
+
+
+# --- Render-layer number bugs (byte-verified against espeak-ng 1.52) --------------------------
+#
+# Timeless expected values (hard-coded, oracle-independent) for three render-layer fixes:
+#
+#  1. ru compound-number voicing: the regressive-voicing pass must NOT cross the boundary between
+#     citation number fragments — сорок (k) + два keeps its word-final k (was voiced to ɡ). Gated
+#     on the ru-only `number_skip_voicing` flag (Translator_Russian reads assembled number
+#     fragments as separate words; cs/pl, same 0x03 regression, DO cross-voice and are unaffected).
+#     The a/ʌ pair (двадцать|два -> …tsatʲ…) is the ru `V` phoneme resolving `nextVowel(isMaxStress)`
+#     — fixed by evaluating nextVowel/prevVowel features at the scanned vowel and not crossing a
+#     word boundary (synthdata.c:532-546).
+RU_VOICING_CASES = [
+    ("42", "sˈorɔkdvˈɑ"), ("49", "sˈorɔkdʲˈevɪtʲ"),
+    ("22", "dvˈɑttsatʲdvˈɑ"), ("29", "dvˈɑttsatʲdʲˈevɪtʲ"),
+    ("52", "pʲʌdʲdʲɪsʲˈjatdvˈɑ"), ("72", "sʲˈemdʲɛsʲatdvˈɑ"),
+    ("999", "dʲɪvʲitsˈot dʲivʲɪnˈostɔdʲˈevɪtʲ"),
+    ("21", "dvˈɑttsʌtʲʌdʲˈin"),   # един starts on a vowel -> V stays ʌ (control: no over-fire)
+    ("145", "stˈo sˈorɔkpʲˈɑtʲ"),
+]
+
+
+@pytest.mark.parametrize("num,expected", RU_VOICING_CASES)
+def test_ru_number_voicing(num, expected):
+    assert _nfc(G2P("ru").phonemize(num)) == expected
+
+
+#  2. tr vowel harmony at render (nextVowel/prevVowel feature-context fix): 100 -> jˈyz not jˈøz.
+TR_HARMONY_CASES = [
+    ("100", "jˈyz"), ("90", "doksˈan"), ("40", "kˈɯrk"), ("60", "aɫtmˈɯʃ"),
+    ("10", "ˈon"), ("70", "jetmˈiʃ"),
+]
+
+
+@pytest.mark.parametrize("num,expected", TR_HARMONY_CASES)
+def test_tr_number_vowel_harmony(num, expected):
+    assert _nfc(G2P("tr").phonemize(num)) == expected
+
+
+#  3. nl grouped-number phrase breaks: a "long" magnitude count (>= 10, or millions+) inserts a
+#     phrase-break pause (phonPAUSE_NOLINK) before the following group. The pause blocks the
+#     ph_dutch t/d cross-word degemination (duizend keeps its final t: dˌœyzɛnt drˈi, not
+#     dˌœyzɛn trˌi) and gives that group its own primary stress. Short thousands counts (2345)
+#     start no new phrase, and a plain decimal (3,14) and cross-word sentence degemination stay put.
+NL_PHRASE_CASES = [
+    ("12.345", "tʋˈaːlf dˌœyzɛnt drˈihˌɔndərt vˌɛɪfɛnfˌɪːrtəx"),
+    ("12345", "tʋˈaːlf dˌœyzɛnt drˈihˌɔndərt vˌɛɪfɛnfˌɪːrtəx"),
+    ("123.456", "hˈɔndər trˌiɛntʋˌɪntəx dˌœyzɛnt vˈirhˌɔndərt zˌɛsɛnvˌɛɪftəx"),
+    ("1.234.567", "ˈeːn mˌiljun tʋˈeːhˌɔndərt vˌirɛndˌɛrtəx dˌœyzɛnt vˈɛɪfhˌɔndərt zˌeːvənɛnzˌɛstəx"),
+    ("2345", "tʋˈeː dˌœyzɛn trˌihˌɔndərt vˌɛɪfɛnfˌɪːrtəx"),   # short count: no break, degeminates
+    ("1234", "dˈœyzɛn tʋˌeːhˌɔndərt vˌirɛndˌɛrtəx"),
+    ("1.000", "dˈœyzɛnt"),
+    ("3,14", "drˈi kˌɔmaː ˌeːn vˌir"),   # plain decimal must stay byte-exact
+]
+
+
+@pytest.mark.parametrize("num,expected", NL_PHRASE_CASES)
+def test_nl_grouped_number_phrase_breaks(num, expected):
+    assert _nfc(G2P("nl").phonemize(num)) == expected
+
+
+def test_nl_sentence_degemination_preserved():
+    # cross-word sentence degemination must remain (kost twintig -> kˈɔs tʋˈɪntəx)
+    assert _nfc(G2P("nl").phonemize("kost twintig")) == "kˈɔs tʋˈɪntəx"

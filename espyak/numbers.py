@@ -273,6 +273,7 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         n //= 1000
     parts = []
     higher_emitted = False
+    pause_next = False  # a preceding magnitude group whose count >= 10 forces an inter-group pause
     for thousandplex in range(len(groups) - 1, -1, -1):
         gv = groups[thousandplex]
         if gv == 0:
@@ -283,6 +284,8 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
                 # "and" before a final tens/units group after higher magnitudes ("mil e cinco",
                 # "one thousand AND five"); the `_0and` fragment carries its own word breaks.
                 part = _frag(tr_dict, "0and", ctx) + "||" + part
+            if pause_next:
+                part = "_!" + part
             parts.append(part)
             continue
         # A magnitude group (thousands/millions/…). LookupThousands (numbers.c:917) FIRST tries a
@@ -304,6 +307,18 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
             part = body
             if mag:
                 part += ("||" if part else "") + mag
+        if pause_next:
+            part = "_!" + part
+        # A "long" magnitude count (>= 10, i.e. carrying tens/hundreds) starts a fresh
+        # intonation phrase: espeak sets off the FOLLOWING group with a pause (phonPAUSE_NOLINK)
+        # — nl 12345 -> "twaalf duizend_ driehonderd…" keeps duizend's final t (the pause blocks
+        # the ph_dutch t/d cross-word degemination, dˌœyzɛnt drˈi not dˌœyzɛn trˌi) and gives that
+        # next group its own primary stress; a short count (2345, tʋˈeː dˌœyzɛn trˌi) does not. A
+        # higher magnitude than thousand (millions+, thousandplex >= 2) always breaks the phrase
+        # ("één miljoen_ tweehonderd…" -> tʋˈeː primary), as does any magnitude group once a higher
+        # one has already been spoken (1002345 -> "…miljoen tʋˈeː dˌœyzɛnt drˈi…": the twee-duizend
+        # section keeps its own phrase even though its count is < 10).
+        pause_next = gv >= 10 or thousandplex >= 2 or higher_emitted
         higher_emitted = True
         parts.append(part)
     return "||".join(p for p in parts if p)

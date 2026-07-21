@@ -506,11 +506,31 @@ class Interpreter:
             step = 1 if func == "nextVowel" else -1
             j = i + step
             while 0 <= j < len(plist):
+                # nextVowel/prevVowel do NOT cross a word boundary (synthdata.c:532-546):
+                # nextVowel returns false if it meets a word-start (sourceix) before the vowel;
+                # prevVowel is scoped to the previous vowel of THIS word. A word boundary is the
+                # newword&1 mark on the first phoneme of a word — so for the backward scan the
+                # boundary sits ON a word-start phoneme (which may itself be that word's vowel:
+                # test it before bailing). This stops ru `V`(-дцать) from reaching the following
+                # number word's stressed vowel across a `||` join: двенадцать||тысяч keeps `V`->ʌ
+                # (dvʲɪnˈɑttsʌtʲ), while двадцать+два within one word crosses to два (…tsatʲ…).
+                # nextVowel (forward) tests the boundary FIRST (synthdata.c:534): a word-start
+                # ends the scan even if that phoneme is itself a vowel. prevVowel (backward) is the
+                # previous vowel in this word, so a vowel sitting ON the word-start still counts —
+                # test the vowel first, then stop at the boundary.
+                at_boundary = bool(plist[j].newword & _START_OF_WORD)
+                if step > 0 and at_boundary:
+                    return False
                 if plist[j].ph.type == phVOWEL:
                     feat = _FEATURES.get(arg)
                     if feat is not None:
-                        return feat(plist[j].ph, plist[j], {})
+                        # context-dependent features (isMaxStress, isFirstVowel, …) must be
+                        # evaluated for the SCANNED vowel's own position, not with an empty
+                        # context — espeak re-runs the predicate at that phoneme.
+                        return feat(plist[j].ph, plist[j], self._context(plist, j))
                     return plist[j].ph.mnemonic == arg
+                if at_boundary:  # backward scan reached this word's start with no vowel
+                    return False
                 j += step
             return False
         # espeak merges a length marker (:) into the preceding vowel (SFLAG_LENGTHEN), so it is
