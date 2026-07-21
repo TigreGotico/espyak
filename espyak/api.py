@@ -1357,6 +1357,14 @@ class G2P:
                 return True
             if _cat0 == "P":
                 if _c == ":":
+                    # ':' is a VOWEL-LENGTH marker in most languages (sv/smj/no/fi/de/nl/af:
+                    # a: -> ɑː), consumed by the letter-to-sound rules — it must stay in the
+                    # word, NOT be peeled as a spelled token (else smj O:/A: letter names lose
+                    # their length: dOdnO: -> …oː). Only a few languages SPELL it as "colon"
+                    # (en, lv); peel it there. A ':' next to a digit always stays in-word for
+                    # the time/range number path (12:30, 2.-a).
+                    if not self._config.get("colon_spelled"):
+                        return False
                     _p = text[_k - 1] if _k else ""
                     _n = text[_k + 1] if _k + 1 < len(text) else ""
                     if (_p.isascii() and _p.isdigit()) or (_n.isascii() and _n.isdigit()):

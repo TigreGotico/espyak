@@ -125,15 +125,38 @@ def test_letter_punctuation_splits_and_spells(text, ipa):
     assert G2P("en", force_compat=True).phonemize(text) == ipa
 
 
-# Same letter<->punctuation break across languages: the ':' genitive/abbreviation marker peels off
-# (sv usa:s -> the ':' is dropped, 's' spelled ˈɛs; hu splits ÁFAa:fA at the ':'), a subscript digit
-# is read as its number name (ca co₂ -> 'co' + ₂ -> "dos"), and ca's in-word middle dot is kept.
+# Letter<->punctuation break across languages: a subscript digit is read as its number name
+# (ca co₂ -> 'co' + ₂ -> "dos"), and ca's in-word middle dot is kept. NB: ':' is a vowel-length
+# marker in most languages (sv/smj a: -> ɑː) and stays in the word — only colon-spelling
+# languages (en/lv) peel it (see LETTER_PUNCT_SPLIT / test_colon_length_vs_spelled).
 MULTILANG_PUNCT_SPLIT = [
-    ("sv", "usa:s", "ˌʉɛsˈɑː ˈɛs"),
-    ("hu", "ÁFAa:fA", "ˈaːfɑɑ ˈɛff ˈɑː"),
     ("ca", "co₂", "kˈɔ ðˈos"),
     ("ca", "col·legi", "kullˈɛʒi"),
 ]
+
+
+# ':' handling is language-specific: en/lv SPELL it ("colon"/"kols"), most languages treat it as
+# a vowel-length marker consumed by the rules (a: -> ɑː) and never peel it (smj letter names).
+COLON_CASES = [
+    # colon-spelling languages emit the "colon"/"kols" name; byte-exact to oracle
+    ("en", "a:b", "ɐ kˈəʊlən bˈiː"),
+    ("lv", "a:b", "ˈaː kˈoːls bˈeː"),
+    # length languages consume ':' as length in the rules — smj letter names keep their length
+    ("smj", "dOdnO:", "dˈeː ˈoɔtn ˈoː"),
+    ("smj", "bA:lldaj", "bˈeː ˈɑːl ltˈɑj"),
+]
+
+
+@pytest.mark.parametrize("lang,text,ipa", COLON_CASES)
+def test_colon_length_vs_spelled(lang, text, ipa):
+    import unicodedata
+    assert unicodedata.normalize("NFC", G2P(lang, force_compat=True).phonemize(text)) == ipa
+
+
+def test_colon_is_length_not_spelled_in_length_languages():
+    # a length language never spells ':' as a colon name — a: lengthens the vowel (sv ˈɑː…).
+    got = G2P("sv", force_compat=True).phonemize("a:b")
+    assert "ɑː" in got and "əʊlən" not in got
 
 
 @pytest.mark.parametrize("lang,text,ipa", MULTILANG_PUNCT_SPLIT)

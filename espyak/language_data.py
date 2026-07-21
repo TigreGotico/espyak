@@ -42,6 +42,7 @@ LANGS = {
         "stress_flags": 0x08,  # diminish consecutive unstressed syllables (unstressed words)
         "suffix_add_e": "e",
         "lopt_unpronouncable": 2,  # tr_languages.c L('e','n'): rules-based Unpronouncable2 (str ok)
+        "colon_spelled": True,  # ':' is spelled "colon" (a:b -> ɐ kˈəʊlən bˈiː), not a length marker
         "set_letter_bits": [(K.LETTERGP_Y, "aeiouy")],  # group Y = all vowels incl. y
         # linking/intrusive r: a word ending in a non-rhotic vowel that historically carried r,
         # or one spelled with a final 'r', restores the ɹ before a following vowel-initial word.
@@ -173,6 +174,7 @@ LANGS = {
     # 100% under the wrong 2R default, but rules-based words (Glāžšķūņa -> ɡlˈaːʒʃcuːɲa)
     # need 1L.
     "lv": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
+           "colon_spelled": True,  # ':' spelled "kols" (a:b -> …kˈoːls…), not a length marker
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM | K.S_FINAL_DIM_ONLY | K.S_EO_CLAUSE1},
     # Ido (constructed, penultimate stress like Esperanto): no final auto-secondary.
     # Without S_FINAL_NO_2 the final vowel got a spurious ˌ (Jun/junio -> dʒˈuniˌo not dʒˈunio).
