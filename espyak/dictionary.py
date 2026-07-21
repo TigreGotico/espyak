@@ -720,6 +720,17 @@ def _nonsyllabic_before_vowel(p):
     return "nextPh(isVowel)" in txt and "ChangePhoneme(N)" in txt
 
 
+def _is_syllabic_marker(mnem, ph):
+    """The phonSYLLABIC virtual phoneme `-` (phsource `phoneme -`): marks the PRECEDING
+    consonant as a syllabic nucleus. GetVowelStress (dictionary.c:878) counts it as a
+    syllable slot even though it carries no sound of its own, and the output loop
+    (dictionary.c:1391, `*p == phonSYLLABIC`) emits that syllable's stress before the
+    consonant it follows. A bare `-` after a vowel (ar/fa letter names `...e-,ta`,
+    `maqs[-'u:Rah`) still adds the slot, shifting the following real vowels' stress one
+    place — which is exactly how espeak places the secondary."""
+    return ph.type == K.phVIRTUAL and mnem == "-"
+
+
 def get_vowel_stress(toks, stressed_syllable=0):
     """Port of GetVowelStress. Returns (vowel_stress list, phonetic toks, count, primary).
 
@@ -784,6 +795,12 @@ def get_vowel_stress(toks, stressed_syllable=0):
                 vowel_stress[count] = STRESS_IS_UNSTRESSED
             count += 1
             stress = -1
+        elif _is_syllabic_marker(mnem, ph):
+            # phonSYLLABIC marker (dictionary.c:876-879): the previous consonant is a syllable
+            # nucleus. Add a vowel_stress slot (unstressed if no stress precedes) WITHOUT
+            # resetting `stress` or moving primary_posn (control&1 is always set on this call).
+            vowel_stress.append(stress if stress >= 0 else STRESS_IS_UNSTRESSED)
+            count += 1
         phonetic.append((mnem, ph))
     vowel_stress.append(STRESS_IS_UNSTRESSED)
     return vowel_stress, phonetic, count, primary_posn, max_stress
@@ -1192,11 +1209,16 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 shorten = prev_v_stress < STRESS_IS_PRIMARY
             if shorten:
                 continue
-        if _ph_is_vowel(ph):
+        _syl_cons = (not _ph_is_vowel(ph) and _pi + 1 < len(phonetic)
+                     and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1]))
+        if _ph_is_vowel(ph) or _syl_cons:
             # @- excluded from the vowel count in get_vowel_stress when nonsyllabic (its
             # phNONSYLLABIC flag, _ph_is_vowel False) — must also be skipped here or `v`
             # desyncs and the stress mark lands on it (eo pra -> pˈra instead of prˈa). In
             # fr/vi @- is syllabic (a real nucleus), so it is counted and stressed here.
+            # A consonant directly before the phonSYLLABIC `-` is also a syllable nucleus here
+            # (dictionary.c:1391 `*p == phonSYLLABIC`), matching the extra slot get_vowel_stress
+            # counted — so `v` stays aligned with vowel_stress.
             v_stress = vowel_stress[v]
             if v_stress <= STRESS_IS_UNSTRESSED:
                 if (v > 1) and (max_stress >= 2) and (stressflags & K.S_FINAL_DIM) and (v == vowel_count - 1):
@@ -1262,7 +1284,9 @@ def change_word_stress(tr, phoneme_str, mnem_index, new_stress, pick_last=False)
                 and _ph_is_vowel(phonetic[_pi + 1][1]):
             out.append(mnem)
             continue
-        if _ph_is_vowel(ph):
+        _syl_cons = (not _ph_is_vowel(ph) and _pi + 1 < len(phonetic)
+                     and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1]))
+        if _ph_is_vowel(ph) or _syl_cons:
             vs = vowel_stress[v]
             if vs == STRESS_IS_DIMINISHED or vs > STRESS_IS_UNSTRESSED:
                 out.append(_STRESS_MNEM.get(vs, ""))
