@@ -36,6 +36,20 @@ for _d in "0123456789":
 def _nfc(s):
     return unicodedata.normalize("NFC", s)
 
+
+def _raw_dict_key(s):
+    """True when a dict key must be stored/looked up RAW instead of NFC-normalized, because NFC
+    would merge two source entries espeak keeps distinct (it keys on raw codepoints). Two cases:
+      * polytonic Greek (U+1F00–U+1FFF) — oxia forms are canonically equal to the monotonic tonos.
+      * CJK compatibility ideographs (U+F900–U+FAFF, U+2F800–U+2FA1F) — each normalizes to a
+        unified ideograph, so NFC would drop a compat entry (cmn_listx 都 U+FA26 `du1`, 識 U+F9FC
+        `shi2`) into the canonical char's bucket and, as the later entry, override its real
+        pronunciation (都 dou1 -> du1, 識 shi5 -> shi2). espeak keys them separately."""
+    if not s:
+        return False
+    c = ord(s[0])
+    return (0x1F00 <= c <= 0x1FFF or 0xF900 <= c <= 0xFAFF or 0x2F800 <= c <= 0x2FA1F)
+
 REPLACED_E = ord("E")
 
 # Myanmar format/break marks that espeak's tokenizer treats as separators (the dot-below ့,
@@ -425,14 +439,13 @@ class DictList:
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words,
                           key_upper=word[:1].isupper())
         # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
-        # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries. EXCEPTION: polytonic
-        # Greek (U+1F00–U+1FFF) is canonically equivalent under NFC to the monotonic letters
-        # (ή U+1F75 ≡ U+03AE), which would merge ancient-Greek polytonic entries (oxia) with the
-        # modern-Greek monotonic ones (tonos); keep those keys raw so they stay distinct.
+        # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries. EXCEPTION: keys that
+        # NFC would merge with a distinct espeak entry (polytonic Greek, CJK compatibility
+        # ideographs) are kept raw — see _raw_dict_key.
         _lw = word.lower()
-        _key = _lw if (_lw and 0x1F00 <= ord(_lw[0]) <= 0x1FFF) else _nfc(_lw)
+        _key = _lw if _raw_dict_key(_lw) else _nfc(_lw)
         self.words.setdefault(_key, []).append(entry)
-        self.cased_keys.add(_key if (word and 0x1F00 <= ord(word[0]) <= 0x1FFF) else _nfc(word))
+        self.cased_keys.add(_key if _raw_dict_key(word) else _nfc(word))
 
     def lookup(self, word, ctx):
         """Return (phonemes_or_None, flags1) or (None, None) if not found.

@@ -1942,6 +1942,16 @@ class G2P:
         # normal translation instead of crashing.
         def _dig(s):
             return s.isascii() and s.isdigit()
+        # espeak's replace_chars (SubstituteChar, translate.c:784) runs in the clause reader
+        # BEFORE word tokenisation, so a `.replace` that maps a digit to a letter (py `2 u`,
+        # `7 i`) has already turned it into a letter before any digit-split or number path could
+        # see it: `la2` -> `lau` (one word), `kla2t` -> `klaut`, `2X` -> `ux`. A digit with no
+        # replacement (py `6`) stays a digit and still splits/looks up normally. Only apply when
+        # the token actually contains a digit so letter-only tables (da ä->æ) are untouched here.
+        if any(c.isdigit() for c in word):
+            _rep = _apply_replacements(getattr(self._rules, "replacements", None), word)
+            if _rep != word:
+                word = _rep
         if not word.isascii():
             # native-script decimal digits (fa ۱, ar ٠, Devanagari ०, ...) -> ASCII so they route to
             # the number path (۱ -> jek). unicodedata.decimal rejects superscripts/subscripts ('²'),
