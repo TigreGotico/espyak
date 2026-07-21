@@ -1723,6 +1723,11 @@ class G2P:
         if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and _dig(word[:-2])):
             ph = translate_ordinal(self._dict, word[:-2], word[-2:], flags=num_flags)
             if ph:
+                # number fragments come from the `_list` dictionary (LookupNum -> LookupDictList
+                # sets SFLAG_DICTIONARY), so stress-condition reductions are suppressed on them
+                # (StressCondition control&1) — cy `pedwar deg dau` keeps `deg`'s eː when it is
+                # only secondary-stressed in the compound (ðˌeːɡ, not the reduced ðˌɛɡ).
+                self._from_dict = True
                 return self._render_phonemes(ph, ipa, tie, separator)
         if _dig(word) and 1 <= len(word) <= 4:
             # espeak looks the WHOLE word up in the dictionary (LookupDictList, translateword.c:168)
@@ -1743,6 +1748,9 @@ class G2P:
             ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
             if ph:
                 ph = self._stress_number_words(ph, tonic=tonic)
+                # number fragments come from the `_list` dictionary (SFLAG_DICTIONARY), so their
+                # vowels are exempt from stress-condition reductions the same way a dict headword is.
+                self._from_dict = True
                 return self._render_phonemes(ph, ipa, tie, separator)
         if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
             # a mixed digit/letter token that is neither a pure number nor an ordinal (handled above)

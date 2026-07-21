@@ -74,7 +74,13 @@ def test_decimal_fraction_matches_oracle(oracle, lang, num):
 
 # Welsh counts in tens: 20 = "dau ddeg", 42 = "pedwar deg dau" (tens fragment before the unit),
 # and the teens are "deg" + unit with no dedicated _10.._19 entries. 100 drops the leading "un".
-CY_CARDINAL_CASES = ["1", "2", "9", "10", "11", "12", "15", "16", "18", "19", "100"]
+CY_CARDINAL_CASES = ["1", "2", "9", "10", "11", "12", "15", "16", "18", "19", "100",
+                     # the tens 20-99 embed "deg" (10) as a secondary-stressed component; its
+                     # explicit long vowel eː must survive (ðˌeːɡ, not the reduced ðˌɛɡ) because
+                     # the number fragments come from the `_list` dictionary (SFLAG_DICTIONARY),
+                     # which exempts them from the ChangeIfNotStressed(E) reduction.
+                     "20", "22", "23", "30", "40", "42", "50", "55", "60", "66",
+                     "70", "77", "80", "88", "90", "99"]
 
 
 @pytest.fixture(scope="module")
@@ -94,3 +100,39 @@ def test_welsh_tens_precede_units(cy, num, unit_core):
     out = cy.phonemize(num)
     assert "ðˌ" in out  # the "deg" tens marker is present
     assert out.index("ðˌ") < out.rindex(unit_core)
+
+
+@pytest.mark.parametrize("num", ["20", "42", "60", "99"])
+def test_welsh_tens_component_keeps_long_vowel(cy, num):
+    # The tens "deg" (10) is only secondary-stressed inside the compound, but its long eː must
+    # not be reduced to ɛ: number fragments are dictionary-sourced, so ChangeIfNotStressed(E)
+    # does not fire on them (StressCondition control&1 / SFLAG_DICTIONARY).
+    out = cy.phonemize(num)
+    assert "ðˌeːɡ" in out
+    assert "ðˌɛɡ" not in out
+
+
+@pytest.mark.parametrize("word,expected", [
+    # `e (d`->e: must win over the `e (CC` / `e (C` consonant-group rules — that only happens
+    # once SetLetterVowel(w) removes `w` from the consonant group, so `pedwar` (e+d+w) matches
+    # `e (d` not `e (CC`. Regression guard for the long-vowel rule-scoring fix.
+    ("pedwar", "pˈeːdwar"),
+    ("deg", "dˈeːɡ"),
+    ("peth", "pˈeːθ"),
+    ("pedwar deg dau", "pˈeːdwar dˈeːɡ dˈaɨ"),
+])
+def test_welsh_word_long_vowel(cy, oracle, word, expected):
+    assert cy.phonemize(word) == expected
+    assert cy.phonemize(word) == oracle(word, "cy")
+
+
+@pytest.mark.parametrize("word", ["wrth", "hwn", "hwnnw", "shwd", "rhwng"])
+def test_welsh_w_words_pronounced_not_spelled(cy, oracle, word):
+    # With `w` a vowel (SetLetterVowel), a w-initial/w-medial word still has a vowel nucleus and
+    # must be pronounced, not spelled letter-by-letter. Guards the pronounceability check against
+    # forgetting that set_letter_vowel letters count as vowels.
+    out = cy.phonemize(word)
+    assert out == oracle(word, "cy")
+    # a spelled-out word produces one stress mark per letter name; a pronounced one has a single
+    # primary and no spurious per-letter secondaries.
+    assert out.count("ˈ") == 1 and "ˌ" not in out
