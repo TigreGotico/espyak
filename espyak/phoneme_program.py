@@ -176,6 +176,15 @@ class _Pause:
 
 _PAUSE = _Pause()
 
+# Context for a target position off the end of the (per-word) phoneme list: espeak's
+# phoneme_list always carries trailing clause pauses, so a phoneme at the very end of a
+# word is word-final (isWordEnd true) and its off-end neighbour is a pause. The other
+# word-scoped features (first/second/final vowel, stress relations) are meaningless for a
+# pause and evaluate false, matching the C conditions on a phPAUSE target.
+_OFF_END_CTX = {"word_end": True, "first_vowel": False, "second_vowel": False,
+                "after_stress": False, "final_vowel": False, "max_stress": False,
+                "translation_given": False}
+
 
 class Interpreter:
     def __init__(self, source, table):
@@ -550,7 +559,19 @@ class Interpreter:
             ph, entry = _PAUSE, None
         feat = _FEATURES.get(arg)
         if feat is not None:
-            return feat(ph, entry, ctx if func == "thisPh" else {})
+            # Position-relative features (isWordEnd, isFinalVowel, isMaxStress, ...) are a
+            # property of whichever phoneme the predicate points at, not of thisPh: espeak
+            # re-derives them from the target's own position (synthdata.c evaluates the
+            # condition after advancing `plist` to prevPh/nextPh/next2Ph). Compute the
+            # target's context so e.g. `nextPh(isWordEnd)` sees the next phoneme's word-end
+            # status (tr `e -> &` before a word-final nasal: ben -> bˈæn).
+            if func == "thisPh":
+                tctx = ctx
+            elif 0 <= target_i < len(plist):
+                tctx = self._context(plist, target_i)
+            else:
+                tctx = _OFF_END_CTX
+            return feat(ph, entry, tctx)
         if arg.startswith("#"):
             # #i / #@ / #o ... — a vowel category. espeak (synthdata.c:583) matches prevPh()
             # / prevPhW() on the previous vowel's END type (a diphthong eI ends in #i), and
