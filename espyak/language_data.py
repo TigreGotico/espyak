@@ -303,6 +303,12 @@ LANGS = {
            # tr_languages.c L('p','t')).
            "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
+           # espeak's nl stress_flags = S_FIRST_PRIMARY (tr_languages.c L('n','l')): keep the first
+           # primary, drop later ones to secondary. Applied only to the number phrase here
+           # (`num_stress_flags`) — a whole-language S_FIRST_PRIMARY would also demote the second
+           # primary of a $1-stressed compound (mskraam -> ˈɛmskrˌaːm), which espeak's compound
+           # SetWordStress protects but espyak's does not; numbers carry no such $-forced stress.
+           "num_stress_flags": K.S_FIRST_PRIMARY,
            "regression": 0x100, "lopt_prefixes": True, "lopt_dieres": True,  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp); LOPT_DIERESES (tr_languages.c L('n','l'))
            # nl reads the fraction digit-by-digit; decimal separator is ',' (tr_languages.c L('n','l')).
            "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA},

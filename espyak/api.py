@@ -1592,27 +1592,45 @@ class G2P:
         return cls._EN_FALLBACK
 
     def _stress_number_words(self, ph, tonic=4):
-        """espeak stresses number words. Some languages' _list fragments already encode stress
-        (en f'aIv, es T'inko, de 'fynf) AND deliberately leave connectors unstressed (en _and,
-        _point); others omit stress entirely (fr sE~k, fa pandZ -> need sˈɛ̃k / pˈandʒ). Only when
-        the WHOLE number result is stress-free do we add word stress to each ||-separated word — so
-        a language whose data encodes stress (including its unstressed point/and) is never touched.
+        """Stress a whole number phrase as espeak does: ONE stress domain, not per word.
 
-        A language whose fragments carry only the `%` marker (espeak's repositionable secondary,
-        fo `f%UJ:ra`) and no primary still needs a tonic: SetWordStress promotes one `%` to primary.
-        So apply word stress when only `%` marks are present. A fragment that already carries a
-        resolved primary `'`, an explicit secondary `,` (vi tone-number x,o1N keeps its `,`), or a
-        no-stress connector `=` is left untouched.
+        espeak's TranslateNumber builds the entire number (`3,14` -> trois·virgule·quatorze) into a
+        SINGLE phoneme buffer whose word breaks are `phonEND_WORD` bytes, then runs SetWordStress
+        over the whole thing ONCE with the word's tonic (translateword.c:578). `phonEND_WORD` is
+        neither phSTRESS nor phVOWEL, so GetVowelStress copies it through without resetting the
+        syllable count: every fragment's primary `'` is seen together and the language's stress
+        machinery then reconciles them across the whole span. That reconciliation is exactly the
+        phrase-level demotion the per-word approach missed:
+
+        * `S_FIRST_PRIMARY` (nl, de compounds): keep the FIRST primary, drop the rest to secondary
+          (nl `3,14` -> drˈi kˌɔmaː ˌeːn vˌir).
+        * `NUM_SINGLE_STRESS` reduction already applied inside each 3-digit group by numbers.py,
+          plus the whole-span reconciliation: languages with no S_FIRST_PRIMARY (fr, es) keep only
+          the tonic primary and diminish the earlier words — fr `3,14` -> tʁwa viʁɡyl katˈɔʁz (the
+          non-final words fall to unmarked), es `3,14` -> tɾˈes komˌa katˈoɾθe (the decimal-sep
+          word drops to secondary while the number words keep their primaries).
+
+        `||` (and any inner `|` morpheme barrier) tokenize to inert `_BARRIER` tokens that
+        get_vowel_stress skips — the same tokens translate_word feeds through for a multi-part
+        `_list` value — so running set_word_stress on the joined string reproduces espeak's
+        single-buffer behaviour byte-for-byte (de/it/ru/ro numbers, which keep every fragment's
+        primary because their flags force no reduction, are unchanged).
 
         `tonic` is the clause-stress level for this number word (the caller's per-word tonic): the
-        clause nucleus (>=4) promotes a `%` to primary; a non-nucleus number (-1, e.g. the digit
-        run in `co2` where the word `co` is the nucleus) takes no primary, so its `%` stays
-        unstressed (kˈɔː tʋɛɟː, not kˈɔː tʋˈɛɟː)."""
-        if any(c in "',=" for c in ph):
-            return ph
-        return "||".join(
-            set_word_stress(self._tr, w, self._mnem, tonic=tonic) if w else w
-            for w in ph.split("||"))
+        clause nucleus (>=4) places one primary; a non-nucleus number (-1) takes none.
+
+        `num_stress_flags` (nl S_FIRST_PRIMARY) augments the language's stress_flags for the number
+        phrase only — espeak applies these flags in every SetWordStress, but espyak scopes them to
+        the number here to avoid disturbing $-forced lexical stress in ordinary words."""
+        extra = self._config.get("num_stress_flags", 0)
+        if extra:
+            saved = self._tr.stress_flags
+            self._tr.stress_flags = saved | extra
+            try:
+                return set_word_stress(self._tr, ph, self._mnem, tonic=tonic)
+            finally:
+                self._tr.stress_flags = saved
+        return set_word_stress(self._tr, ph, self._mnem, tonic=tonic)
 
     def _render_numeric_punct(self, word, tonic, ipa, tie, separator,
                               all_upper=False, first_upper=False):

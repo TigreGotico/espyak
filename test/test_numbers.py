@@ -72,6 +72,29 @@ def test_decimal_fraction_matches_oracle(oracle, lang, num):
     assert G2P(lang).phonemize(num) == oracle(num, lang)
 
 
+# A multi-word number is ONE stress domain: espeak builds the whole phrase into a single phoneme
+# buffer and runs SetWordStress once over it, so the language's stress flags reconcile the
+# per-fragment primaries across the word breaks. fr/es keep only the tonic primary and diminish the
+# earlier number words (fr trois·virgule -> unmarked; es demotes the decimal-separator word to
+# secondary), while nl (S_FIRST_PRIMARY) keeps the FIRST primary and drops the rest to secondary.
+# de/it/ru/ro carry every fragment's primary (their flags force no reduction). pl/cs must keep the
+# space after the decimal-separator word (przecinek/čárka), whose pause-plus-word-break must not
+# collapse. Byte-exact against the oracle.
+PHRASE_STRESS_CASES = [
+    ("fr", "3,14"), ("fr", "3,05"), ("fr", "9,81"),
+    ("es", "3,14"), ("es", "2,5"),
+    ("nl", "3,14"), ("nl", "2,5"),
+    ("pl", "3,14"), ("pl", "3,05"), ("pl", "9,81"),
+    ("cs", "3,14"), ("cs", "9,5"),
+    ("de", "3,14"), ("it", "3,14"), ("ru", "3,14"), ("ro", "3,14"),
+]
+
+
+@pytest.mark.parametrize("lang,num", PHRASE_STRESS_CASES)
+def test_number_phrase_stress_matches_oracle(oracle, lang, num):
+    assert G2P(lang).phonemize(num) == oracle(num, lang)
+
+
 # Welsh counts in tens: 20 = "dau ddeg", 42 = "pedwar deg dau" (tens fragment before the unit),
 # and the teens are "deg" + unit with no dedicated _10.._19 entries. 100 drops the leading "un".
 CY_CARDINAL_CASES = ["1", "2", "9", "10", "11", "12", "15", "16", "18", "19", "100",
