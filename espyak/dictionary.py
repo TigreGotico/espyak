@@ -820,6 +820,10 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         max_stress = STRESS_IS_PRIMARY
 
     max_stress_input = max_stress
+    # espeak keeps unstressed_word TRUE for the whole of SetWordStress; the reset just below is an
+    # espyak-only device to gate the el u_clause_final block. Capture the C-faithful value so the
+    # S_INITIAL_2 / S_2_SYL_2 auto-secondary block (which C skips for every $u word) still keys off it.
+    unstressed_word_input = unstressed_word
     if (unstressed_word and tonic >= STRESS_IS_PRIMARY and max_stress >= STRESS_IS_PRIMARY
             and primary_posn >= vowel_count - 2):
         # a $u function word that IS the clause nucleus keeps its own lexical stress only when that
@@ -1013,7 +1017,7 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             vowel_stress[vowel_count - 1] = STRESS_IS_UNSTRESSED
             vowel_stress[vowel_count - 2] = STRESS_IS_PRIMARY
 
-    if not unstressed_word:
+    if not unstressed_word_input:
         if (stressflags & K.S_2_SYL_2) and vowel_count == 3:
             # two-syllable word: if one syllable has primary stress, give the other secondary
             if vowel_stress[1] == STRESS_IS_PRIMARY:
@@ -1134,13 +1138,6 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 vowel_stress[vowel_count - 1] = tonic
                 max_stress_posn = vowel_count - 1
 
-    # A $u (unstressed function word, dict flag 0x8) that carries the clause accent (so it was
-    # un-diminished to tonic above) keeps ONLY its primary: drop the auto-secondary espeak never adds
-    # to a function word (pt aquela ,,ak'el%%& -> ak'el%%&, estivemos; aquele=$alt2/menina keep theirs).
-    if (dict_flags & 0x8) and not unstressed_word:
-        for _v in range(1, vowel_count + 1):
-            if vowel_stress[_v] == STRESS_IS_SECONDARY:
-                vowel_stress[_v] = STRESS_IS_UNSTRESSED
     # A clause-tonic word with NO syllabic vowel (vowel_count == 1: its only vowel is a
     # nonsyllabic schwa @-, excluded from the count) gets no stress mark from the loops above
     # (max_stress_posn stays 0). espeak's intonation, however, treats @- as a syllable
