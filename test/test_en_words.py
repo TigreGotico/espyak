@@ -104,3 +104,40 @@ SYMBOL_RUNS = [
 @pytest.mark.parametrize("text,ipa", SYMBOL_RUNS)
 def test_adjacent_symbol_runs_glue(text, ipa):
     assert G2P("en", force_compat=True).phonemize(text) == ipa
+
+
+# espeak's clause reader breaks a word at a letter<->punctuation boundary (translate.c:1182) and
+# spells the isolated punctuation by its character name — like symbols, but for category-P chars
+# such as '#' (hash) and ':' (colon). A ':' directly against a digit stays in the token for the
+# number path (time/range), so only a letter-adjacent one peels off.
+LETTER_PUNCT_SPLIT = [
+    ("c#", "sˈiː hˈaʃ"),
+    ("a#b", "ɐ hˈaʃ bˈiː"),
+    ("5#", "fˈaɪv hˈaʃ"),
+    ("c:d", "sˈiː kˈəʊlən dˈiː"),
+    ("a:b", "ɐ kˈəʊlən bˈiː"),
+    ("12:30", "twˈɛlv θˈɜːti"),  # digit-adjacent ':' NOT peeled — stays for the time rules
+]
+
+
+@pytest.mark.parametrize("text,ipa", LETTER_PUNCT_SPLIT)
+def test_letter_punctuation_splits_and_spells(text, ipa):
+    assert G2P("en", force_compat=True).phonemize(text) == ipa
+
+
+# Same letter<->punctuation break across languages: the ':' genitive/abbreviation marker peels off
+# (sv usa:s -> the ':' is dropped, 's' spelled ˈɛs; hu splits ÁFAa:fA at the ':'), a subscript digit
+# is read as its number name (ca co₂ -> 'co' + ₂ -> "dos"), and ca's in-word middle dot is kept.
+MULTILANG_PUNCT_SPLIT = [
+    ("sv", "usa:s", "ˌʉɛsˈɑː ˈɛs"),
+    ("hu", "ÁFAa:fA", "ˈaːfɑɑ ˈɛff ˈɑː"),
+    ("ca", "co₂", "kˈɔ ðˈos"),
+    ("ca", "col·legi", "kullˈɛʒi"),
+]
+
+
+@pytest.mark.parametrize("lang,text,ipa", MULTILANG_PUNCT_SPLIT)
+def test_letter_punctuation_splits_multilang(lang, text, ipa):
+    import unicodedata
+    got = unicodedata.normalize("NFC", G2P(lang, force_compat=True).phonemize(text))
+    assert got == ipa
