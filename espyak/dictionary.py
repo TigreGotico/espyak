@@ -429,11 +429,14 @@ class DictList:
             entries = self.words.get(word[0].lower()) or self.words.get(_nfc(word[0].lower()))
         if not entries:
             return None, None
-        if self.case_sensitive_letters and len(word) == 1 and word.isalpha():
-            # fo names `l`/`m`/`n` without gemination but `L`/`M`/`N` (uppercase, mid-acronym
-            # form) with it (l -> ɛl, L -> ɛll). espeak buckets the two cases separately; espyak
-            # keys everything lowercase, so the uppercase variant otherwise wins the lowercase
-            # `l` lookup. Restrict to the entries whose source key matched the query's case.
+        if word.isalpha():
+            # espeak buckets dict keys by case (byte-exact match in LookupDict2), so a lowercase
+            # query only matches a lowercase-keyed entry — never an uppercase-keyed one that folds to
+            # the same letters. espyak keys everything lowercase, merging e.g. ca `t t'e` with the
+            # Greek `T t'Eta` (theta), or en `lbs paUndz` with `LBS $abbrev`: the uppercase variant
+            # then wrongly wins the lowercase lookup (spelling out instead of the real pronunciation).
+            # fo relies on the same rule for its geminating uppercase names (l -> ɛl, L -> ɛll).
+            # Restrict to entries whose source key matched the query's case (only when a mix exists).
             want_upper = bool(ctx.first_upper)
             cased = [e for e in entries if e.key_upper == want_upper]
             if cased and len(cased) != len(entries):

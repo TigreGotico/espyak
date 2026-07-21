@@ -625,7 +625,7 @@ class G2P:
                 subs = []
                 for sub in nfc_ph.split():
                     sctx = LookupContext(dict_condition=self._tr.dict_condition)
-                    sph, _ = self._translate_core(sub, sctx)
+                    sph, _ = self._translate_core(sub[:1].lower() + sub[1:], sctx)
                     if sph.strip():
                         subs.append(sph)
                 if subs:
@@ -636,7 +636,13 @@ class G2P:
                 # replacement (dictionary.c:2881), so the replacement gets a FRESH dict lookup
                 # before the rules — a respelling that is itself a dict headword uses that entry's
                 # pronunciation/stress (de matthias->mathias = matˈiːɑːs, jonathan->jonatan = $1).
-                word = nfc_ph
+                # espeak reinjects the replacement into the source and re-translates it as a fresh
+                # word: TranslateWord folds a LEADING capital to lower case (FLAG_FIRST_UPPER), so a
+                # Capitalised expansion (es aprox->Aproximadamente, ej->Ejemplo) loses its initial
+                # cap before the rules. A MEDIAL capital is NOT folded — it breaks rule matching and
+                # the word yields nothing (mt $textmode cm->tSentim'etri, eċċ->etSetra render ''),
+                # so only the first character is lowered, never the whole string.
+                word = nfc_ph[:1].lower() + nfc_ph[1:]
                 if not (self._config.get("neutral_tone_unstress")
                         and nfc_ph[-1:] == "5"):
                     rctx = LookupContext(dict_condition=self._tr.dict_condition)
@@ -908,6 +914,12 @@ class G2P:
         SpeakIndividualLetters; otherwise None (no abbreviation — leave the word as-is).
         """
         n = len(word)
+        if n == 2 and word[0].isalpha() and word[1] == ".":
+            # A single-letter token followed by a dot (es `d.`, `d. c`): espeak's clause reader
+            # spaces the dot (`d .`), so CheckDottedAbbrev returns count==1 and — because the base
+            # token is one letter (word_length==1, translateword.c:191) — spell_word fires. The
+            # multi-letter run below never reaches count>1 here, so handle the lone letter directly.
+            return [word[0]]
         if n < 3 or "." not in word:
             return None
         letters = []
