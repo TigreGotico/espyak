@@ -420,6 +420,17 @@ class Interpreter:
         from espyak.phoneme_tab import phVOWEL
         entry = PhonemeListEntry(ph)
         plist.insert(i, entry)
+        # espeak (phonemelist.c:308) inserts by OVERWRITING the current slot with the alternative
+        # (`plist3->phcode = alternative`) and re-queueing the original for the next iteration; the
+        # freshly memset()-ed re-inserted entry gets sourceix=0. So the word-start marker (sourceix)
+        # stays on the slot the inserted phoneme now occupies — i.e. it TRANSFERS from the original
+        # to the inserted phoneme when the original started the word. Without this, an epenthetic @-
+        # inserted before a word-initial `r` sees the `r` still flagged as word-start, so its
+        # `IF nextPhW(r) THEN ipa NULL` mis-fails and the schwa is kept (ru радио -> ərˈɑdʲɪo, lt
+        # raj -> ərajˈɔnas, instead of rˈɑdʲɪo / rajˈɔnas).
+        if plist[i + 1].newword & 1:
+            entry.newword |= plist[i + 1].newword
+            plist[i + 1].newword = 0
         # espeak (phonemelist.c ~309: "if we insert a phoneme before a vowel then we loose the
         # stress"): the inserted phoneme takes the vowel's stress slot, and since it is
         # non-syllabic the stress no longer renders — the vowel is effectively diminished. In a

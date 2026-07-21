@@ -122,15 +122,19 @@ LANGS = {
     # South Slavic (tr_languages.c case L('s','r'), shared by hr/bs): initial stress,
     # spelling stress on the first letter. ph_croatian laxes a/i/u via ChangeIfNotStressed,
     # so $u function words reduce despite carrying the clause accent (li->lˈɪ, ili->ˈɪlɪ).
-    "sr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [2, 4],
+    # `syllabic_consonants` here lists letters that count as VOWEL LETTERS for the Unpronouncable
+    # check (SetLetterVowel): tr_languages.c L('s','r') does SetLetterVowel(y)+SetLetterVowel(r) but
+    # NOT 'l'. So a vowel-less "sl"/"vl" IS unpronounceable and spelled letter-by-letter (sˈəlˌə),
+    # while "krv" (r a vowel letter) stays whole. Only 'r' belongs here, not 'l'.
+    "sr": {"syllabic_consonants": "r", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [2, 4],
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
            "max_initial_consonants": 5,  # tr_languages.c L('s','r')
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
-    "hr": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [1],
+    "hr": {"syllabic_consonants": "r", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [1],
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
            "max_initial_consonants": 5,  # tr_languages.c L('s','r')
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
-    "bs": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [3, 4],
+    "bs": {"syllabic_consonants": "r", "stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "dictrules": [3, 4],
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (tr_languages.c L('s','r'), shared hr/bs)
            "max_initial_consonants": 5,  # tr_languages.c L('s','r')
            "spelling_stress": True, "extra_consonants": "čćšžđ", "unstress_u_words": True},
@@ -138,7 +142,10 @@ LANGS = {
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (však -> fʃak)
            "max_initial_consonants": 5,  # tr_languages.c L('c','s') (shared sk)
-           "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž",
+           # tr_languages.c L('c','s') runs SetLetterVowel(tr,'y') and SetLetterVowel(tr,'r'):
+           # plain y and r count as vowel-LETTERS (group A), so the `K) l (K` (not-vowel context)
+           # syllabic-l rule does NOT fire after them (byl -> bˈil, not the syllabic bˈil̩).
+           "extra_vowels": "áéíóúůýěyr", "extra_consonants": "čďňřšťž",
            # cs reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2);
            # its decimal separator is ',' (tr_languages.c L('c','s') sets decimal_sep=',').
            "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
@@ -251,6 +258,11 @@ LANGS = {
     "ga": {"stress_rule": K.STRESSPOSN_1L,  # Irish: initial stress, no secondary
            "stress_flags": K.S_NO_AUTO_2},
     "lt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
+           # espeak never passes tonic to SetWordStress for a $u word (it calls it with tonic=-1 and
+           # applies the clause accent only in the later intonation pass). So a $u clause-nucleus word
+           # runs its phoneme programs on its NATURAL stress: lt `ir` $u -> the i stays unstressed, so
+           # `i`'s ChangeIfStressed(I) does NOT fire (-> ˈir, not ˈɪr); the accent is overlaid at render.
+           "unstress_u_words": True,
            "extra_vowels": "ąęėįųū", "extra_consonants": "čšž"},
     "az": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
            "max_initial_consonants": 2,  # tr_languages.c L('a','z')
@@ -427,7 +439,7 @@ LANGS["uk"]["letter_bits_codes"] = LANGS["uk"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),
 ]
 LANGS["bg"] = _cyrillic_config(K.STRESSPOSN_2R, regression=0x107)  # + word-final devoicing
-LANGS["tt"] = _cyrillic_config(K.STRESSPOSN_1R)
+LANGS["tt"] = _cyrillic_config(K.STRESSPOSN_1R, K.S_NO_AUTO_2)  # tr_languages.c L('t','t'): no auto-secondary
 
 # --- Greek-script setup (tr_languages.c case L('e','l'), offset 0x380) ----------------
 _EL_VOWELS = [0x10, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x35, 0x37, 0x39, 0x3f, 0x45,
