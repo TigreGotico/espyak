@@ -1809,8 +1809,13 @@ def _is_vowel_letter(tr, ch):
     lb = tr.config.get("letter_bits", {})
     vowels = lb.get(0, "aeiou") if isinstance(lb, dict) else "aeiou"
     extra = tr.config.get("extra_vowels", "") or ""
+    # SetLetterVowel(tr,c) also makes c a syllable nucleus (groups A + VOWEL2); cy `w`/`y`
+    # go through this path, so they must count as vowels here too (else `wrth`, `hwn`, `shwd`
+    # look vowel-less and get spelled letter-by-letter instead of pronounced).
+    setvow = tr.config.get("set_letter_vowel", "") or ""
     syll = tr.config.get("syllabic_consonants", "")  # cs/hr/sl/sk/sr: r,l are syllabic nuclei
-    return c == "y" or c in vowels or c in extra or c in syll or c in _ACCENTED_VOWELS
+    return (c == "y" or c in vowels or c in extra or c in setvow
+            or c in syll or c in _ACCENTED_VOWELS)
 
 
 def _unpronounceable(tr, word, posn=0):

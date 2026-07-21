@@ -246,8 +246,10 @@ LANGS = {
     "fa": {"chars_ignore": {0x00AD: "", 0x0640: "", 0x200C: "-"}},
     # Welsh: $u function words reduce (clear y -> obscure: fy -> vˈø not vˈɨː); default 2R suits
     # the penultimate stress, so only the $u-reduction flag is needed.
-    "cy": {"unstress_u_words": True, "extra_vowels": "wy",  # Welsh: w and y are vowels
-                                                            # (SetLetterVowel w/y) -> wy digraph wins
+    "cy": {"unstress_u_words": True, "set_letter_vowel": "wy",  # Welsh: SetLetterVowel(w/y)
+                                                            # makes them vowels AND removes them from
+                                                            # the consonant group C, so `e (CC` (e.g.
+                                                            # pedwar's e+d+w) fails and `e (d`->e: wins
            "stress_rule": K.STRESSPOSN_2R,  # tr_languages.c L('c','y')
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
            "unstressed_wd1": 0, "unstressed_wd2": 2,
