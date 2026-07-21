@@ -43,6 +43,9 @@ LANGS = {
         "suffix_add_e": "e",
         "lopt_unpronouncable": 2,  # tr_languages.c L('e','n'): rules-based Unpronouncable2 (str ok)
         "set_letter_bits": [(K.LETTERGP_Y, "aeiouy")],  # group Y = all vowels incl. y
+        # linking/intrusive r: a word ending in a non-rhotic vowel that historically carried r,
+        # or one spelled with a final 'r', restores the ɹ before a following vowel-initial word.
+        "linking_r": True,
     },
     "eo": {
         "stress_rule": K.STRESSPOSN_2R,
@@ -334,6 +337,9 @@ LANGS = {
            # SetWordStress protects but espyak's does not; numbers carry no such $-forced stress.
            "num_stress_flags": K.S_FIRST_PRIMARY,
            "regression": 0x100, "lopt_prefixes": True, "lopt_dieres": True,  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp); LOPT_DIERESES (tr_languages.c L('n','l'))
+           # ph_dutch t/d/p/b: a word-final coronal/labial stop assimilates to a null pause (!)
+           # before a following word-initial homorganic stop (kost twintig -> kˈɔs tʋˈɪntəx).
+           "degeminate_stops": True,
            # tr_languages.c L('n','l'): units-before-tens joined by "en" (NUM_SWAP_TENS),
            # "honderd"/"duizend" not "een honderd"/"een duizend" (NUM_OMIT_1_HUNDRED |
            # NUM_OMIT_1_THOUSAND). Fraction digit-by-digit; decimal separator ','.
