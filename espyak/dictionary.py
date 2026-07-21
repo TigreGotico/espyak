@@ -36,6 +36,20 @@ for _d in "0123456789":
 def _nfc(s):
     return unicodedata.normalize("NFC", s)
 
+
+def _nfc_compose(s):
+    """NFC form of `s`, but ONLY when NFC genuinely composes (does not lengthen).
+
+    espeak hashes raw dict bytes, so the dict lookup falls back to an NFC form only to
+    bridge an NFD source list matched by an NFC word (ko conjoining jamo -> syllable) — a
+    composition that shortens or keeps length. A Devanagari nukta letter (U+095C etc.) is a
+    Unicode full-composition-exclusion: NFC(U+095C) DEcomposes to ड+़ (LONGER). Bridging that
+    would let a `.replace`-composed word (U+095C) re-match a decomposed dict key that espeak
+    itself misses (falling through to the rules). So an exclusion-driven decomposition never
+    bridges: return the string unchanged there, so the fallback get() is a harmless repeat."""
+    n = unicodedata.normalize("NFC", s)
+    return n if len(n) <= len(s) else s
+
 REPLACED_E = ord("E")
 
 # Myanmar format/break marks that espeak's tokenizer treats as separators (the dot-below ့,
@@ -284,6 +298,7 @@ class DictList:
 
     def __init__(self):
         self.words = {}     # lowercase word -> list[DictEntry] in file order
+        self._raw_keys = set()  # raw (non-NFC) lowercase keys, for cross-form collision guard
         self.cased_keys = set()  # original-case keys (espeak's letter lookup is case-sensitive)
         self.text_mode = False
         # fo: single-letter NAME lookups respect the source key's case (see DictEntry.key_upper).
@@ -430,9 +445,29 @@ class DictList:
         # (ή U+1F75 ≡ U+03AE), which would merge ancient-Greek polytonic entries (oxia) with the
         # modern-Greek monotonic ones (tonos); keep those keys raw so they stay distinct.
         _lw = word.lower()
-        _key = _lw if (_lw and 0x1F00 <= ord(_lw[0]) <= 0x1FFF) else _nfc(_lw)
-        self.words.setdefault(_key, []).append(entry)
-        self.cased_keys.add(_key if (word and 0x1F00 <= ord(word[0]) <= 0x1FFF) else _nfc(word))
+        _is_greek = bool(_lw) and 0x1F00 <= ord(_lw[0]) <= 0x1FFF
+        _nfckey = _lw if _is_greek else _nfc(_lw)
+        # Index under the RAW source key, plus the NFC key when it differs. espeak hashes
+        # the raw dict bytes, so a decomposed source key (Devanagari base+nukta, e.g. kok
+        # ड़ = ड+़ -> r.) must stay matchable by a decomposed lookup rather than being
+        # collapsed onto — and shadowed in the same bucket by — a distinct precomposed
+        # entry (U+095C -> r-). The NFC key is still indexed so an NFD source list (ko
+        # conjoining jamo) keeps matching an NFC-normalised lookup. CRITICAL: nukta
+        # precomposed letters (U+095C etc.) are Unicode full-composition-exclusions, so
+        # NFC(U+095C) DEcomposes to ड+़ — indexing that entry under its NFC key would drop
+        # its r- pronunciation into the decomposed r. bucket and shadow it (reversed()
+        # picks the last-added). A composition-exclusion is exactly the case where the NFC
+        # form is LONGER than the raw key (1 precomposed char -> base+mark); a genuine
+        # composition (ko conjoining jamo -> syllable) is not longer. So the NFC key is only
+        # added when it is not longer than the raw key AND does not already name another
+        # entry's raw key — i.e. it introduces no cross-form collision.
+        self.words.setdefault(_lw, []).append(entry)
+        if _nfckey != _lw and len(_nfckey) <= len(_lw) and _nfckey not in self._raw_keys:
+            self.words.setdefault(_nfckey, []).append(entry)
+        self._raw_keys.add(_lw)
+        self.cased_keys.add(word)
+        if not _is_greek:
+            self.cased_keys.add(_nfc(word))
 
     def lookup(self, word, ctx):
         """Return (phonemes_or_None, flags1) or (None, None) if not found.
@@ -442,12 +477,12 @@ class DictList:
         phonemes of "" with flags1!=None means flags-only (use rules).
         """
         self._last_accent = False
-        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+        entries = self.words.get(word.lower()) or self.words.get(_nfc_compose(word.lower()))
         if not entries and len(word) == 2 and word[1] == ":":
             # smj writes long-vowel letter names with a redundant length colon (A: is the long-A
             # letter name ɑː); the dict keys it under the bare letter (A -> A:). A CamelCase split
             # yields the bare "A:" token, which otherwise misses the dict and reads as a short vowel.
-            entries = self.words.get(word[0].lower()) or self.words.get(_nfc(word[0].lower()))
+            entries = self.words.get(word[0].lower()) or self.words.get(_nfc_compose(word[0].lower()))
         if not entries:
             return None, None
         for entry in reversed(entries):
@@ -475,7 +510,7 @@ class DictList:
         $allcaps single-word `has` entry, not `(has-been)`, so no words may be skipped."""
         if not following:
             return 0
-        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+        entries = self.words.get(word.lower()) or self.words.get(_nfc_compose(word.lower()))
         if not entries:
             return 0
         ctx = LookupContext(dict_condition=dict_condition, following=following, clause_ctx=True,
@@ -491,7 +526,7 @@ class DictList:
         if any entry matched (0 if absent). No phoneme translation, so the matcher's DollarRule can
         call it without recursing back into translation. `first_upper`/`all_upper` gate $capital/
         $allcaps entries (hu KFT $unstressend is all-caps-only)."""
-        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+        entries = self.words.get(word.lower()) or self.words.get(_nfc_compose(word.lower()))
         if not entries:
             return 0
         ctx = LookupContext(dict_condition=dict_condition, first_upper=first_upper,
