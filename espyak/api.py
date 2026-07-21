@@ -1245,15 +1245,6 @@ class G2P:
         # a '/' is a word break that is itself spoken as its character name (ca a/e -> a barra e,
         # en a/b -> a slash b), so isolate it as its own token.
         _trans[ord("/")] = " / "
-        # espeak's clause reader breaks a word at any character that is neither a letter nor a
-        # digit (translate.c:1182/1192/1218), so a symbol is always a single-char word of its
-        # own, spoken via its dictionary/_emoji entry (£5 -> pound five, 5+3 -> five plus three,
-        # $5 -> dollar five). Isolate Unicode symbol-category chars (Sc/Sk/Sm/So) and '%' the
-        # same way; letters, digits, marks and language punctuation keep their handling above.
-        for _ch in set(text):
-            if (ord(_ch) not in _trans
-                    and (unicodedata.category(_ch)[0] == "S" or _ch == "%")):
-                _trans[ord(_ch)] = " " + _ch + " "
         # language chars_ignore table (tr_languages.c / readclause.c IgnoreOrReplaceChar): drop or
         # replace input codepoints before tokenising. fa rewrites U+200C (ZWNJ) to '-' and drops
         # U+0640 (TATWEEL); this is espeak's real behaviour, so it applies in both modes.
@@ -1266,6 +1257,21 @@ class G2P:
         # join with U+0001 so it survives the whitespace split below; a plain '_' is just a space.
         text = text.replace("_-", "\x01").replace("_", " ")
         text = text.translate(_trans)
+        # espeak's clause reader breaks a word at a digit<->anything boundary (translate.c:1194,
+        # 1377) and at a letter<->symbol boundary (1182/1218), but NOT between two symbols — an
+        # adjacent-symbol run stays one word whose chars are spoken glued by the letter peel
+        # (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz). Isolate maximal runs of Unicode symbol-category chars
+        # (Sc/Sk/Sm/So, plus '%') as single tokens; _render_word speaks a multi-symbol token
+        # char by char with no space (£5 -> pound five, 5+3 -> five plus three, 99% -> ... percent).
+        if any(unicodedata.category(_c)[0] == "S" or _c == "%" for _c in text):
+            _out, _prev_sym = [], False
+            for _c in text:
+                _sym = unicodedata.category(_c)[0] == "S" or _c == "%"
+                if _sym != _prev_sym:
+                    _out.append(" ")
+                _out.append(_c)
+                _prev_sym = _sym
+            text = "".join(_out)
         # Build the (token, nospace_join) list: whitespace is an ordinary break; a '\x01' (the
         # former '_-') breaks AND glues the following word to the previous with no space.
         raw_toks = []
@@ -1688,6 +1694,10 @@ class G2P:
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
         dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
+        if len(word) > 1 and all(unicodedata.category(c)[0] == "S" or c == "%" for c in word):
+            # an adjacent-symbol run is ONE word whose chars the letter peel speaks glued,
+            # with no word break between the names (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz).
+            return "".join(self._render_word(c, tonic, ipa, tie, separator) for c in word)
         # NB: str.isdigit() is True for superscripts/other Unicode digits ('²') that int() rejects,
         # so require ASCII before routing to the (int-based) number path — '²' falls through to
         # normal translation instead of crashing.

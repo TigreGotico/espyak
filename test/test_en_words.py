@@ -92,3 +92,15 @@ SYMBOL_SPLIT = [
 @pytest.mark.parametrize("text,ipa", SYMBOL_SPLIT)
 def test_symbols_split_from_adjacent_words(text, ipa):
     assert G2P("en", force_compat=True).phonemize(text) == ipa
+
+
+SYMBOL_RUNS = [
+    ("€€", "jˈʊəɹəʊzjˈʊəɹəʊz"),
+    ("€€£", "jˈʊəɹəʊzjˈʊəɹəʊzpˈaʊnd"),
+    ("+-", "plˈʌs"),
+]
+
+
+@pytest.mark.parametrize("text,ipa", SYMBOL_RUNS)
+def test_adjacent_symbol_runs_glue(text, ipa):
+    assert G2P("en", force_compat=True).phonemize(text) == ipa
