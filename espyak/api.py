@@ -312,6 +312,9 @@ class G2P:
         self._sort_rules_by_phoneme_code()
         self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
+        # Unpronouncable2 (translateword.c:1187) reruns the letter rules under FLAG_UNPRON_TEST,
+        # which needs the phoneme mnemonic index for count_vowels; expose it on the translator.
+        self._tr.mnem = self._mnem
         # _listx is the supplementary lexical-stress / vocalized dictionary (ar/ru/it/bg/
         # tr/he/...). CompileDictionary (compiledict.c:1581) compiles _list and _listx in an
         # order gated on langopts.listx, and each entry is PREPENDED to its hash chain (the

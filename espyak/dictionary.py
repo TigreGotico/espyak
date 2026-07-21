@@ -1528,6 +1528,11 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         # post-context has scanned. da `el (l$p_alt` must check `appel`, not the scanned `appell`.
         part_end = match_end_ptr if match_end_ptr is not None else post_ptr
         failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, part_end)
+        if command == K.DOLLAR_UNPR:
+            # $unpron marks a cluster as "unpronounceable" for the FLAG_UNPRON_TEST rerun
+            # (dictionary.c:1725 sets match.end_type = SUFX_UNPRON). Carry it on the rule's
+            # end_type so Unpronouncable2 sees it (es `_) d ($unpr` -> "dr" is spelled).
+            end_type = K.SUFX_UNPRON
     elif rb == ord("-"):
         if letter == ord("-") or (letter == ord(" ") and (word_flags & K.FLAG_HYPHEN_AFTER)):
             add_points = 22 - distance_right
@@ -1907,16 +1912,30 @@ def _unpronounceable(tr, word, posn=0):
             # vowel set — not a Latin acronym. Guards languages that don't set letter_bits_offset
             # (ky/mk/nog/ba are Cyrillic but leave it unset, so the offset check alone misses them).
             return False
+    if lopt == 2 and vowel_posn > 2:
+        # LOPT_UNPRONOUNCABLE==2 (de/en/es): the deep-vowel decision is delegated to Unpronouncable2
+        # (translateword.c:1173), a *_rules test — checked BEFORE the leading-`s` adjustment and the
+        # max_initial_consonants heuristic (which are the else-path for langs with a shallow vowel).
+        return unpronounceable2(tr, word)
     if c1 is not None and ord(c1) == lopt:
         vowel_posn -= 1  # disregard a leading LOPT_UNPRONOUNCABLE char (default 's') when counting
-    if lopt == 2 and vowel_posn < 9:
-        # LOPT_UNPRONOUNCABLE==2 (de/en/es): the deep-vowel decision is made by Unpronouncable2, a
-        # *_rules `$unpron`-marker test (a known cluster like de `tsch`, en `str` stays whole). That
-        # rules pass is not ported, so for these languages only the limiting NO-vowel case peels
-        # (en th, brrr); a word that HAS a vowel is left to the rules, exactly as before the peel
-        # path existed (de tschechien -> tʃˈɛçɪən, not a peeled ˈteːʃ…).
-        return False
     return vowel_posn > (cfg.get("max_initial_consonants", 3) + 1)
+
+
+def unpronounceable2(tr, word):
+    """Port of Unpronouncable2 (translateword.c:1187). For LOPT_UNPRONOUNCABLE==2 languages
+    (en/de/es), reruns the letter-to-sound rules over `word` under FLAG_UNPRON_TEST instead of the
+    generic vowel-depth heuristic. Under that flag MatchRule only lets start-anchored rules
+    (RULE_PRE_ATSTART) win, and translate_rules returns the first such match's end_type | 1 as the
+    end_flags. The word is UNpronounceable (-> spell letter by letter) iff no start-anchored rule
+    matched (end_flags == 0) or the one that matched is an explicit `$unpron` marker (SUFX_UNPRON):
+    en `st` matches `_) st (` -> pronounceable (sˈənt); de `nvda` matches nothing -> spelled."""
+    mnem = getattr(tr, "mnem", None)
+    if mnem is None:
+        return False  # no phoneme index available: fall back to pronounceable (unchanged behaviour)
+    _ph, end_flags, _ep = translate_rules(tr, word, mnem, word_flags=K.FLAG_UNPRON_TEST,
+                                          pre_substituted=True)
+    return (end_flags == 0) or bool(end_flags & K.SUFX_UNPRON)
 
 
 def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0,
@@ -2062,6 +2081,16 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
         # .group rule only fires before an L02 letter and so produces nothing here. Emit a sentinel
         # carrying the codepoint; _render_phonemes replaces it with the in-band (en)…(shn)…
         # spelling. Gated per-language (compat_spell_codepoint) and to the script's Unicode block.
+        if (word_flags & K.FLAG_UNPRON_TEST) and match1 is not None and match1.points == 0 \
+                and is_alpha(wc):
+            # Unpronouncable2 abort (dictionary.c:2270): under the test flag, an alphabetic letter
+            # group that matched no start-anchored rule aborts the whole word (espeak's condition
+            # `(any_alpha > 1) || (p[wc_bytes-1] > ' ')` is always true for a letter). points stays
+            # 0 all the way out, so TranslateRules returns end_flags 0 and the word is judged
+            # unpronounceable — en `ph`/`bh`/`sh` peel their first consonant instead of pronouncing
+            # the silent-h cluster (`_B) h`), rather than pronouncing through it.
+            return "", 0, ""
+
         if match1 is not None and match1.points == 0:
             cfg = getattr(tr, "config", None) or {}
             blk = cfg.get("compat_spell_codepoint")
@@ -2091,6 +2120,14 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
         if match1 is None or match1.phonemes is None:
             continue
         if match1.points > 0:
+            if word_flags & K.FLAG_UNPRON_TEST:
+                # Unpronouncable2 test (dictionary.c:2293): the FIRST group that matches a
+                # start-anchored rule (RULE_PRE_ATSTART; only those update `best` under
+                # FLAG_UNPRON_TEST) settles the question — return its end_type | 1 as the
+                # end_flags. A $unpron ($unpron -> SUFX_UNPRON) marker means "still
+                # unpronounceable"; any other match means pronounceable. Never appends, so no
+                # phonemes are produced here.
+                return "", (match1.end_type | 1), ""
             if (match1.phonemes and match1.phonemes.startswith("_^_")
                     and not (word_flags & K.FLAG_DONT_SWITCH_TRANSLATOR)):
                 # phonSWITCH (dictionary.c:2297): a rule producing a language switch as its
