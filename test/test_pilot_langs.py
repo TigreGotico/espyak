@@ -73,3 +73,25 @@ def test_icelandic_letter_groups(oracle):
     g = G2P("is", force_compat=True)
     for word, ipa in IS_CASES:
         assert g.phonemize(word) == ipa, word
+
+
+# A lengthened vowel that carries an explicit `ipa` string is rendered by REPEATING that
+# string, not by appending ː: espeak writes the length phoneme with the vowel's own plist
+# (dictionary.c:656) and in IPA mode re-runs the vowel's program, emitting its ipa a second
+# time. This holds for the CLOSING diphthong eI (ipa ɛɪ) just as for monophthongs and
+# centring diphthongs — af `charmaine`/`cliché` copy ɛɪ -> ɛɪɛɪ. A vowel with NO ipa string
+# (the closing diphthong aI defines none) instead takes ː. The copy is gated on the vowel
+# actually being lengthened AND carrying an explicit ipa string.
+AF_LENGTHEN_CASES = [
+    ("charmaine", "ʃɑːmˈɛɪɛɪn"),   # lengthened closing diphthong eI (ipa ɛɪ) copied, not ɛɪː
+    ("cliché", "kliʃˈɛɪɛɪ"),       # same, word-final
+    ("brei", "brˈɛɪ"),             # unlengthened eI stays single (no spurious copy)
+    ("baan", "bˈɑːn"),             # ordinary long vowel unaffected by the copy path
+]
+
+
+def test_afrikaans_lengthened_vowel_copy(oracle):
+    g = G2P("af", force_compat=True)
+    for word, ipa in AF_LENGTHEN_CASES:
+        assert g.phonemize(word) == ipa, word
+        assert oracle(word, "af", "ipa") == ipa, word

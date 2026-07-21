@@ -244,14 +244,17 @@ def _double_long_consonants(plist, double_rfx_stop=False):
             if _glide and not any(not plist[k].deleted for k in range(i - 1)):
                 continue
             e.ph = prev  # replace the length marker with a copy of the consonant
-        elif prev.type == phVOWEL and (
-                # a MONOPHTHONG with an explicit ipa string (mto i/a/o/e, af a) is lengthened
-                # by repeating it (i: -> ii); one rendered via its mnemonic (ipa None: mto u,
-                # af i) and a CLOSING diphthong (aɪ) take ː instead
-                (prev.starttype == prev.endtype and prev.ipa is not None)
-                # a CENTRING diphthong (endtype #@: e@ -> iə) also repeats (e@: -> iəiə)
-                or (prev.starttype != prev.endtype and prev.endtype == "#@")):
-            e.ph = prev  # replace the length marker with a copy of the diphthong
+        elif prev.type == phVOWEL and prev.ipa is not None:
+            # A vowel with an explicit ipa string is lengthened by REPEATING it, not by
+            # appending ː. espeak writes the length phoneme with the vowel's own plist
+            # (dictionary.c:656) and in IPA mode WritePhMnemonic re-runs the vowel's program
+            # (InterpretPhoneme, synthdata.c:756 sets `ph = plist->ph`), so the vowel's ipa
+            # string is emitted a second time. This holds for every vowel category that carries
+            # an ipa string — a monophthong (mto/af a: -> ii), a centring diphthong (af e@: ->
+            # iəiə), and a CLOSING diphthong (af eI ɛɪ: -> ɛɪɛɪ; cliché, charmaine). A vowel with
+            # NO ipa string (rendered via its mnemonic: af i, mto u, the closing diphthong aI
+            # which defines no ipa) falls through and takes ː from phonLENGTHEN's own mnemonic.
+            e.ph = prev  # replace the length marker with a copy of the vowel
 
 
 def _decompose_hangul(word):
