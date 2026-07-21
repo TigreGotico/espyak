@@ -1341,18 +1341,38 @@ class G2P:
         text = text.replace("_-", "\x01").replace("_", " ")
         text = text.translate(_trans)
         # espeak's clause reader breaks a word at a digit<->anything boundary (translate.c:1194,
-        # 1377) and at a letter<->symbol boundary (1182/1218), but NOT between two symbols — an
-        # adjacent-symbol run stays one word whose chars are spoken glued by the letter peel
-        # (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz). Isolate maximal runs of Unicode symbol-category chars
-        # (Sc/Sk/Sm/So, plus '%') as single tokens; _render_word speaks a multi-symbol token
-        # char by char with no space (£5 -> pound five, 5+3 -> five plus three, 99% -> ... percent).
-        if any(unicodedata.category(_c)[0] == "S" or _c == "%" for _c in text):
+        # 1377) and at a letter<->symbol/punctuation boundary (1182/1218), then spells the isolated
+        # char by its character name (en c# -> sˈiː hˈaʃ, c:d -> sˈiː kˈəʊlən dˈiː; sv usa:s ->
+        # ˌʉɛsˈɑː ˈɛs with the ':' dropped) — but NOT between two such chars, so an adjacent run
+        # stays one word spoken glued by the letter peel (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz, ## -> hˈaʃhaʃ).
+        # Isolate maximal runs. Symbol-category chars (Sc/Sk/Sm/So, plus '%') split unconditionally;
+        # "other" punctuation (category P) splits too, EXCEPT a ':' next to a digit, which stays in
+        # the token for the number path (the time/range rules '12:30', '2.-a' need it in-word). The
+        # marks handled in dedicated branches (- . , ' / _ & and the language's middle-dot-style
+        # punct_within_word) are never peeled here.
+        _pww = "-.,'/_&\x01" + self._config.get("punct_within_word", "")
+        def _isol(_k):
+            _c = text[_k]
+            if _c.isspace() or _c in _pww:
+                return False
+            _cat0 = unicodedata.category(_c)[0]
+            if _cat0 == "S" or _c == "%":
+                return True
+            if _cat0 == "P":
+                if _c == ":":
+                    _p = text[_k - 1] if _k else ""
+                    _n = text[_k + 1] if _k + 1 < len(text) else ""
+                    if (_p.isascii() and _p.isdigit()) or (_n.isascii() and _n.isdigit()):
+                        return False
+                return True
+            return False
+        if any(_isol(_k) for _k in range(len(text))):
             _out, _prev_sym = [], False
-            for _c in text:
-                _sym = unicodedata.category(_c)[0] == "S" or _c == "%"
+            for _k in range(len(text)):
+                _sym = _isol(_k)
                 if _sym != _prev_sym:
                     _out.append(" ")
-                _out.append(_c)
+                _out.append(text[_k])
                 _prev_sym = _sym
             text = "".join(_out)
         # Build the (token, nospace_join) list: whitespace is an ordinary break; a '\x01' (the
@@ -1954,9 +1974,13 @@ class G2P:
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
         dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
-        if len(word) > 1 and all(unicodedata.category(c)[0] == "S" or c == "%" for c in word):
-            # an adjacent-symbol run is ONE word whose chars the letter peel speaks glued,
-            # with no word break between the names (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz).
+        _pww_r = "-.,'/_&\x01" + self._config.get("punct_within_word", "")
+        if len(word) > 1 and all(
+                unicodedata.category(c)[0] == "S" or c == "%"
+                or (unicodedata.category(c)[0] == "P" and c not in _pww_r)
+                for c in word):
+            # an adjacent symbol/punctuation run is ONE word whose chars the letter peel speaks
+            # glued, with no word break between the names (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz, ## -> hˈaʃhaʃ).
             return "".join(self._render_word(c, tonic, ipa, tie, separator) for c in word)
         # NB: str.isdigit() is True for superscripts/other Unicode digits ('²') that int() rejects,
         # so require ASCII before routing to the (int-based) number path — '²' falls through to
@@ -1975,10 +1999,15 @@ class G2P:
                 word = _rep
         if not word.isascii():
             # native-script decimal digits (fa ۱, ar ٠, Devanagari ०, ...) -> ASCII so they route to
-            # the number path (۱ -> jek). unicodedata.decimal rejects superscripts/subscripts ('²'),
-            # so those still fall through to normal translation as intended.
+            # the number path (۱ -> jek). A subscript digit ₀-₉ (U+2080..U+2089) is a "derived
+            # letter" espeak converts to its base 0-9 in the letter-spell path (translateword.c
+            # IsSuperscript / numbers.c derived_letters), so an isolated one is spoken as that
+            # digit's name (ca co₂ -> the token splits to `co` + `₂`, and ₂ -> "2" -> ðˈos). Map
+            # the subscripts here so they reach the number path; unicodedata.decimal rejects them
+            # (and superscripts, left untouched to match espeak's normal-text reading).
             word = "".join(
-                str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None else c
+                str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None
+                else (str(ord(c) - 0x2080) if 0x2080 <= ord(c) <= 0x2089 else c)
                 for c in word)
         _gsep = "." if dsep == "," else ","
         if (_gsep in word and word[:1] != _gsep and word[-1:] != _gsep
