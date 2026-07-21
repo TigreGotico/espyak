@@ -172,16 +172,6 @@ the target output is not a function of the input plus the bundled data:
 
 These put a permanent floor a few hundredths of a percent below a clean byte-for-byte 100%.
 
-## Upstream data gaps (not parity gaps)
-
-Cases where espyak matches espeak-ng byte-for-byte but the shared *data* is incomplete, so
-both engines produce poor output. Filling these would mean diverging from upstream
-dictionaries, so they stay as-is unless upstream fixes them:
-
-- **`en_list` symbol coverage.** `nl_list` has entries for `£ € ° + < > | *`; `en_list`
-  has only `~ @ & * =`. `£5`, `€10`, `20°`, `5+3` therefore render empty (or symbol-less)
-  in English in both engines. A fix belongs in espeak-ng's `en_list`.
-
 ---
 
 ## Sub-dialect VARIANT system (voices)
