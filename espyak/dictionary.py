@@ -579,7 +579,11 @@ class DictList:
         # matches `word`/`words` but not the `en`-stripped stem of `worden`.
         if (flags2 & K.FLAG_ONLY) and (ctx.suffix_removed or ctx.prefix_removed):
             return False, 0, 0, None
-        if (flags2 & K.FLAG_ONLY_S) and ctx.suffix_removed and not ctx.suffix_is_s:
+        if (flags2 & K.FLAG_ONLY_S) and (
+                ctx.prefix_removed or (ctx.suffix_removed and not ctx.suffix_is_s)):
+            # LookupDict2:2571 rejects BOTH $only and $onlys once a prefix was removed, not
+            # just $only. en `put ,pUt $onlys` must not match the `out`-prefix-stripped stem of
+            # `output` (-> ˈaʊtpʊt, the whole out+put stressed once, not ˈaʊtpˌʊt).
             return False, 0, 0, None
         if (flags2 & K.FLAG_CAPITAL) and not ctx.first_upper:
             return False, 0, 0, None

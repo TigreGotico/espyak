@@ -1187,15 +1187,12 @@ class G2P:
                 and not self._config.get("suffix_keeps_stress"):
             self._suffix_t_ph = end_ph
             return stem_ph
-        # record the suffix's vowel count so set_word_stress runs the auto-secondary on the
-        # stem only (espeak stresses the stem, then appends the suffix unstressed). Only when
-        # there is a real stem — some endings span the whole word (stem empty, e.g. en
-        # "house"), where the "suffix" vowels ARE the word and must keep their stress.
-        # `suffix_keeps_stress` langs (eu) instead stress the whole stem+suffix word, so the
-        # suffix vowels are NOT excluded (translateword.c stresses `phonemes` with the suffix in it).
-        if stem_ph.strip("\"'") and not self._config.get("suffix_keeps_stress"):
-            self._suffix_nvowels = sum(1 for _m, p in self._mnem.tokenize(end_ph)
-                                       if p.type == phVOWEL and "nonsyllabic" not in p.flags)
+        # A non-SUFX_T suffix is appended to the stem and the WHOLE word is stressed:
+        # translateword.c:525-528 AppendPhonemes(phonemes, end_phonemes) then clears
+        # end_phonemes, so add_suffix_phonemes stays 0 and SetWordStress (:578) runs the
+        # auto-secondary pass over stem+suffix together. A full vowel in the suffix therefore
+        # keeps its secondary stress (holly+wood -> hˈɒliwˌʊd, bollywood -> bˈɒliwˌʊd). Only the
+        # SUFX_T path above (ro unele -> ˈunele) holds the suffix out of the stress pass.
         return stem_ph + end_ph
 
     def _split_caps_word(self, tok, words, caps_letters, first_sub):
