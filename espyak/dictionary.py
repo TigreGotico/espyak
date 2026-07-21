@@ -11,6 +11,7 @@ last-best-wins tie-break are reproduced. Phonemes are accumulated as mnemonic st
 
 Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 """
+import re
 import unicodedata
 from espyak import constants as K
 from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, Phoneme
@@ -311,7 +312,12 @@ class DictList:
             close = line.find(")")
             if close < 0:
                 return
-            inside = line[1:close].split()
+            # compiledict.c LINE_PARSER_END_OF_WORD: inside a "(...)" multi-word entry a hyphen
+            # is a word separator (it sets BITNUM_FLAG_HYPHENATED and rewrites '-' to ' '), so
+            # `(has-been)`/`(lean-to)` compile to key "has"/"lean" + follow "been"/"to", exactly
+            # like the space-separated `(has been)`. A hyphen after a DIGIT is kept (numeric-hyphen,
+            # hu `(1-e)` $text): those stay a single-token key, matching the C special case.
+            inside = re.sub(r"(?<!\d)-", " ", line[1:close]).split()
             word = inside[0] if inside else ""
             rest_words = " ".join(inside[1:])
             tokens = line[close + 1:].split()
@@ -415,6 +421,29 @@ class DictList:
             return entry.phonemes, flags1
         return None, None
 
+    def multiword_skip(self, word, following, dict_condition=0,
+                       first_upper=False, all_upper=False):
+        """Return how many FOLLOWING words a matching multi-word entry for `word` consumes.
+
+        Mirrors LookupDict2's selection (last-in-file entry wins) but reports only the skipword
+        count: 0 when the winning entry is an ordinary single word (or nothing matches), N when a
+        `(w1 w2 ... wN+1)` entry fires. The caller uses this to advance past the consumed words and
+        to place the clause tonic on the whole multi-word unit. The case flags MUST match those the
+        actual render-time lookup uses, or the two disagree — e.g. all-caps `HAS BEEN` selects the
+        $allcaps single-word `has` entry, not `(has-been)`, so no words may be skipped."""
+        if not following:
+            return 0
+        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+        if not entries:
+            return 0
+        ctx = LookupContext(dict_condition=dict_condition, following=following, clause_ctx=True,
+                            first_upper=first_upper, all_upper=all_upper)
+        for entry in reversed(entries):
+            ok, _f1, _f2, _s = self._eval(entry, ctx)
+            if ok:
+                return len(entry.rest.split()) if entry.multiword else 0
+        return 0
+
     def lookup_flags(self, word, dict_condition=0):
         """Flags-only lookup (port of LookupFlags): return flags1 for `word`, with FLAG_FOUND set
         if any entry matched (0 if absent). No phoneme translation, so the matcher's DollarRule can
@@ -453,7 +482,16 @@ class DictList:
             else:
                 flags1 |= (1 << flag)
         if entry.multiword:
-            return False, 0, 0, None  # following words can't match an isolated word
+            # LookupDict2 flag>80 (skipwords) path: the entry only matches if the words that FOLLOW
+            # in the source match the stored follow-string. C does `strncmp(word2, "<rest> ", n)`
+            # against the raw source after the first word; here the follow words are pre-tokenised in
+            # ctx.following (lowercased), so a whole-word prefix compare is exact. With no following
+            # context (isolated-word lookup / lookup_flags) ctx.following is empty and a multi-word
+            # entry can never fire — preserving the historical isolated-word behaviour.
+            rest = entry.rest.split()
+            foll = ctx.following
+            if len(foll) < len(rest) or any(foll[k] != rest[k] for k in range(len(rest))):
+                return False, 0, 0, None
         # condition checks (LookupDict2 tail)
         if (flags2 & K.FLAG_STEM) and not ctx.suffix_removed:
             return False, 0, 0, None
@@ -471,8 +509,17 @@ class DictList:
             return False, 0, 0, None
         if (flags1 & K.FLAG_NEEDS_DOT) and not ctx.has_dot:
             return False, 0, 0, None
-        if (flags2 & K.FLAG_ATEND) and not ctx.at_end:
-            return False, 0, 0, None
+        if flags2 & K.FLAG_ATEND:
+            if ctx.clause_ctx:
+                # $atend = "use this pronunciation at end of clause" (LookupDict2: word_end <
+                # clause_end). A multi-word entry's span ends after its follow-words, so it is at
+                # clause end only when it consumes ALL remaining words; a single-word entry only
+                # when nothing follows. This stops `(it has) $atend` from firing mid-clause.
+                rest_n = len(entry.rest.split()) if entry.multiword else 0
+                if len(ctx.following) != rest_n:
+                    return False, 0, 0, None
+            elif not ctx.at_end:
+                return False, 0, 0, None
         if (flags2 & K.FLAG_ATSTART) and not ctx.first_word:
             return False, 0, 0, None
         if (flags2 & K.FLAG_SENTENCE) and not ctx.sentence:
@@ -492,7 +539,7 @@ class LookupContext:
     def __init__(self, first_upper=False, all_upper=False, has_dot=False,
                  first_word=True, at_end=True, sentence=True, dict_condition=0,
                  expect_verb=0, expect_noun=0, expect_past=0, suffix_removed=False,
-                 prefix_removed=False, suffix_is_s=False):
+                 prefix_removed=False, suffix_is_s=False, following=(), clause_ctx=False):
         self.first_upper = first_upper
         self.all_upper = all_upper
         self.has_dot = has_dot
@@ -506,6 +553,13 @@ class LookupContext:
         self.suffix_removed = suffix_removed   # a suffix was removed (FLAG_SUFX)
         self.prefix_removed = prefix_removed   # a prefix was removed (SUFX_P)
         self.suffix_is_s = suffix_is_s         # the removed suffix was 's' (FLAG_SUFX_S)
+        # the words that FOLLOW this word in the clause (lowercased tokens), used to match a
+        # multi-word `(w1 w2 ...)` dict entry against the source (LookupDict2 skipwords path).
+        self.following = list(following)
+        # True when `following` reflects the real clause tail, so a $atend gate is evaluated by
+        # actual position (does the matched span reach the clause end?) instead of the historical
+        # isolated-word at_end=True assumption. Only set for multi-word probing/rendering.
+        self.clause_ctx = clause_ctx
 
 
 def is_digit(c):
