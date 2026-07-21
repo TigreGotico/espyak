@@ -1608,7 +1608,27 @@ class G2P:
         intrusive — or one SPELLED with a final 'r' rendered without it (for, car, her) — linking —
         restores a ɹ when the FOLLOWING word begins with a vowel (tilde ex -> tˈɪldəɹ ˈɛks,
         for it -> fɔːɹ ˈɪt). Before a consonant or at clause end no ɹ appears (tilde box, car)."""
-        for pi, ps, ci, _cs in self._slot_pairs(out, word_slots):
+        # A $pause word (FLAG_PREPAUSE — and, or, but, nor) gets a short pause inserted BEFORE it,
+        # which ends the previous word's phoneme run at a pause (not a vowel) and blocks linking/
+        # intrusive ɹ across it. espeak inserts that pause only when the $pause word is NOT the first
+        # or second word and NOT the last word of the clause, and no pause was inserted in the last
+        # few words (translate.c:469: !FIRST_WORD && prev not FIRST_WORD && !LAST_WORD &&
+        # prepause_timeout==0). So `sofa or chair` (or is word 2) links (sˈəʊfəɹ), but `the sofa and
+        # the chair` (and is word 3) does not (sˈəʊfə); `a comma or a colon` blocks comma->or yet
+        # still links or->a. Word position here is the slot index among rendered alphabetic words.
+        _last_slot = len(word_slots) - 1
+        _prepause_timeout = 0
+        for j in range(1, len(word_slots)):
+            _prepause_timeout = max(0, _prepause_timeout - 1)
+            pi, ps = word_slots[j - 1]
+            ci, _cs = word_slots[j]
+            if (self._dict.lookup_flags(_cs) & K.FLAG_PREPAUSE and j >= 2
+                    and j != _last_slot and _prepause_timeout == 0):
+                _prepause_timeout = 3
+                continue  # pause before this $pause word blocks the incoming linking ɹ
+            # only DIRECTLY adjacent words link (exactly one space between, no intervening token)
+            if not (ci == pi + 2 and out[pi + 1] == " "):
+                continue
             prev = out[pi]
             if not prev or prev[-1] == "ɹ" or prev[-1] == "r":
                 continue
