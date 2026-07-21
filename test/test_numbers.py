@@ -49,3 +49,24 @@ def es():
 @pytest.mark.parametrize("num", ES_CASES)
 def test_spanish_cardinal_matches_oracle(es, oracle, num):
     assert es.phonemize(num) == oracle(num, "es")
+
+
+# Decimal-fraction reading is per-language (the NUM_DFRACTION_* bits). Digit-by-digit languages
+# (nl/de/sv/da/el/an, and ru with its "и"…"десятых" frame) spell each fraction digit; the
+# whole-cardinal languages (fr/es/it/pt/ro/pl/cs/fi/tr/ca) read the fraction as one number when it
+# is short enough. These probes are byte-exact against the oracle across both readings.
+DFRACTION_CASES = [
+    ("sv", "3,14"), ("sv", "0,5"), ("sv", "12,345"), ("sv", "0,05"), ("sv", "100,25"),
+    ("da", "3,14"), ("da", "0,5"), ("da", "12,345"), ("da", "0,05"), ("da", "7,7"),
+    ("an", "3,14"), ("an", "0,5"), ("an", "12,345"), ("an", "0,05"), ("an", "100,25"),
+    ("ru", "3,14"), ("ru", "0,5"), ("ru", "12,345"), ("ru", "0,05"), ("ru", "0,123"),
+    ("it", "3,14"), ("it", "0,5"), ("it", "12,345"), ("it", "0,05"), ("it", "2,0"),
+    ("ca", "3,14"), ("ca", "0,5"), ("ca", "0,05"), ("ca", "100,25"), ("ca", "0,123"),
+    ("ro", "3,14"), ("ro", "0,5"), ("ro", "0,05"), ("ro", "2,0"), ("ro", "7,7"),
+    ("el", "0,5"), ("el", "12,345"), ("el", "0,05"), ("el", "2,0"), ("el", "0,123"),
+]
+
+
+@pytest.mark.parametrize("lang,num", DFRACTION_CASES)
+def test_decimal_fraction_matches_oracle(oracle, lang, num):
+    assert G2P(lang).phonemize(num) == oracle(num, lang)

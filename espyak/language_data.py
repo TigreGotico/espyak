@@ -62,7 +62,7 @@ LANGS = {
         "extra_vowels": "áéíóúü",
         "encoding": "iso-8859-1",
         "numbers": K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
-        | K.NUM_OMIT_1_THOUSAND | K.NUM_DECIMAL_COMMA,
+        | K.NUM_OMIT_1_THOUSAND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_4,
     },
     # Aragonese shares the es (Spanish) Translator block (tr_languages.c case L('a','n')):
     # same stress_rule (2R) and stress_flags as es/ia — S_FINAL_SPANISH | S_FINAL_DIM_ONLY |
@@ -75,6 +75,8 @@ LANGS = {
         "unstressed_wd2": 2,
         "extra_vowels": "áéíóúü",
         "encoding": "iso-8859-1",
+        # an reads the fraction digit-by-digit (no NUM_DFRACTION bit, tr_languages.c L('a','n')).
+        "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA,
     },
     # Catalan shares the es (Spanish) Translator block but the 'ca' voice adds S_NO_AUTO_2
     # (no automatic secondary stress — biocomsc -> biokˈɔmsk, no ˌi) and S_FIRST_PRIMARY
@@ -86,6 +88,8 @@ LANGS = {
                          | K.S_NO_AUTO_2 | K.S_FIRST_PRIMARY),
         "unstressed_wd1": 0,
         "unstressed_wd2": 2,
+        # ca reads the fraction as a whole cardinal (NUM_DFRACTION_4, tr_languages.c shares es).
+        "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_4,
     },
     "de": {"trill_r_not_after_stop": True, "lopt_prefixes": True,
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)
@@ -102,7 +106,7 @@ LANGS = {
         "it_lengthen": 1,  # LOPT_IT_LENGTHEN: drop length from unstressed syllables (y -> iɡʁɛk)
         "extra_vowels": "àâäéèêëîïôöùûü",
         "encoding": "iso-8859-1",
-        "numbers": K.NUM_OMIT_1_HUNDRED | K.NUM_DECIMAL_COMMA,
+        "numbers": K.NUM_OMIT_1_HUNDRED | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_4,
     },
     # South Slavic (tr_languages.c case L('s','r'), shared by hr/bs): initial stress,
     # spelling stress on the first letter. ph_croatian laxes a/i/u via ChangeIfNotStressed,
@@ -123,7 +127,10 @@ LANGS = {
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,  # no spurious final secondary
            "regression": 0x3,  # LOPT_REGRESSIVE_VOICING (však -> fʃak)
            "max_initial_consonants": 5,  # tr_languages.c L('c','s') (shared sk)
-           "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž"},
+           "extra_vowels": "áéíóúůýě", "extra_consonants": "čďňřšťž",
+           # cs reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2);
+           # its decimal separator is ',' (tr_languages.c L('c','s') sets decimal_sep=',').
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
     # Finnish/Estonian: fixed initial stress (espeak's zero-init default 1L; my default is 2R)
     # fi/et: fixed initial stress, secondary on alternating NON-final syllables. espeak's
     # case sets no stress_flags (flags=0) yet never auto-secondaries the final vowel —
@@ -136,7 +143,9 @@ LANGS = {
     # S_2_TO_HEAVY — the last keeps secondary stress off light syllables (et följetonist ->
     # fˈøʎjetonist, no ˌo before the heavy final).
     "fi": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöy", "spelling_stress": True,
-           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY},
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY,
+           # fi reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
     "et": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äöüõ", "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY},
     # Latvian: fixed initial stress. _list headwords carry explicit stress so they scored
@@ -158,7 +167,9 @@ LANGS = {
     # already high, but rules-based words needed the right rule (af alebo-class, etc.).
     "af": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True, "accents_before": True},
     "be": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2 | K.S_NO_DIM},
-    "da": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True},
+    # da reads the fraction digit-by-digit; decimal separator is ',' (tr_languages.c L('d','a')).
+    "da": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y", "lopt_prefixes": True,
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA},
     # Luxembourgish has no tr_languages.c block, so it keeps the NewTranslator defaults
     # (2R stress). Its lb_list defines the accented letters as bare `$accent` entries but
     # ships NO accent-name spellings (`_grv`/`_acu`/… absent). LookupLetterAccent therefore
@@ -171,9 +182,13 @@ LANGS = {
     "xex": {"clause_nucleus_last": False},
     "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
     "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "y"},
-    "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},
+    # sv reads the fraction digit-by-digit; decimal separator is ',' (tr_languages.c L('s','v')).
+    "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y",
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA},
     "tr": {"stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
-           "max_initial_consonants": 2},  # tr_languages.c L('t','r') (shared az)
+           "max_initial_consonants": 2,  # tr_languages.c L('t','r') (shared az)
+           # tr reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
     # Papiamento: stress the last syllable unless the word ends in a vowel (1R +
     # S_FINAL_VOWEL_UNSTRESSED). No config -> wrong 2R default (algun -> ˈalɡuŋ not alɡˈuŋ).
     "pap": {"stress_rule": K.STRESSPOSN_1R, "unstressed_wd1": 0, "unstressed_wd2": 2,
@@ -186,7 +201,10 @@ LANGS = {
            "stress_flags": (K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_FINAL_VOWEL_UNSTRESSED)},
     "hu": {"stress_rule": K.STRESSPOSN_1L, "spelling_stress": True,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_NO_AUTO_2
-           | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű"},
+           | 0x8000 | K.S_HYPEN_UNSTRESS, "extra_vowels": "áéíóöőúüű",
+           # hu reads the fraction as a whole cardinal plus a "tenths"/"hundredths"/… suffix
+           # (_0Z<n>, NUM_DFRACTION_5); its decimal separator is ',' (tr_languages.c L('h','u')).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_5},
     "ht": {"stress_rule": K.STRESSPOSN_1R,  # Haitian Creole: final-syllable stress
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM, "extra_vowels": "àèéò"},
     "it": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "àèéìíîòóùú",
@@ -198,7 +216,10 @@ LANGS = {
            # gli's final i laxes ʎi->ʎɪ via the ph_italian i->I program), the clause primary
            # overlaid after; il/in/non keep their lexical vowels unchanged
            "reduce_dict_vowels": True,  # LOPT_REDUCE&1: reduce vowels even in it_list entries
-           "unstress_u_words": True},
+           "unstress_u_words": True,
+           # it reads the fraction as a whole cardinal, adding a "hundredths"/… suffix (_0Z<n>)
+           # only when the fraction has a leading zero (NUM_DFRACTION_1, tr_languages.c L('i','t')).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_1},
     "sl": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž", "lopt_alt": True,
            "unstress_u_words": True, "drop_u_length": True},  # $u words: short, open vowels
@@ -237,7 +258,10 @@ LANGS = {
                                           # non-final caps letter rule-translates (dO:t -> ...ˈoɔ...)
     "ro": {"stress_rule": K.STRESSPOSN_1R,
            "stress_flags": K.S_FINAL_VOWEL_UNSTRESSED | K.S_FINAL_DIM_ONLY,
-           "extra_vowels": "ăâîșț"},
+           "extra_vowels": "ăâîșț",
+           # ro reads the fraction as a whole cardinal when it is <=4 digits and has no leading
+           # zero (NUM_DFRACTION_3, tr_languages.c L('r','o')).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_3},
     "mk": {"stress_rule": K.STRESSPOSN_3R, "extra_consonants": "ѓќџљњ",  # antepenultimate
            "unstress_u_words": True},  # $u function words reduce despite the clause accent
     # Malay (tr_languages.c case L('m','s')): 2R like the default, but the VOICE block sets
@@ -266,16 +290,23 @@ LANGS = {
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_INITIAL_2 | K.S_PRIORITY_STRESS,
            "lopt_alt": True, "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1",
            "set_letter_vowel": "y",  # SetLetterVowel(tr,'y') (tr_languages.c L('p','t'))
-           "priority_stress_demote": True},
+           "priority_stress_demote": True,
+           # pt reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2,
+           # tr_languages.c L('p','t')).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
-           "regression": 0x100, "lopt_prefixes": True, "lopt_dieres": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp); LOPT_DIERESES (tr_languages.c L('n','l'))
+           "regression": 0x100, "lopt_prefixes": True, "lopt_dieres": True,  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp); LOPT_DIERESES (tr_languages.c L('n','l'))
+           # nl reads the fraction digit-by-digit; decimal separator is ',' (tr_languages.c L('n','l')).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA},
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
            "stress_flags": K.S_FINAL_DIM_ONLY,  # mark unstressed final syllables diminished (tr_languages.c L('p','l'))
            # SetLetterVowel(tr,'y') (tr_languages.c): Polish puts 'y' in vowel group A too
            # (default A = "aeiou", except y), so `A) ł (_` fires after y: był -> bˈɨw, not bˈɨ.
            "set_letter_bits": [(K.LETTERGP_A, "y"), (K.LETTERGP_VOWEL2, "y")],
            "max_initial_consonants": 7,  # tr_languages.c L('p','l'): "wchrzczony" (brzmi stays whole)
-           "regression": 0x9},  # LOPT_REGRESSIVE_VOICING (usb -> uɛzbɛ)
+           "regression": 0x9,  # LOPT_REGRESSIVE_VOICING (usb -> uɛzbɛ)
+           # pl reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
     # Norwegian Bokmål (tr_languages.c case L('n','b')): first-syllable stress, 'y' a vowel.
     # No config -> wrong 2R default for rules-based words.
     "nb": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y"},  # SetLetterVowel(tr,'y')
@@ -340,6 +371,9 @@ LANGS["ru"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT, K.S_NO_AUTO_2)
 LANGS["ru"]["letter_bits_codes"] = LANGS["ru"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),
 ]
+# ru reads the fraction digit-by-digit between "_dpt" ("и") and a "_dpt2" tail ("десятых"),
+# and uses ',' as the decimal separator (Translator_Russian: NUM_DECIMAL_COMMA | NUM_OMIT_1_HUNDRED).
+LANGS["ru"]["numbers"] = K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA
 LANGS["uk"] = _cyrillic_config(K.STRESSPOSN_SYLCOUNT, K.S_NO_AUTO_2)
 LANGS["uk"]["letter_bits_codes"] = LANGS["uk"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),
@@ -370,6 +404,8 @@ def _greek_config(stress_rule, stress_flags):
 
 LANGS["el"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY)
 LANGS["el"]["u_clause_final"] = True  # 3+-syll $u words take the clause accent on the last syllable
+# el reads the fraction digit-by-digit; decimal separator is ',' (tr_languages.c L('e','l')).
+LANGS["el"]["numbers"] = K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA
 LANGS["grc"] = _greek_config(K.STRESSPOSN_2R, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2)
 # Lojban: LOPT_CAPS_IN_WORD — a capital letter marks the stressed syllable (RAtatar -> rˈatatˌar).
 LANGS["jbo"] = {"stress_rule": K.STRESSPOSN_2R, "caps_in_word": True, "extra_vowels": "y"}

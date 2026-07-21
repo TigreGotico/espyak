@@ -124,19 +124,91 @@ def translate_ordinal(tr_dict, digits, suffix, ctx=None, flags=K.NUM_HUNDRED_AND
     return out + "||" + _frag(tr_dict, "#" + suffix, ctx)
 
 
+def _whole_fraction(tr_dict, frac, ctx, flags):
+    """The fractional part read as a single cardinal. LookupNum3 (numbers.c:1446) always emits a
+    word break before a group's tens/units, which is leading — and so becomes a space after the
+    decimal-point word — when the value has no hundreds digit (value < 100)."""
+    ph = translate_number(tr_dict, frac, ctx, flags)
+    n = int(frac)
+    if 0 < n < 100:
+        ph = "||" + ph
+    return ph
+
+
+def _translate_fraction(tr_dict, frac, ctx, flags):
+    """Read the digits after the decimal point (numbers.c ~1712-1793). espeak varies the
+    reading per language via the NUM_DFRACTION_* bits: digit-by-digit by default (nl/de/sv/…),
+    or the fraction as a whole cardinal (fr/es/it/pt/ro/pl/cs/fi/tr/ca), sometimes with a
+    "tenths"/"hundredths" suffix (hu/kk). The consumed-through index `i` tracks how many
+    leading digits the DFRACTION branch spoke as a whole number; anything left is spoken
+    digit-by-digit, and finally a `_dpt2` end-of-fraction word is appended if the language
+    has one (ru "десятых")."""
+    mode = flags & K.NUM_DFRACTION_BITS
+    out = ""
+    i = 0
+    decimal_count = len(frac)
+    if mode in (K.NUM_DFRACTION_2, K.NUM_DFRACTION_4):
+        # French/Polish-style: strip and speak leading zeros, then the rest as one cardinal
+        # if it is short enough (<=2 digits for _2, <=5 for _4).
+        max_decimal_count = 5 if mode == K.NUM_DFRACTION_4 else 2
+        while i < len(frac) and frac[i] == "0":
+            out += _frag(tr_dict, "0", ctx)
+            decimal_count -= 1
+            i += 1
+        if decimal_count <= max_decimal_count and i < len(frac):
+            out += _whole_fraction(tr_dict, frac[i:], ctx, flags)
+            i = len(frac)
+    elif mode in (K.NUM_DFRACTION_1, K.NUM_DFRACTION_5, K.NUM_DFRACTION_6):
+        # Italian/Hungarian/Kazakh: the whole fraction as a cardinal, with a
+        # "tenths/hundredths/…" suffix (_0Z<count>) when there is a leading zero (it) or always
+        # (hu/kk). If the suffix is missing, revert to digit-by-digit.
+        num = _whole_fraction(tr_dict, frac, ctx, flags)
+        reverted = False
+        if frac[0] == "0" or mode != K.NUM_DFRACTION_1:
+            suf = _frag(tr_dict, "0Z%d" % decimal_count, ctx)
+            if not suf:
+                reverted = True
+            elif mode == K.NUM_DFRACTION_6:
+                out += suf  # Kazakh says the suffix before the number
+            else:
+                num += suf
+        if not reverted:
+            out += num
+            i = len(frac)
+    elif mode == K.NUM_DFRACTION_3:
+        # Romanian: the whole fraction as a cardinal when short and with no leading zero.
+        if decimal_count <= 4 and frac[0] != "0":
+            out += _whole_fraction(tr_dict, frac, ctx, flags)
+            i = len(frac)
+    elif mode == K.NUM_DFRACTION_7:
+        # Sinhala: an alternate digit form (_<d>d) for every digit except the last.
+        while decimal_count - 1 > 0:
+            alt = _frag(tr_dict, "%sd" % frac[i], ctx)
+            if not alt:
+                break
+            out += alt
+            i += 1
+            decimal_count -= 1
+    # any remaining digits are spoken individually
+    while i < len(frac) and frac[i].isdigit():
+        out += "||" + _frag(tr_dict, frac[i], ctx)
+        i += 1
+    # end-of-fraction word (ru "десятых"); joined directly, matching the C strcat
+    out += _frag(tr_dict, "dpt2", ctx)
+    return out
+
+
 def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal_sep="."):
     """Translate a number (optionally with a decimal part) to a phoneme string with `||`
-    word breaks. `flags` is the language's langopts.numbers bitfield (NUM_*). A fractional
-    part is read as "point" then each digit individually."""
+    word breaks. `flags` is the language's langopts.numbers bitfield (NUM_*). The fractional
+    part is read per the language's NUM_DFRACTION_* bits — see `_translate_fraction`."""
     if ctx is None:
         ctx = LookupContext()
     if decimal_sep in digits:
         intpart, _, frac = digits.partition(decimal_sep)
         out = translate_number(tr_dict, intpart or "0", ctx, flags)
         out += "||" + _frag(tr_dict, "dpt", ctx)
-        for d in frac:
-            if d.isdigit():
-                out += "||" + _frag(tr_dict, d, ctx)
+        out += _translate_fraction(tr_dict, frac, ctx, flags)
         return out
     n = int(digits)
     if n == 0:
