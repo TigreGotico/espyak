@@ -282,3 +282,17 @@ NUMBERS_FLAG_CASES = [
 @pytest.mark.parametrize("lang,num", NUMBERS_FLAG_CASES)
 def test_numbers_flags_match_oracle(oracle, lang, num):
     assert G2P(lang).phonemize(num) == oracle(num, lang)
+
+
+# The non-decimal separator groups thousands only when each following group has exactly three
+# digits (translate.c:1517); a non-binding separator splits the token into separate numbers.
+GROUPED_NUMBER_CASES = [
+    ("en", "1,000"), ("en", "12,345"), ("en", "1,000,000"), ("en", "3,14"),
+    ("en", "5,5"), ("en", "0,5"), ("en", "1,23,456"), ("en", "12,345,67"),
+    ("nl", "1.000"), ("nl", "3.14"), ("de", "1.000.000"), ("cy", "3,14"),
+]
+
+
+@pytest.mark.parametrize("lang,num", GROUPED_NUMBER_CASES)
+def test_grouped_numbers_match_oracle(oracle, lang, num):
+    assert _nfc(G2P(lang).phonemize(num)) == _nfc(oracle(num, lang))

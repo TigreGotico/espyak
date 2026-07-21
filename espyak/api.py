@@ -1832,6 +1832,25 @@ class G2P:
             word = "".join(
                 str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None else c
                 for c in word)
+        _gsep = "." if dsep == "," else ","
+        if (_gsep in word and word[:1] != _gsep and word[-1:] != _gsep
+                and word.replace(_gsep, "").isdigit() and word.replace(_gsep, "").isascii()):
+            # thousands grouping (translate.c:1517): the non-decimal separator binds only when
+            # followed by an exactly-3-digit group; a non-binding separator splits the token into
+            # separate numbers. en `1,000` -> one thousand, `3,14` -> "three fourteen",
+            # `1,23,456` -> "one" + 23456; nl `1.000` -> duizend, `3.14` -> "drie veertien".
+            _groups = word.split(_gsep)
+            _parts = [_groups[0]]
+            for _gseg in _groups[1:]:
+                if len(_gseg) == 3:
+                    _parts[-1] += _gseg
+                else:
+                    _parts.append(_gseg)
+            if len(_parts) == 1:
+                word = _parts[0]
+            else:
+                return " ".join(p for p in (self._render_word(p, tonic, ipa, tie, separator)
+                                            for p in _parts) if p)
         # digit-adjacent time/range/sign punctuation ('12:30', '3-4', '-5'): espeak's clause
         # reader isolates the ':'/'-' as its own token surrounded by spaces, so the digit-context
         # rules ('D_) : (_DD_', 'D_) - (_D', '__) - (_D') fire across the word boundary. Reproduce
