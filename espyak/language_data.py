@@ -106,7 +106,8 @@ LANGS = {
         "it_lengthen": 1,  # LOPT_IT_LENGTHEN: drop length from unstressed syllables (y -> iɡʁɛk)
         "extra_vowels": "àâäéèêëîïôöùûü",
         "encoding": "iso-8859-1",
-        "numbers": K.NUM_OMIT_1_HUNDRED | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_4,
+        "numbers": K.NUM_OMIT_1_HUNDRED | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_4
+        | K.NUM_VIGESIMAL,
     },
     # South Slavic (tr_languages.c case L('s','r'), shared by hr/bs): initial stress,
     # spelling stress on the first letter. ph_croatian laxes a/i/u via ChangeIfNotStressed,

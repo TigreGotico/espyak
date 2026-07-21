@@ -243,3 +243,15 @@ HU_CARDINAL_CASES = ["100", "105", "200", "999", "1000", "1100", "1234", "20", "
 @pytest.mark.parametrize("num", HU_CARDINAL_CASES)
 def test_hungarian_cardinal_matches_oracle(oracle, num):
     assert _nfc(G2P("hu").phonemize(num)) == _nfc(oracle(num, "hu"))
+
+
+# French numbers are vigesimal above 60 (70 = soixante-dix, 90 = quatre-vingt-dix) and have
+# lexicalised direct entries for the whole 20-29 row (vingt-et-un `_21`), which win over
+# tens+units decomposition.
+FR_CARDINAL_CASES = ["20", "21", "22", "29", "31", "61", "70", "71", "73", "79",
+                     "80", "81", "90", "91", "95", "99", "121", "171"]
+
+
+@pytest.mark.parametrize("num", FR_CARDINAL_CASES)
+def test_french_cardinal_matches_oracle(oracle, num):
+    assert G2P("fr").phonemize(num) == oracle(num, "fr")

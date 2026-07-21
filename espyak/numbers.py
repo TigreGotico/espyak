@@ -52,8 +52,26 @@ def _tens_units(tr_dict, value, ctx, flags=0, final=True):
     if units == 0:
         # exact ten: a lexicalised full form if the language has one (es "veinte"),
         # otherwise the combining tens form (en "twenty").
-        return _frag(tr_dict, str(value), ctx) or _frag(tr_dict, "%dx" % tens, ctx)
+        ph = _frag(tr_dict, str(value), ctx) or _frag(tr_dict, "%dx" % tens, ctx)
+        if ph:
+            return ph
+    else:
+        # a lexicalised full form wins for ANY two-digit value (numbers.c:1098 `_%d`):
+        # fr has direct _20.._29 entries (vingt-et-un `_21`), so 21 is not decomposed.
+        lex = _frag(tr_dict, str(value), ctx)
+        if lex:
+            return lex
     ph_tens = _frag(tr_dict, "%dx" % tens, ctx)
+    if not ph_tens and (flags & K.NUM_VIGESIMAL):
+        # tens not found: (for example) 73 is 60+13 (numbers.c:1133) — fr soixante-treize,
+        # quatre-vingt-onze. The unit part may itself be a teen (direct _11.._19 lookup).
+        units = value % 20
+        ph_tens = _frag(tr_dict, "%dx" % (tens & 0xFE), ctx)
+        if units >= 10:
+            out = ph_tens + _frag(tr_dict, str(units), ctx)
+            if flags & K.NUM_SINGLE_STRESS:
+                out = _single_stress(out)
+            return out
     if flags & K.NUM_SWAP_TENS:
         # units "and" tens (German "ein-und-zwanzig", Faroese "seks-og-tríati"). espeak
         # concatenates units+_0and+tens directly (numbers.c:1198); any word break comes from
