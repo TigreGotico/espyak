@@ -66,6 +66,28 @@ def _single_stress(ph):
     return "".join(chars)
 
 
+def _initial_stress(ph):
+    """NUM_SINGLE_STRESS_I: keep only the FIRST primary stress ("'"), demoting later ones to
+    secondary (",").
+
+    The mirror image of _single_stress. Dutch (and Welsh) put the single accent of a compound
+    numeral at the FRONT: "tweeënveertig" is tʋˈeːɛnfˌɪːrtəx, not tʋˌeːɛnfˈɪːrtəx, and
+    "tweehonderd" is tʋˈeːhˌɔndərt. German, which otherwise shares NUM_SWAP_TENS, keeps a
+    primary on both parts (tsvˈaɪhˈʊndɜt) and so must NOT set this flag.
+
+    Applied per thousands-group by translate_number, matching espeak: 12345 is
+    tʋˈaːlf dˌœyzɛnt drˈihˌɔndərt vˌɛɪfɛnfˌɪːrtəx -- one primary in "twaalf duizend",
+    a second in "driehonderdvijfenveertig".
+    """
+    marks = [i for i, c in enumerate(ph) if c == "'"]
+    if len(marks) <= 1:
+        return ph
+    chars = list(ph)
+    for i in marks[1:]:
+        chars[i] = ","
+    return "".join(chars)
+
+
 def _three_digit(tr_dict, value, ctx, flags=0, final=True):
     """0..999 -> phonemes (no leading/trailing magnitude)."""
     hundreds, tens_units = divmod(value, 100)
@@ -137,6 +159,10 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         for d in frac:
             if d.isdigit():
                 out += "||" + _frag(tr_dict, d, ctx)
+        if flags & K.NUM_SINGLE_STRESS_I:
+            # the decimal reading is one accent group too: nl 1,5 is ˈeːn kˌɔmaː vˌɛɪf,
+            # with the separator word and every fraction digit demoted to secondary.
+            out = _initial_stress(out)
         return out
     n = int(digits)
     if n == 0:
@@ -165,4 +191,15 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
                 part += ("||" if part else "") + mag
             higher_emitted = True
         parts.append(part)
-    return "||".join(p for p in parts if p)
+    out = "||".join(p for p in parts if p)
+    if flags & K.NUM_SINGLE_STRESS_I:
+        # One primary accent at the FRONT of the numeral (nl): "tweeënveertig" is
+        # tʋˈeːɛnfˌɪːrtəx, not tʋˌeːɛnfˈɪːrtəx, and 1234 is dˈœyzɛn tʋˌeːhˌɔndərt
+        # vˌirɛndˌɛrtəx. German shares NUM_SWAP_TENS but keeps a primary on both parts
+        # (tsvˈaɪhˈʊndɜt), so it must not set this flag.
+        #
+        # Known limitation: espeak starts a SECOND primary when a higher group is itself a
+        # multi-word numeral (12345 -> tʋˈaːlf dˌœyzɛnt drˈihˌɔndərt vˌɛɪfɛnfˌɪːrtəx). That
+        # per-group rule is not modelled here; numbers above 9999 get a single primary.
+        out = _initial_stress(out)
+    return out

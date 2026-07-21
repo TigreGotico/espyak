@@ -317,6 +317,12 @@ NUM_ROMAN_CAPITALS = 0x02000000
 NUM_ROMAN_AFTER = 0x04000000
 NUM_ROMAN_ORDINAL = 0x08000000
 NUM_SINGLE_STRESS_L = 0x10000000
+# espyak extension (not an espeak flag): keep only the FIRST primary stress in a compound
+# numeral and demote the rest to secondary. espeak gets this from the language's stress
+# rules rather than a numbers bit; nl/cy need it (tʋˈeːɛnfˌɪːrtəx), de must not have it
+# (tsvˈaɪhˈʊndɜt keeps both). Placed above the highest espeak NUM_* bit to avoid colliding
+# with a future upstream flag.
+NUM_SINGLE_STRESS_I = 0x20000000
 
 NUM_DFRACTION_1 = 0x00002000
 NUM_DFRACTION_2 = 0x00004000
