@@ -172,9 +172,18 @@ the target output is not a function of the input plus the bundled data:
    synthesis-pass branch.
 2. **`ru` `a`/`ɑ` reduction (`могла`/`смогла`/`побыла`).** A stress/position-conditioned
    allophone espeak emits from internal state the bundled `ru` data does not encode by rule.
-3. **`it` `й`/`ъ` Cyrillic letter-name `@-` reduction** (`ɪ brevˈe` vs `ɪ brˈeve`,
-   `jer dʊrˈa` vs `jer dˈura`): the espeak stress falls on a syllable that espyak's
-   `@-`-schwa nucleus handling places differently inside a spelled multi-word name.
+3. **Two-level stress: nonsyllabic vowels as pitch syllables** (`la pro`/`prae`/`trans`
+   → `pˈrɔ` not `prˈɔ`; `ar ع` → `ˈʕʕˈaːjn`; and the clause-level `de ich habe es`,
+   `fr je le` nucleus relocation). espeak runs `SetWordStress` (which EXCLUDES a nonsyllabic
+   `@-` from the stress count, dictionary.c GetVowelStress `!phNONSYLLABIC`) and then a
+   SEPARATE intonation pass (`count_pitch_vowels`, intonation.c) that counts EVERY `phVOWEL`
+   — including nonsyllabic `@-` — as a pitch syllable (`SFLAG_SYLLABLE`, translate.c:618) and
+   places the clause tonic there. So the tonic can land on a reduced onset schwa that carries
+   no stress and renders as a bare `ˈ` before the following consonant (`p'@-*O` → `pˈrɔ`).
+   espyak's nucleus works on the rendered IPA marks of a per-word render, which has already
+   collapsed the `@-`; reproducing this needs the per-word render reworked into espeak's
+   clause-level phoneme-list model exposing pre-intonation per-syllable stress levels — an
+   engine-wide architectural change disproportionate to the handful of affected words.
 4. **`ro reacţiona` prefix-stress** (`rˌeaktsjˈona` vs `rˌeaktsjonˈa`): the shared de/nl/af
    `confirm_prefix` branch places the primary one syllable earlier than espyak's stem
    re-translation does; reproducing it needs espeak's exact prefix-confirm loop.
