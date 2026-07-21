@@ -75,6 +75,11 @@ LANGS = {
         "unstressed_wd2": 2,
         "extra_vowels": "áéíóúü",
         "encoding": "iso-8859-1",
+        # Aragonese numerals follow the Spanish pattern: "y" between tens and units
+        # (cuarenta y dos), bare "cien"/"mil", one primary accent on the last element,
+        # decimal comma. Verified against espeak-ng.
+        "numbers": (K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
+                    | K.NUM_OMIT_1_THOUSAND | K.NUM_DECIMAL_COMMA),
     },
     # Catalan shares the es (Spanish) Translator block but the 'ca' voice adds S_NO_AUTO_2
     # (no automatic secondary stress — biocomsc -> biokˈɔmsk, no ˌi) and S_FIRST_PRIMARY
@@ -86,6 +91,11 @@ LANGS = {
                          | K.S_NO_AUTO_2 | K.S_FIRST_PRIMARY),
         "unstressed_wd1": 0,
         "unstressed_wd2": 2,
+        # Catalan numerals follow the Spanish pattern: "i" between tens and units
+        # (quaranta-dos), bare "cent"/"mil", one primary accent on the last element.
+        # Verified against espeak-ng.
+        "numbers": (K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
+                    | K.NUM_OMIT_1_THOUSAND),
     },
     "de": {"trill_r_not_after_stop": True, "lopt_prefixes": True,
         "stress_rule": K.STRESSPOSN_1L,   # German: first syllable (set in tr_languages)
@@ -268,7 +278,12 @@ LANGS = {
            "set_letter_vowel": "y",  # SetLetterVowel(tr,'y') (tr_languages.c L('p','t'))
            "priority_stress_demote": True},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
-           "regression": 0x100, "lopt_prefixes": True, "lopt_dieres": True},  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp); LOPT_DIERESES (tr_languages.c L('n','l'))
+           "regression": 0x100, "lopt_prefixes": True, "lopt_dieres": True,  # LOPT_REGRESSIVE_VOICING: devoice at end of word (heb->hɛp); LOPT_DIERESES (tr_languages.c L('n','l'))
+           # Dutch numerals: units before tens ("tweeënveertig"), bare "honderd"/"duizend"
+           # without a leading "een", decimal comma, and a single primary accent at the front
+           # of a compound numeral (tʋˈeːɛnfˌɪːrtəx). Verified against espeak-ng.
+           "numbers": (K.NUM_SWAP_TENS | K.NUM_OMIT_1_HUNDRED | K.NUM_OMIT_1_THOUSAND
+                       | K.NUM_SINGLE_STRESS_I | K.NUM_DECIMAL_COMMA)},
     "pl": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "ąćęłńóśźż",
            "stress_flags": K.S_FINAL_DIM_ONLY,  # mark unstressed final syllables diminished (tr_languages.c L('p','l'))
            # SetLetterVowel(tr,'y') (tr_languages.c): Polish puts 'y' in vowel group A too
