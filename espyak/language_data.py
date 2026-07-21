@@ -203,7 +203,13 @@ LANGS = {
     # Most langs (fo etc.) put the nucleus on the LAST part (clause_nucleus_last default True).
     "xex": {"clause_nucleus_last": False},
     "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
-    "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2, "extra_vowels": "y"},
+    "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2,
+           # tr_languages.c is: ResetLetterBits(0x18) then F=kpst, H=jvr; group B overridden to
+           # the voiceless consonants (wchar letter_groups[1]); SetLetterVowel('y').
+           "reset_letter_bits": 0x18,
+           "set_letter_bits": [(K.LETTERGP_F, "kpst"), (K.LETTERGP_H, "jvr")],
+           "letter_groups_override": {K.LETTERGP_B: "cfhktpxþ"},
+           "set_letter_vowel": "y"},
     # sv reads the fraction digit-by-digit; decimal separator is ',' (tr_languages.c L('s','v')).
     "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y",
            # tr_languages.c L('s','v'): NUM_SINGLE_STRESS (tjugo+ett -> one primary).
