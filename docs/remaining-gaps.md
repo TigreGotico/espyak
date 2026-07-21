@@ -13,7 +13,7 @@ Full-headword audit (`test/parity_audit.py --cap 2000`, oracle = espeak-ng 1.52.
 `-q --ipa`, `force_compat=True`), all 105 languages with a `_list`:
 
 ```
-OVERALL 46092 / 46228 = 99.71%   →   136 mismatches
+OVERALL 46162 / 46228 = 99.86%   →   66 mismatches
 ```
 
 The 136 fails are spread thin: **46 of 105 languages** have any fail at all, and the
