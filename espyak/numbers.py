@@ -159,6 +159,10 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         for d in frac:
             if d.isdigit():
                 out += "||" + _frag(tr_dict, d, ctx)
+        if flags & K.NUM_SINGLE_STRESS_I:
+            # the decimal reading is one accent group too: nl 1,5 is ˈeːn kˌɔmaː vˌɛɪf,
+            # with the separator word and every fraction digit demoted to secondary.
+            out = _initial_stress(out)
         return out
     n = int(digits)
     if n == 0:

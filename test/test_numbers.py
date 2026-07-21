@@ -92,3 +92,18 @@ def test_catalan_cardinal_matches_oracle(oracle, num):
 @pytest.mark.parametrize("num", CA_CASES)
 def test_aragonese_cardinal_matches_oracle(oracle, num):
     assert G2P("an").phonemize(num) == oracle(num, "an")
+
+
+# Dutch decimals: read digit by digit after "komma", with a single primary accent at the
+# front (the separator word and every fraction digit are secondary).
+NL_DECIMALS = ["1,5", "0,5", "3,14", "2,25", "10,75", "1,05"]
+
+
+@pytest.mark.parametrize("num", NL_DECIMALS)
+def test_dutch_decimal_matches_oracle(nl, oracle, num):
+    assert nl.phonemize(num) == oracle(num, "nl")
+
+
+@pytest.mark.parametrize("num", NL_DECIMALS)
+def test_dutch_decimal_single_primary_accent(nl, num):
+    assert nl.phonemize(num).count("\u02c8") == 1, nl.phonemize(num)
