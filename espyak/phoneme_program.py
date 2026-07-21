@@ -139,10 +139,19 @@ _FEATURES = {
     "isWordEnd": lambda ph, e, ctx: ctx.get("word_end", False),
     "isFirstVowel": lambda ph, e, ctx: ctx.get("first_vowel", False),
     "isFinalVowel": lambda ph, e, ctx: ctx.get("final_vowel", False),
-    "isStressed": lambda ph, e, ctx: e is not None and e.stresslevel >= 4,
-    "isNotStressed": lambda ph, e, ctx: e is None or e.stresslevel < 4,
-    "isUnstressed": lambda ph, e, ctx: e is None or e.stresslevel <= 1,
-    "isDiminished": lambda ph, e, ctx: e is not None and e.stresslevel == 0,
+    # Stress predicates follow espeak's StressCondition (synthdata.c:410): for a VOWEL the level is
+    # its own stresslevel; for a CONSONANT the level is taken from the immediately FOLLOWING vowel,
+    # and if the next phoneme is not a vowel the condition returns FALSE (a coda consonant has "no
+    # stress level"). ctx["stress_level"] carries that consonant-aware value (sentinel -1 = "no
+    # level" -> every condition false). Thresholds match condition_level[]:
+    #   isStressed=SECONDARY (>3), isNotStressed=NOT_STRESSED (<4), isUnstressed=UNSTRESSED (<2),
+    #   isDiminished=DIMINISHED (<1). This is what keeps gd pre-aspiration `#` (a consonant before
+    # another consonant) alive: thisPh(isNotStressed) is false, so ChangePhoneme(NULL) does not fire
+    # (mac -> mˈaxɡ, cat -> kˈahd, letter w -> dˈɔhbəljuː).
+    "isStressed": lambda ph, e, ctx: ctx.get("stress_level", -1) > 3,
+    "isNotStressed": lambda ph, e, ctx: 0 <= ctx.get("stress_level", -1) < 4,
+    "isUnstressed": lambda ph, e, ctx: 0 <= ctx.get("stress_level", -1) < 2,
+    "isDiminished": lambda ph, e, ctx: ctx.get("stress_level", -1) == 0,
     "isMaxStress": lambda ph, e, ctx: ctx.get("max_stress", False),
     # isVelar tests phPLACE_VELAR (==8), set only by the `vel` keyword (lbv is phPLACE_LABIO_VELAR,
     # a different place). isPalatal tests the phPALATAL phflag (bit 9), set by pal/alp/pzd —
@@ -183,7 +192,7 @@ _PAUSE = _Pause()
 # pause and evaluate false, matching the C conditions on a phPAUSE target.
 _OFF_END_CTX = {"word_end": True, "first_vowel": False, "second_vowel": False,
                 "after_stress": False, "final_vowel": False, "max_stress": False,
-                "translation_given": False}
+                "stress_level": -1, "translation_given": False}
 
 
 class Interpreter:
@@ -274,6 +283,7 @@ class Interpreter:
         return {"word_end": word_end, "first_vowel": first_vowel,
                 "second_vowel": second_vowel, "after_stress": after_stress,
                 "final_vowel": final_vowel, "max_stress": max_stress,
+                "stress_level": sl,
                 "translation_given": getattr(self, "_translation_given", False)}
 
     @staticmethod

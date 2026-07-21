@@ -205,7 +205,11 @@ LANGS = {
     # not the last (V4 -> vˈɛːvɛt kwa: the spelled letter keeps primary, the number is reduced).
     # Most langs (fo etc.) put the nucleus on the LAST part (clause_nucleus_last default True).
     "xex": {"clause_nucleus_last": False},
-    "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2},
+    "gd": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_NO_AUTO_2,
+           # $u (unstressed function word) carrying the clause accent still laxes its vowel per its
+           # own program (ph_s_gaelic `a` -> ChangeIfUnstressed(@)): ar -> ˈəɾ, the clause accent
+           # is overlaid but the vowel reduces. Same intonation model as mk/smj/Indic $u words.
+           "unstress_u_words": True},
     "is": {"stress_rule": K.STRESSPOSN_1L, "stress_flags": K.S_FINAL_NO_2,
            # tr_languages.c is: ResetLetterBits(0x18) then F=kpst, H=jvr; group B overridden to
            # the voiceless consonants (wchar letter_groups[1]); SetLetterVowel('y').
@@ -400,7 +404,12 @@ LANGS = {
     "sw": {"stress_rule": K.STRESSPOSN_2R,
            "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "max_initial_consonants": 4},
     "tn": {"stress_rule": K.STRESSPOSN_2R,
-           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "max_initial_consonants": 4},
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2, "max_initial_consonants": 4,
+           # $u (unstressed function word) carrying the clause accent still runs each vowel's own
+           # program under its natural (un-tonic) stress (ph_setswana o -> ChangeIfUnstressed(U),
+           # e -> ChangeIfUnstressed(l)): mo -> mˈʊ, le -> ll (both consonants, no vowel left to
+           # carry the overlaid accent). Same intonation model as gd/mk/smj/Indic $u words.
+           "unstress_u_words": True},
 }
 
 # --- Cyrillic-script setup (tr_languages.c SetCyrillicLetters, offset 0x420) ----------
@@ -582,6 +591,9 @@ LANGS["bn"]["double_rfx_stop"] = True
 # ˈarɹaː). Both voices use the same r phoneme whose geminate first segment trills.
 LANGS.setdefault("fo", {})["geminate_r_trill"] = True
 LANGS.setdefault("mt", {})["geminate_r_trill"] = True
+# mt: LOPT_REGRESSIVE_VOICING = 0x100 (tr_languages.c L('m','t')) — devoice word-final obstruents
+# (ikseb -> ˈiːksep, qiegħed -> ˈiet). Maltese Auslautverhärtung, same mechanism as nl/de.
+LANGS["mt"]["regression"] = 0x100
 # fo: a word-final `r` after a vowel is the trill `r` only clause-finally; when another word
 # follows it weakens to the approximant `ɹ` (ognar -> ɔɡnˈar, but `ognar og` -> ɔɡnˈaɹ ɔˈœː).
 # Only surfaces in a multi-word ('_'-joined compound) render, where a non-final word's `r`
