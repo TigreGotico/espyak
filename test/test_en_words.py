@@ -56,3 +56,18 @@ def test_common_word_ipa(g2p, word, ipa):
 @pytest.mark.parametrize("word,ipa", CASES)
 def test_common_word_matches_oracle(oracle, g2p, word, ipa):
     assert g2p.phonemize(word) == oracle(word, "en", "ipa")
+
+
+SYMBOL_NAMES = [
+    ("£", "pˈaʊnd"),
+    ("°", "dɪɡɹˈiːz"),
+    ("+", "plˈʌs"),
+    ("€", "jˈʊəɹəʊz"),
+    ("¥", "jˈɛn"),
+    ("§", "sˈɛkʃən"),
+]
+
+
+@pytest.mark.parametrize("sym,ipa", SYMBOL_NAMES)
+def test_symbol_names_from_emoji_dict(sym, ipa):
+    assert G2P("en", force_compat=True).phonemize(sym) == ipa

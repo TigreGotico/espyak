@@ -325,7 +325,10 @@ class G2P:
             _list_files = [data_paths.list_path(dict_name), data_paths.listx_path(dict_name)]
         else:
             _list_files = [data_paths.listx_path(dict_name), data_paths.list_path(dict_name)]
-        self._dict = DictList.load(*_list_files, data_paths.extra_path(dict_name))
+        # compile_dictlist order (compiledict.c:1581-1589): roots, (listx/list), emoji, extra.
+        # _emoji holds $textmode names for symbols and emoji (£ -> "pound", ° -> "degrees").
+        self._dict = DictList.load(*_list_files, data_paths.emoji_path(dict_name),
+                                   data_paths.extra_path(dict_name))
         self._dict.case_sensitive_letters = bool(self._config.get("case_sensitive_letters"))
         # the matcher's $p_alt / $list DollarRule needs a part-word dict lookup (LookupFlags)
         self._tr.dict = self._dict
