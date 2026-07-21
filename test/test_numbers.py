@@ -94,3 +94,32 @@ def test_welsh_tens_precede_units(cy, num, unit_core):
     out = cy.phonemize(num)
     assert "ðˌ" in out  # the "deg" tens marker is present
     assert out.index("ðˌ") < out.rindex(unit_core)
+
+
+# Per-language numbers-flag audit against tr_languages.c (langopts.numbers). Each case is
+# byte-exact against the oracle and exercises a specific mechanism:
+#   nl/da  NUM_SWAP_TENS + NUM_OMIT_1_HUNDRED/THOUSAND (+ NUM_HUNDRED_AND for da)
+#   sv/el/tr NUM_SINGLE_STRESS (one primary in a compound)
+#   ru     NUM_OMIT_1_HUNDRED ("сто" not "один сто")
+#   ro/pt  NUM_AND_UNITS (Romanian "și", Portuguese "e" between tens and units)
+#   it     NUM_SINGLE_VOWEL (settanta+uno -> settantuno)
+#   ca     NUM_SINGLE_STRESS + NUM_AND_UNITS + NUM_OMIT_1_HUNDRED/THOUSAND (es block)
+#   fr     NUM_VIGESIMAL (70 = soixante-dix, 90 = quatre-vingt-dix) + NUM_SINGLE_STRESS
+NUMBERS_FLAG_CASES = [
+    ("nl", "20"), ("nl", "70"), ("nl", "100"), ("nl", "1000"),
+    ("da", "21"), ("da", "42"), ("da", "71"), ("da", "100"), ("da", "105"),
+    ("sv", "21"), ("sv", "42"), ("sv", "71"), ("sv", "95"),
+    ("tr", "40"), ("tr", "44"), ("tr", "66"),
+    ("el", "21"), ("el", "42"),
+    ("ru", "100"), ("ru", "105"), ("ru", "200"),
+    ("ro", "31"), ("ro", "35"), ("ro", "55"), ("ro", "61"),
+    ("pt", "32"), ("pt", "33"), ("pt", "100"),
+    ("it", "28"), ("it", "31"), ("it", "71"), ("it", "80"), ("it", "95"),
+    ("ca", "21"), ("ca", "42"), ("ca", "70"), ("ca", "100"),
+    ("fr", "21"), ("fr", "70"), ("fr", "71"), ("fr", "80"), ("fr", "90"), ("fr", "95"),
+]
+
+
+@pytest.mark.parametrize("lang,num", NUMBERS_FLAG_CASES)
+def test_numbers_flags_match_oracle(oracle, lang, num):
+    assert G2P(lang).phonemize(num) == oracle(num, lang)
