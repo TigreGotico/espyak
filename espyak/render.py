@@ -166,12 +166,17 @@ def encode_phoneme_string(s, table):
             pending_stress = None
             continue
         if (ph.type == phVIRTUAL and ph.ipa is None and m == "-"
-                and entries and entries[-1].ph.type == phVOWEL):
+                and (not entries or entries[-1].ph.type == phVOWEL)):
             # the `-` syllabic-consonant marker (phsource/phonemes:135) makes the PREVIOUS
-            # phoneme syllabic. After a vowel that is meaningless, so MakePhonemeList drops it
-            # and it produces no IPA (fo number connective `u-o` -> uo). After a consonant the
-            # marker is kept (ar `s̪-ˈifr`), as is the length mark `:` -> ː (a virtual with ipa).
-            entries[-1].synthflags |= SFLAG_SYLLABLE
+            # phoneme syllabic. GetTranslatedPhonemeString (dictionary.c:657) only writes it as a
+            # flag appended to a PRECEDING non-vowel phoneme; it is never a standalone token. After
+            # a vowel that is meaningless, so MakePhonemeList drops it and it produces no IPA (fo
+            # number connective `u-o` -> uo). With NO preceding phoneme (a leading `-`, e.g. the
+            # malformed da_list `final -ese` entry) there is nothing to mark, so espeak emits
+            # nothing (final -> esˈe, not -esˈe). After a consonant the marker is kept (ar
+            # `s̪-ˈifr`), as is the length mark `:` -> ː (a virtual with ipa).
+            if entries:
+                entries[-1].synthflags |= SFLAG_SYLLABLE
             continue
         if ph.type == phSTRESS and not m.isdigit():
             # punctuation stress markers ('/,/%/=) attach to the next vowel; digit-named
