@@ -29,9 +29,25 @@ def _digit(tr_dict, value, ctx, final):
     return _frag(tr_dict, str(value), ctx)
 
 
+# espeak phoneme-mnemonic vowel letters (as they appear in the *_list fragments). Used by
+# NUM_SINGLE_VOWEL to decide whether a fragment starts/ends on a vowel. espeak inspects the
+# compiled phoneme table (phVOWEL); the *_list mnemonics only ever end a tens word (or begin a
+# unit word) on one of these single-letter vowels, so a letter test is exact here.
+_VOWEL_LETTERS = set("aeiouyAEIOUYQ@3&")
+_STRESS_MARKS = "',%=_"
+
+
+def _first_vowel_start(ph):
+    """True if the fragment's first real phoneme (skipping leading stress marks) is a vowel."""
+    core = ph.lstrip(_STRESS_MARKS)
+    return bool(core) and core[0] in _VOWEL_LETTERS
+
+
 def _tens_units(tr_dict, value, ctx, flags=0, final=True):
     """1..99 -> phonemes. Honours NUM_SWAP_TENS (units before tens, e.g. German
-    "ein-und-zwanzig") and NUM_AND_UNITS ("and" between tens and units)."""
+    "ein-und-zwanzig"), NUM_AND_UNITS ("and" between tens and units), NUM_VIGESIMAL
+    (French 73 = "soixante-treize" = 60+13) and NUM_SINGLE_VOWEL (Italian settanta+uno ->
+    settantuno)."""
     if value < 10:
         return _digit(tr_dict, value, ctx, final)
     if value < 20:
@@ -42,20 +58,44 @@ def _tens_units(tr_dict, value, ctx, flags=0, final=True):
         if lex:
             return lex
     tens, units = divmod(value, 10)
-    if units == 0:
-        # exact ten: a lexicalised full form if the language has one (es "veinte"),
-        # otherwise the combining tens form (en "twenty").
-        return _frag(tr_dict, str(value), ctx) or _frag(tr_dict, "%dx" % tens, ctx)
+    # espeak's LookupNum2 first tries a lexicalised whole-value form "_%d" for the entire 2-digit
+    # number (numbers.c:1102) before decomposing — French "_21" vingt-et-un / "_71" soixante-onze,
+    # Italian "_28" ventotto, and every exact ten "_20"/"_30". Only if that misses does it build
+    # the number from the tens fragment + unit.
+    whole = _frag(tr_dict, str(value), ctx)
+    if whole:
+        return _single_stress(whole) if (flags & K.NUM_SINGLE_STRESS) else whole
     ph_tens = _frag(tr_dict, "%dx" % tens, ctx)
+    unit_val = units
+    if not ph_tens and (flags & K.NUM_VIGESIMAL):
+        # tens fragment not found: speak vigesimally (numbers.c:1133) — 73 = 60+13, 70 = 60+10,
+        # 95 = 80+15. The tens digit is rounded down to the nearest even ten and the remainder
+        # (0..19, possibly a teen) becomes the unit.
+        unit_val = value % 20
+        ph_tens = _frag(tr_dict, "%dx" % (tens & 0xFE), ctx)
+    if unit_val == 0:
+        # exact ten (whole form absent): the combining tens form (en "twenty", fr vigesimal 60).
+        return ph_tens
+    if unit_val >= 10:
+        # a teen remainder from the vigesimal split (soixante-"treize")
+        ph_units = _frag(tr_dict, str(unit_val), ctx)
+    else:
+        ph_units = _digit(tr_dict, unit_val, ctx, final)
     if flags & K.NUM_SWAP_TENS:
         # units "and" tens (German "ein-und-zwanzig", Faroese "seks-og-tríati"). espeak
         # concatenates units+_0and+tens directly (numbers.c:1198); any word break comes from
-        # the `_0and` fragment itself (de `||_|Unt` breaks, fo `u-o` joins as one word).
+        # the `_0and` fragment itself (de `||_|Unt` breaks, fo `u-o` joins as one word). The unit
+        # takes its pre-magnitude form (German "ein" not "eins": _digit final=False).
         ph_and = _frag(tr_dict, "0and", ctx)
         out = _digit(tr_dict, units, ctx, False) + ph_and + ph_tens
     else:
         ph_and = _frag(tr_dict, "0and", ctx) if (flags & K.NUM_AND_UNITS) else ""
-        out = ph_tens + ph_and + _digit(tr_dict, units, ctx, final)
+        if (flags & K.NUM_SINGLE_VOWEL) and ph_tens and _first_vowel_start(ph_units) \
+                and ph_tens[-1] in _VOWEL_LETTERS:
+            # Italian: drop the final vowel of the tens fragment before a vowel-initial unit
+            # (settanta+uno -> settant'uno, numbers.c:1203).
+            ph_tens = ph_tens[:-1]
+        out = ph_tens + ph_and + ph_units
     if flags & K.NUM_SINGLE_STRESS:
         out = _single_stress(out)
     return out
