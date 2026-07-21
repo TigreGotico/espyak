@@ -70,3 +70,27 @@ DFRACTION_CASES = [
 @pytest.mark.parametrize("lang,num", DFRACTION_CASES)
 def test_decimal_fraction_matches_oracle(oracle, lang, num):
     assert G2P(lang).phonemize(num) == oracle(num, lang)
+
+
+# Welsh counts in tens: 20 = "dau ddeg", 42 = "pedwar deg dau" (tens fragment before the unit),
+# and the teens are "deg" + unit with no dedicated _10.._19 entries. 100 drops the leading "un".
+CY_CARDINAL_CASES = ["1", "2", "9", "10", "11", "12", "15", "16", "18", "19", "100"]
+
+
+@pytest.fixture(scope="module")
+def cy():
+    return G2P("cy")
+
+
+@pytest.mark.parametrize("num", CY_CARDINAL_CASES)
+def test_welsh_cardinal_matches_oracle(cy, oracle, num):
+    assert cy.phonemize(num) == oracle(num, "cy")
+
+
+@pytest.mark.parametrize("num,unit_core", [("42", "aɨ"), ("55", "øm"), ("23", "iː")])
+def test_welsh_tens_precede_units(cy, num, unit_core):
+    # The tens word ("pedwar deg", "dau ddeg", …) comes before the unit — regression guard against
+    # the units-first ordering.
+    out = cy.phonemize(num)
+    assert "ðˌ" in out  # the "deg" tens marker is present
+    assert out.index("ðˌ") < out.rindex(unit_core)

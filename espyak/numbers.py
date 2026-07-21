@@ -32,8 +32,15 @@ def _digit(tr_dict, value, ctx, final):
 def _tens_units(tr_dict, value, ctx, flags=0, final=True):
     """1..99 -> phonemes. Honours NUM_SWAP_TENS (units before tens, e.g. German
     "ein-und-zwanzig") and NUM_AND_UNITS ("and" between tens and units)."""
-    if value < 20:
+    if value < 10:
         return _digit(tr_dict, value, ctx, final)
+    if value < 20:
+        # A lexicalised teen ("eleven", "veinte"…) wins; where the language has none the teen is
+        # built from the tens fragment plus the unit (Welsh "deg"+"un", numbers.c LookupNum2
+        # falling through _%d to the _%dX + unit path).
+        lex = _digit(tr_dict, value, ctx, final)
+        if lex:
+            return lex
     tens, units = divmod(value, 10)
     if units == 0:
         # exact ten: a lexicalised full form if the language has one (es "veinte"),

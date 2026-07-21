@@ -246,8 +246,14 @@ LANGS = {
     "fa": {"chars_ignore": {0x00AD: "", 0x0640: "", 0x200C: "-"}},
     # Welsh: $u function words reduce (clear y -> obscure: fy -> vˈø not vˈɨː); default 2R suits
     # the penultimate stress, so only the $u-reduction flag is needed.
-    "cy": {"unstress_u_words": True, "extra_vowels": "wy"},  # Welsh: w and y are vowels
-                                                              # (SetLetterVowel w/y) -> wy digraph wins
+    "cy": {"unstress_u_words": True, "extra_vowels": "wy",  # Welsh: w and y are vowels
+                                                            # (SetLetterVowel w/y) -> wy digraph wins
+           "stress_rule": K.STRESSPOSN_2R,  # tr_languages.c L('c','y')
+           "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2,
+           "unstressed_wd1": 0, "unstressed_wd2": 2,
+           # Welsh counts in tens: 20 = "dau ddeg", 42 = "pedwar deg dau" (built from the _NX
+           # tens fragments); OMIT_1_HUNDRED drops "un" before "cant" (100 -> "cant").
+           "numbers": K.NUM_OMIT_1_HUNDRED},
     "smj": {"caps_are_letters": True, "stress_rule": K.STRESSPOSN_1L,  # Lule Saami: first syllable
             "stress_flags": K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2 | K.S_2_TO_HEAVY,
             "spelling_stress": True, "extra_vowels": "áä", "extra_consonants": "ŋđ",
