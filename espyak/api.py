@@ -760,9 +760,15 @@ class G2P:
                 rest = word[prefix_len:]
                 rctx = LookupContext(dict_condition=self._tr.dict_condition, prefix_removed=True)
                 rest_ph, _ = self._translate_core(rest, rctx, inherit_flags=flags)
-                if self._config.get("lopt_prefixes") and ",," not in rest_ph:
+                if (self._config.get("lopt_prefixes") and ",," not in rest_ph
+                        and (flags or "'" in end_ph)):
                     # LOPT_PREFIXES (af/da/de/nl): "keep a secondary stress on the stem"
-                    # (translateword.c:553). espeak runs SetWordStress(stem, tonic=3) so the
+                    # (translateword.c:551-570), gated on prefix_flags || prefix_stress: it runs
+                    # only when the word carried dictionary flags before the stem lookup or the
+                    # prefix phonemes hold a primary/priority stress mark (phonSTRESS_P/P2). A
+                    # plain unstressed rule prefix (nl be-/ge-/ver-) skips it, so the stem keeps
+                    # its own primary regardless of clause position (bestand -> b@st'Ant).
+                    # espeak runs SetWordStress(stem, tonic=3) so the
                     # stem's main vowel becomes SECONDARY, then reduces all but the first
                     # primary mark in the prefix; the final word-stress pass places the primary.
                     # Applied only at the INNERMOST prefix level: a stem that already carries a
