@@ -412,6 +412,12 @@ class RuleSet:
                         rs._parse_lettergroup(line[2:])
                     elif line.startswith(".replace"):
                         mode = 2
+                        # Each `.replace` section is a distinct RULE_REPLACEMENTS group in the
+                        # compiled data; InitGroups (dictionary.c:147) overwrites
+                        # langopts.replace_chars with each group it reads, so the LAST section
+                        # wins and earlier ones are discarded (py_rules: a second `.replace`
+                        # drops the first section's `6 @`, keeping only `7 i`/`2 u`).
+                        rs.replacements.clear()
                     elif line.startswith(".group"):
                         mode = 1
                         group_seq += 1

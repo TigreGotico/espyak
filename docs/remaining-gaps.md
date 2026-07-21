@@ -92,6 +92,21 @@ expands differently):
 `gd`/`fo`/`ml`/`kok`/`bpy` and many one-fail languages. Each is its own micro-fix; the
 biggest single lever is the `LookupDictList` abbreviation/letter-name expansion chain.
 
+**`ko` `$text` respellings that carry a `/` variant marker (3 entries).** `ko_list` gives
+three sandhi respellings as two `/`-separated alternatives — `곗날→곈ː날/겐ː날`,
+`툇마루→퇸ː마루/퉨ː마루`, `가ᅬᆺᅵᆯ→가ᅬᆫ닐/가ᅰᆫ닐`. espeak re-injects the `$text` value as a single
+word (translate.c FLAG_TEXTMODE), and the embedded `/` makes that word unpronounceable, so it
+falls into `SpeakIndividualLetters` (translateword.c:749) → `TranslateLetter` per character.
+There `TranslateChar` (translate.c:850) decomposes each syllable into jamo with the `*insert`
+recursion and the ko dict-list letter-name entries (`ᄀ gij'@q`, `ᄂ ni;'u-n`) fire for the
+isolated initials while the rules voice the medials/finals, dropping the length mark and the
+whole post-`/` variant: `곗날 → ɡijˈʌq jˈe t- niˈɯn ˈɐ ɫ`. The per-jamo pieces espyak already
+reproduces exactly (standalone `ᄀ→ɡijˈʌq`, `ᅨ→jˈe`, `ᆫ→n`, `ᄂ→niˈɯn`, `ᅡ→ˈɐ`, `ᆯ→ɫ`), but the
+word-context token (`t-` where the isolated final ㄴ gives `n`) is an emergent artifact of the
+exact `SpeakIndividualLetters`/`*insert`/`SetSpellingStress` buffer path over the `/`-carrying
+decomposed string, not any clean per-jamo mapping — so a faithful port is disproportionate to
+three dictionary entries. espyak instead renders both `/`-variants as syllables and joins them.
+
 ---
 
 ### (C) Word stress / vowel quality / voicing — **52** (the largest bucket)
