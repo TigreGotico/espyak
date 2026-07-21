@@ -1814,6 +1814,13 @@ def _is_vowel_letter(tr, ch):
     # look vowel-less and get spelled letter-by-letter instead of pronounced).
     setvow = tr.config.get("set_letter_vowel", "") or ""
     syll = tr.config.get("syllabic_consonants", "")  # cs/hr/sl/sk/sr: r,l are syllabic nuclei
+    if 0xC0 <= ord(c) < 0xC0 + len(_REMOVE_ACCENT):
+        # IsLetter (dictionary.c:788) tests an accented letter via remove_accent[]: the base
+        # letter's groups decide, so cy ŵ/ŷ count as vowels because SetLetterVowel('w'/'y') does
+        # (tŷ -> tˈɨː, dŵr -> dˈuːr, not spelled letter names).
+        base = chr(_REMOVE_ACCENT[ord(c) - 0xC0]) if _REMOVE_ACCENT[ord(c) - 0xC0] else c
+        if base != c and _is_vowel_letter(tr, base):
+            return True
     return (c == "y" or c in vowels or c in extra or c in setvow
             or c in syll or c in _ACCENTED_VOWELS)
 

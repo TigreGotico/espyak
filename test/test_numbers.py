@@ -136,3 +136,15 @@ def test_welsh_w_words_pronounced_not_spelled(cy, oracle, word):
     # a spelled-out word produces one stress mark per letter name; a pronounced one has a single
     # primary and no spurious per-letter secondaries.
     assert out.count("ˈ") == 1 and "ˌ" not in out
+
+
+CY_CIRCUMFLEX_WORDS = [
+    ("tŷ", "tˈɨː"),
+    ("dŵr", "dˈuːr"),
+    ("tŷ mawr", "tˈɨː mˈaʊr"),
+]
+
+
+@pytest.mark.parametrize("word,ipa", CY_CIRCUMFLEX_WORDS)
+def test_cy_circumflex_vowels_pronounced(word, ipa):
+    assert G2P("cy", force_compat=True).phonemize(word) == ipa
