@@ -14,7 +14,7 @@ Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 import re
 import unicodedata
 from espyak import constants as K
-from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, Phoneme
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, phINVALID, phPAUSE, Phoneme
 
 # A no-tie barrier ('|' in phoneme strings): keep it as a passthrough token through
 # set_word_stress so the downstream phoneme parser doesn't greedily merge the phonemes it
@@ -704,6 +704,15 @@ def _ph_is_vowel(p):
     return p.type == phVOWEL and "nonsyllabic" not in p.flags
 
 
+def _syllabic_here(phonetic, pi):
+    """True when phonetic[pi] is a real consonant immediately followed by a `-` (phonSYLLABIC):
+    the consonant is a syllabic nucleus and owns a vowel_stress slot (dictionary.c output loop,
+    `*p == phonSYLLABIC`). The word-break barrier (phINVALID) and pauses do NOT count, so a dict
+    `||-` sequence leaves the phantom slot unclaimed (it name-stress shift)."""
+    nxt = phonetic[pi + 1][0] if pi + 1 < len(phonetic) else None
+    return nxt == "-" and phonetic[pi][1].type not in (phINVALID, phPAUSE)
+
+
 def _nonsyllabic_before_vowel(p):
     """True for a vowel-typed phoneme whose program turns it into the consonant N when the
     next phoneme is a vowel (`IF nextPh(isVowel) THEN ChangePhoneme(N)`). This is the yue/zh
@@ -784,6 +793,19 @@ def get_vowel_stress(toks, stressed_syllable=0):
                 vowel_stress[count] = STRESS_IS_UNSTRESSED
             count += 1
             stress = -1
+        elif mnem == "-":
+            # phonSYLLABIC (dictionary.c:868): the `-` marker makes the PRECEDING phoneme a
+            # syllabic consonant, so it heads its own syllable and gets a vowel_stress slot.
+            # GetVowelStress runs with control=1, so a syllable with no pending stress marker
+            # is forced UNSTRESSED (never a diminished vowel). The pending `stress` is NOT
+            # reset here (unlike a real vowel), and primary_posn/max_stress are left untouched.
+            # A dict `||-` sequence (it name-stress: й `'I||-b@-*'eve`) plants this phantom slot
+            # right after the word break; the output loop below does NOT consume it there (the
+            # preceding token is the inert word-break barrier), so every following vowel reads a
+            # vowel_stress index one earlier — shifting the primary onto the final syllable
+            # (breve `'eve` -> brevˈe, dura `'uRa` -> dʊrˈa).
+            vowel_stress.append(stress if stress >= 0 else STRESS_IS_UNSTRESSED)
+            count += 1
         phonetic.append((mnem, ph))
     vowel_stress.append(STRESS_IS_UNSTRESSED)
     return vowel_stress, phonetic, count, primary_posn, max_stress
@@ -1192,11 +1214,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 shorten = prev_v_stress < STRESS_IS_PRIMARY
             if shorten:
                 continue
-        if _ph_is_vowel(ph):
+        if _ph_is_vowel(ph) or _syllabic_here(phonetic, _pi):
             # @- excluded from the vowel count in get_vowel_stress when nonsyllabic (its
             # phNONSYLLABIC flag, _ph_is_vowel False) — must also be skipped here or `v`
             # desyncs and the stress mark lands on it (eo pra -> pˈra instead of prˈa). In
             # fr/vi @- is syllabic (a real nucleus), so it is counted and stressed here.
+            # A real consonant directly before a `-` (phonSYLLABIC) is a syllabic-consonant
+            # nucleus and consumes its own vowel_stress slot here (dictionary.c:1389
+            # `*p == phonSYLLABIC`), mirroring the slot get_vowel_stress planted for it.
             v_stress = vowel_stress[v]
             if v_stress <= STRESS_IS_UNSTRESSED:
                 if (v > 1) and (max_stress >= 2) and (stressflags & K.S_FINAL_DIM) and (v == vowel_count - 1):
@@ -1262,7 +1287,7 @@ def change_word_stress(tr, phoneme_str, mnem_index, new_stress, pick_last=False)
                 and _ph_is_vowel(phonetic[_pi + 1][1]):
             out.append(mnem)
             continue
-        if _ph_is_vowel(ph):
+        if _ph_is_vowel(ph) or _syllabic_here(phonetic, _pi):
             vs = vowel_stress[v]
             if vs == STRESS_IS_DIMINISHED or vs > STRESS_IS_UNSTRESSED:
                 out.append(_STRESS_MNEM.get(vs, ""))
