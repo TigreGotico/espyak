@@ -1344,6 +1344,11 @@ class G2P:
                     continue
                 self._split_caps_word(tok, words, caps_letters, first_sub=(pi > 0 or join))
         out = []
+        # word_slots records (index-in-`out`, source-token) for each rendered real word, so the
+        # cross-word sandhi passes below (en linking/intrusive r, nl stop degemination) can see the
+        # previous word's phonemes and spelling and the next word's onset — state espeak keeps in
+        # its clause-level phoneme list but the per-word render here otherwise loses.
+        word_slots = []
         i = 0
         n = len(words)
         while i < n:
@@ -1409,11 +1414,13 @@ class G2P:
                 out.append(rendered)
                 i += 1
                 continue
-            # atend_clause_final (smj): a $atend-gated letter name (O -> o:, i -> i:) only applies
-            # when the word is the LAST in the clause; a non-final caps-letter token rule-translates
-            # instead (dO:t -> d | O | t, the mid-clause O -> oɔ not the o: letter name). Default
-            # languages keep the historical isolated-word at_end=True (one word per phonemize call).
-            at_end = (not self._config.get("atend_clause_final")) or unit_last
+            # $atend gating is clause-position sensitive for EVERY language: a $atend-flagged
+            # dictionary entry (en `has haz $atend`, `a eI $atend`, smj `O` letter name) only wins
+            # when the word is the LAST unit in the clause. A non-final word gets at_end=False so its
+            # $atend entry is rejected and it falls to the reduced/rule form (mid-clause `has` ->
+            # hɐz not hˈaz, `a` -> ɐ not ˈeɪ). A single-word clause is unit_last, so isolated-word
+            # renders are unchanged (still at_end=True).
+            at_end = unit_last
             rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
                                          caps_stress=caps_stress,
                                          all_upper=word.isupper() and any(c.isalpha() for c in word),
@@ -1444,8 +1451,16 @@ class G2P:
                     out.pop()
                 if out:
                     out.append(" ")  # exactly one separator before the spelled visarga
+            if rendered and ipa and any(c.isalpha() for c in word):
+                word_slots.append((len(out), word.lower()))
             out.append(rendered)
             i += 1 + skip
+        # cross-word sandhi over the assembled clause (espeak's clause-level phoneme list):
+        # en linking/intrusive r, nl homorganic-stop degemination.
+        if ipa and self._config.get("linking_r"):
+            self._apply_linking_r(out, word_slots)
+        if ipa and self._config.get("degeminate_stops"):
+            self._apply_degemination(out, word_slots)
         # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
         # separator space; espeak emits none, so trim it.
         result = "".join(out).rstrip(" ")
@@ -1498,6 +1513,75 @@ class G2P:
             _V = "aɑeɛiɪoɔuʊyʏøœəɐ"
             result = _re.sub(r"([%s]ː?)r(?= [ˈˌ]?[%s])" % (_V, _V), r"\1ɹ", result)
         return result
+
+    # IPA vowel onset/coda characters (first element of every en vowel/diphthong).
+    _R_VOWELS = set("aɑeɛiɪoɔuʊəɐæʌɒɜøœyʏ")
+
+    def _slot_pairs(self, out, word_slots):
+        """Yield (prev_idx, prev_src, cur_idx, cur_src) for word slots that are DIRECTLY adjacent
+        in the clause — separated by exactly one space, with no intervening symbol/word token
+        (so `a=b` never links `a` to `b`, since the `=`-word sits between them)."""
+        for (pi, ps), (ci, cs) in zip(word_slots, word_slots[1:]):
+            if ci == pi + 2 and out[pi + 1] == " ":
+                yield pi, ps, ci, cs
+
+    def _starts_with_vowel(self, ph):
+        s = ph.lstrip("ˈˌ")
+        return bool(s) and s[0] in self._R_VOWELS
+
+    def _apply_linking_r(self, out, word_slots):
+        """en linking/intrusive r (phonemelist pd_INSERTPHONEME): a word ending in a non-rhotic
+        vowel that historically carried r (ə, ɑː, and the centring diphthongs that end in ə) —
+        intrusive — or one SPELLED with a final 'r' rendered without it (for, car, her) — linking —
+        restores a ɹ when the FOLLOWING word begins with a vowel (tilde ex -> tˈɪldəɹ ˈɛks,
+        for it -> fɔːɹ ˈɪt). Before a consonant or at clause end no ɹ appears (tilde box, car)."""
+        for pi, ps, ci, _cs in self._slot_pairs(out, word_slots):
+            prev = out[pi]
+            if not prev or prev[-1] == "ɹ" or prev[-1] == "r":
+                continue
+            # the definite article never takes r before a vowel — it uses its own ðɪ alternate,
+            # which espyak doesn't yet render, so at least don't fabricate ð-ə-ɹ.
+            if ps == "the":
+                continue
+            last_v = prev[-2] if prev[-1] == "ː" else prev[-1]
+            # intrusive r after a schwa-family vowel (ə, ɪə, eə, ʊə all end in ə) or ɑː (spa, car);
+            # after ɔː/ɜː the r is only the historical LINKING r, so it needs an orthographic 'r'
+            # near the end (for, more, her — but NOT law, saw, awe). A trailing silent 'e' is
+            # ignored (more -> "mor", here -> "her").
+            if last_v in ("ə", "ɑ"):
+                fire = True
+            elif last_v in ("ɔ", "ɜ"):
+                fire = ps.rstrip("e").endswith("r")
+            else:
+                fire = False
+            if fire and self._starts_with_vowel(out[ci]):
+                out[pi] = prev + "ɹ"
+
+    def _apply_degemination(self, out, word_slots):
+        """nl homorganic-stop degemination (ph_dutch t/d/p/b ChangePhoneme(!)): a word-final
+        coronal (t/d) or labial (p/b) stop assimilates to a null pause before a following
+        word-initial homorganic stop (kost twintig -> kˈɔs tʋˈɪntəx, wat dat -> ʋɑ tɑt). A word
+        whose dictionary entry inserts a break before it ($brk, FLAG_PAUSE1 — e.g. `te`) keeps the
+        preceding stop, since the break splits the two stops (wat te doen -> ʋɑt tə dˈun)."""
+        cor, lab = ("t", "d"), ("p", "b")
+        last_idx = word_slots[-1][0] if word_slots else -1
+        for pi, _ps, ci, cs in self._slot_pairs(out, word_slots):
+            prev, cur = out[pi], out[ci]
+            if not prev or not cur:
+                continue
+            # a $brk (FLAG_PAUSE1) word breaks the two stops apart — but only mid-clause; when it is
+            # the clause-final word the stops still assimilate (wat te doen keeps `wat` t, wat te drops it).
+            if (self._dict.lookup_flags(cs) & K.FLAG_PAUSE1) and ci != last_idx:
+                continue
+            onset_pos = len(cur) - len(cur.lstrip("ˈˌ"))
+            onset = cur[onset_pos] if onset_pos < len(cur) else ""
+            plast = prev[-1]
+            for grp, devoiced in ((cor, "t"), (lab, "p")):
+                if plast in grp and onset in grp:
+                    out[pi] = prev[:-1]
+                    if onset == grp[1]:  # voiced onset (d/b) devoices after the dropped stop
+                        out[ci] = cur[:onset_pos] + devoiced + cur[onset_pos + 1:]
+                    break
 
     # cmn switch-segment vowel set + the unstressed-reduction map espeak's cmn render applies to the
     # English phonemes of an (en)…(cmn) word switch. A non-final word de-stresses and its vowels
