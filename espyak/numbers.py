@@ -13,6 +13,13 @@ from espyak import constants as K
 from espyak.dictionary import LookupContext
 
 
+def _num_ctx(tr_dict):
+    """A LookupContext carrying the voice's dict_condition, so `?N`-gated number fragments
+    (pt `?1_14` "catorze", `?1_4X` "quarenta") are selected. The condition bits are stamped
+    onto the DictList by the owning Translator (Translator.dict setter)."""
+    return LookupContext(dict_condition=getattr(tr_dict, "dict_condition", 0))
+
+
 def _frag(tr_dict, key, ctx):
     """Look up a `_<key>` number fragment; '' if absent."""
     ph, _flags = tr_dict.lookup("_" + key.lower(), ctx)
@@ -118,7 +125,7 @@ def translate_ordinal(tr_dict, digits, suffix, ctx=None, flags=K.NUM_HUNDRED_AND
     """Translate an ordinal like '21st'/'100th': cardinal for the high part, ordinal stem
     for the final tens/units, then the suffix ending (`_#st` etc.)."""
     if ctx is None:
-        ctx = LookupContext()
+        ctx = _num_ctx(tr_dict)
     n = int(digits)
     tens_units = n % 100
     if n < 100:
@@ -210,7 +217,7 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
     word breaks. `flags` is the language's langopts.numbers bitfield (NUM_*). The fractional
     part is read per the language's NUM_DFRACTION_* bits — see `_translate_fraction`."""
     if ctx is None:
-        ctx = LookupContext()
+        ctx = _num_ctx(tr_dict)
     if decimal_sep in digits:
         intpart, _, frac = digits.partition(decimal_sep)
         out = translate_number(tr_dict, intpart or "0", ctx, flags)
@@ -230,18 +237,42 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         gv = groups[thousandplex]
         if gv == 0:
             continue
-        if thousandplex == 1 and gv == 1 and (flags & K.NUM_OMIT_1_THOUSAND):
-            part = ""  # "mil" not "one thousand" (es)
+        if thousandplex == 0:
+            part = _three_digit(tr_dict, gv, ctx, flags, final=True)
+            if higher_emitted and gv < 100 and (flags & K.NUM_HUNDRED_AND):
+                # "and" before a final tens/units group after higher magnitudes ("mil e cinco",
+                # "one thousand AND five"); the `_0and` fragment carries its own word breaks.
+                part = _frag(tr_dict, "0and", ctx) + "||" + part
+            parts.append(part)
+            continue
+        # A magnitude group (thousands/millions/…). LookupThousands (numbers.c:917) FIRST tries a
+        # combined `_<value>M<thousandplex>` form that lexicalises value+magnitude together —
+        # pt `_1M1` "mil" (not "um mil"), `_1M2` "um milhão" (singular). Only when no combined
+        # form exists is the value spoken separately before the magnitude word
+        # `_<M_Variant>M<thousandplex>` (pt `_0M1` "mil", `_0M2` "milhões" plural).
+        # A magnitude fragment may end in the `_` word-gap phoneme (pt `_1M1` "m'il_"); it marks
+        # the break to the next spoken group, which the `||` join already provides, so drop it.
+        combined = _frag(tr_dict, "%dM%d" % (gv, thousandplex), ctx).rstrip("_")
+        if combined:
+            part = combined
         else:
-            part = _three_digit(tr_dict, gv, ctx, flags, final=(thousandplex == 0))
-        if thousandplex == 0 and higher_emitted and gv < 100 and (flags & K.NUM_HUNDRED_AND):
-            # "and" before a final tens/units group after higher magnitudes (one thousand
-            # AND five). espeak doubles the space when a middle group was skipped.
-            part = _frag(tr_dict, "0and", ctx) + "||" + part
-        if thousandplex > 0:
-            mag = _frag(tr_dict, "0m%d" % thousandplex, ctx)
+            mag = _frag(tr_dict, "%s%d" % (_m_variant(gv, flags), thousandplex), ctx).rstrip("_")
+            if gv == 1 and thousandplex == 1 and (flags & K.NUM_OMIT_1_THOUSAND):
+                body = ""  # "mil" not "one thousand" (es)
+            else:
+                body = _three_digit(tr_dict, gv, ctx, flags, final=False)
+            part = body
             if mag:
                 part += ("||" if part else "") + mag
-            higher_emitted = True
+        higher_emitted = True
         parts.append(part)
     return "||".join(p for p in parts if p)
+
+
+def _m_variant(value, flags):
+    """Port of M_Variant (numbers.c:872): the magnitude-word key stem `0M` for a value, or a
+    grammatical-number variant (`0MA`/`0MB`/`1M`/`1MA`) for the Slavic languages that inflect
+    the thousand/million word by the count. Those variants are gated on the numbers2
+    NUM2_THOUSANDS_VAR_* bits, which this cardinal path does not yet thread; every other
+    language (pt included) uses the plain `0M` stem."""
+    return "0M"

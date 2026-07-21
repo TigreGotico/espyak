@@ -299,9 +299,11 @@ LANGS = {
            "lopt_alt": True, "extra_vowels": "àáâãçéêíóôõú", "encoding": "iso-8859-1",
            "set_letter_vowel": "y",  # SetLetterVowel(tr,'y') (tr_languages.c L('p','t'))
            "priority_stress_demote": True,
-           # pt reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2,
-           # tr_languages.c L('p','t')).
-           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2},
+           # pt reads the fraction as a whole cardinal when it is <=2 digits (NUM_DFRACTION_2);
+           # NUM_AND_UNITS inserts the "e" (i) connective between tens and units — "vinte e um"
+           # vˈiŋtɨiˈum (tr_languages.c L('p','t')).
+           "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA | K.NUM_DFRACTION_2
+                      | K.NUM_AND_UNITS},
     "nl": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "äëïöüáéíóú",
            # espeak's nl stress_flags = S_FIRST_PRIMARY (tr_languages.c L('n','l')): keep the first
            # primary, drop later ones to secondary. Applied only to the number phrase here
