@@ -1245,6 +1245,15 @@ class G2P:
         # a '/' is a word break that is itself spoken as its character name (ca a/e -> a barra e,
         # en a/b -> a slash b), so isolate it as its own token.
         _trans[ord("/")] = " / "
+        # espeak's clause reader breaks a word at any character that is neither a letter nor a
+        # digit (translate.c:1182/1192/1218), so a symbol is always a single-char word of its
+        # own, spoken via its dictionary/_emoji entry (£5 -> pound five, 5+3 -> five plus three,
+        # $5 -> dollar five). Isolate Unicode symbol-category chars (Sc/Sk/Sm/So) and '%' the
+        # same way; letters, digits, marks and language punctuation keep their handling above.
+        for _ch in set(text):
+            if (ord(_ch) not in _trans
+                    and (unicodedata.category(_ch)[0] == "S" or _ch == "%")):
+                _trans[ord(_ch)] = " " + _ch + " "
         # language chars_ignore table (tr_languages.c / readclause.c IgnoreOrReplaceChar): drop or
         # replace input codepoints before tokenising. fa rewrites U+200C (ZWNJ) to '-' and drops
         # U+0640 (TATWEEL); this is espeak's real behaviour, so it applies in both modes.

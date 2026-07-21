@@ -71,3 +71,24 @@ SYMBOL_NAMES = [
 @pytest.mark.parametrize("sym,ipa", SYMBOL_NAMES)
 def test_symbol_names_from_emoji_dict(sym, ipa):
     assert G2P("en", force_compat=True).phonemize(sym) == ipa
+
+
+SYMBOL_SPLIT = [
+    ("£5", "pˈaʊnd fˈaɪv"),
+    ("€10", "jˈʊəɹəʊz tˈɛn"),
+    ("20°", "twˈɛnti dɪɡɹˈiːz"),
+    ("5+3", "fˈaɪv plˈʌs θɹˈiː"),
+    ("$5", "dˈɒlə fˈaɪv"),
+    ("5$", "fˈaɪv dˈɒlə"),
+    ("5=5", "fˈaɪv ˈiːkwəlz fˈaɪv"),
+    ("99%", "nˈaɪnti nˈaɪn pəsˈɛnt"),
+    ("5<6", "fˈaɪv sˈɪks"),
+    ("7>2", "sˈɛvən tˈuː"),
+    ("it costs £5 and 20°", "ɪt kˈɒsts pˈaʊnd fˈaɪv and twˈɛnti dɪɡɹˈiːz"),
+    ("©2020", "kˈɒpɪɹˌaɪt tˈuː θˈaʊzənd ən twˈɛnti"),
+]
+
+
+@pytest.mark.parametrize("text,ipa", SYMBOL_SPLIT)
+def test_symbols_split_from_adjacent_words(text, ipa):
+    assert G2P("en", force_compat=True).phonemize(text) == ipa
