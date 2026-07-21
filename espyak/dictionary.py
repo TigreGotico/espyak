@@ -1909,7 +1909,7 @@ def _unpronounceable(tr, word, posn=0):
 
 
 def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0,
-                    left_ctx="", right_ctx=""):
+                    left_ctx="", right_ctx="", pre_substituted=False):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 
     Returns (phonemes, end_type, end_phonemes). When `want_endings` and a standard
@@ -1927,7 +1927,15 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
     time), ``D_) - (_D`` (dash), ``__) - (_D`` (minus) — for an isolated ``:`` or ``-``.
     """
     rules = tr.rules
-    word = _apply_replacements(getattr(rules, "replacements", None), word)
+    # SubstituteChar (translate.c:784) runs ONCE, at clause tokenisation (TranslateChar,
+    # translate.c:1174), so the dict lookup and the rule matcher both see the same already-
+    # substituted source. espyak's translate_word substitutes before its dict lookup and passes
+    # the result here, so re-substituting would apply the table twice. That is invisible for an
+    # idempotent table (ä->æ) but corrupts a non-idempotent one: Sindarin maps `x`->`cs` and
+    # `ch`->`x`, so a second pass cascades ch->x->cs (ach -> ˈaks instead of ˈaχ). Callers that
+    # have already substituted pass pre_substituted=True.
+    if not pre_substituted:
+        word = _apply_replacements(getattr(rules, "replacements", None), word)
     wb = word.encode("utf-8")
     lb = (left_ctx.encode("utf-8") + b" ") if left_ctx else b""
     rb = (b" " + right_ctx.encode("utf-8")) if right_ctx else b""
@@ -2020,7 +2028,7 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                         new_word = (buf[2:p_start] + bytes([base])
                                     + buf[p_start + wc_bytes:end]).decode("utf-8", "replace")
                         return translate_rules(tr, new_word, mnem_index, word_flags,
-                                               want_endings, dict_flags)
+                                               want_endings, dict_flags, pre_substituted=True)
                     # unrecognised ASCII letter in a multi-letter word: espeak sets
                     # FLAG_SPELLWORD and re-translates as individual letters (dictionary.c:2274).
                     # mto foreign names (no rule for 'd' in amsterdam). Scoped to ASCII so non-ASCII

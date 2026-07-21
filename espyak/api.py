@@ -711,7 +711,7 @@ class G2P:
         self._tr._spell_word = False
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
-            dict_flags=flags)
+            dict_flags=flags, pre_substituted=True)
         if (not ph.strip() and word and word.isascii() and any(c.isalpha() for c in word)
                 and self._config.get("letter_bits_offset")
                 and not (flags & K.FLAG_TEXTMODE and getattr(self, "_textmode_empty", False))):
@@ -750,12 +750,13 @@ class G2P:
                 ph2, end2, end_ph2 = translate_rules(
                     self._tr, word, self._mnem,
                     word_flags=word_flags | K.FLAG_NO_PREFIX, want_endings=True,
-                    dict_flags=flags)
+                    dict_flags=flags, pre_substituted=True)
                 if end2 and not (end2 & K.SUFX_P):
                     stem2, _ = remove_ending(self._tr, word, end2)
                     _sp, sp_end_type, _se = translate_rules(
                         self._tr, stem2.strip(), self._mnem,
-                        word_flags=word_flags, want_endings=True, dict_flags=flags)
+                        word_flags=word_flags, want_endings=True, dict_flags=flags,
+                        pre_substituted=True)
                     if not (sp_end_type & K.SUFX_P):
                         # prefix no longer recognised on the suffix-stripped stem: keep the suffix,
                         # drop the prefix, and fall through to the standard suffix branches below
