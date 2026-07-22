@@ -853,7 +853,7 @@ class G2P:
                                               dict_flags=flags, tonic=3)
                     end_ph = _reduce_extra_primaries(end_ph)
                 elif (not self._config.get("lopt_prefixes") and not (end_type & K.SUFX_T)
-                      and (flags or "'" in end_ph)):
+                      and (flags or "'" in end_ph) and "%" not in end_ph):
                     # C else-branch (translateword.c:573-576), gated on the same
                     # prefix_flags||prefix_stress as the lopt case but for a NON-LOPT language
                     # without SUFX_T: "stress position affects the whole word, including the
@@ -864,6 +864,9 @@ class G2P:
                     # stem acţiona's 3rd = final a). The `|` barrier keeps the prefix-final and
                     # stem-initial vowels from re-tokenising into one diphthong phoneme
                     # (re+a stays e|a = two vowels, matching espeak's distinct phoneme codes).
+                    # A prefix that already carries an explicit unstressed mark `%` (en `%In`,
+                    # indirect) is excluded above: espeak's SetWordStress preserves that mark and
+                    # the plain `end_ph + rest_ph` path already matches (ˌɪn would be spurious).
                     return set_word_stress(self._tr, end_ph + "|" + rest_ph, self._mnem,
                                            dict_flags=flags, tonic=-1), flags
                 return end_ph + rest_ph, flags
