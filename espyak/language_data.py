@@ -752,6 +752,66 @@ LANGS.setdefault("el", {})["numbers2"] = K.NUM2_THOUSANDPLEX_VAR_THOUSANDS  # L(
 LANGS.setdefault("uk", {})["numbers2"] = (K.NUM2_THOUSANDPLEX_VAR_THOUSANDS
                                           | K.NUM2_THOUSANDS_VAR1)  # Translator_Russian (shared)
 
+# --- Roman numerals (tr_languages.c langopts.numbers NUM_ROMAN* + min/max_roman/roman_suffix)
+# The gating bits per language that recognises Roman numerals (TranslateRoman, numbers.c:756):
+#   NUM_ROMAN          recognise Roman numbers
+#   NUM_ROMAN_CAPITALS recognise only all-caps Roman tokens
+#   NUM_ROMAN_AFTER    say the "roman" word AFTER the number, not before
+#   NUM_ROMAN_ORDINAL  speak Roman numbers as ordinals
+# `roman_suffix` is the ordinal-indicator text espeak appends to the number (LANG=an/it "º",
+# masculine ordinal) so it reads as an ordinal; min_roman/max_roman bound the accepted value
+# (defaults 2/49, NewTranslator). The flags are OR-ed into the language's existing `numbers`
+# value (or the NUM_HUNDRED_AND runtime default when it has none) so cardinal behaviour is
+# unchanged. Languages absent here have no NUM_ROMAN bit and never read a Roman-looking token
+# as a number.
+_ROMAN_FLAGS = {
+    "af": K.NUM_ROMAN,
+    "bg": K.NUM_ROMAN | K.NUM_ROMAN_ORDINAL | K.NUM_ROMAN_CAPITALS,
+    "da": K.NUM_ROMAN | K.NUM_ROMAN_CAPITALS | K.NUM_ROMAN_ORDINAL,
+    "de": K.NUM_ROMAN,
+    "en": K.NUM_ROMAN,
+    "eo": K.NUM_ROMAN,
+    "es": K.NUM_ROMAN | K.NUM_ROMAN_AFTER,
+    "an": K.NUM_ROMAN | K.NUM_ROMAN_ORDINAL,
+    "ca": K.NUM_ROMAN | K.NUM_ROMAN_AFTER,
+    "ia": K.NUM_ROMAN | K.NUM_ROMAN_AFTER,
+    "pap": K.NUM_ROMAN | K.NUM_ROMAN_AFTER,
+    "fo": K.NUM_ROMAN | K.NUM_ROMAN_CAPITALS | K.NUM_ROMAN_ORDINAL,
+    "fr": K.NUM_ROMAN | K.NUM_ROMAN_CAPITALS | K.NUM_ROMAN_AFTER,
+    "hr": K.NUM_ROMAN_CAPITALS,
+    "bs": K.NUM_ROMAN_CAPITALS,
+    "sr": K.NUM_ROMAN_CAPITALS,
+    "ht": K.NUM_ROMAN,
+    "hu": K.NUM_ROMAN | K.NUM_ROMAN_ORDINAL | K.NUM_ROMAN_CAPITALS,
+    "io": K.NUM_ROMAN,
+    "id": K.NUM_ROMAN,
+    "ms": K.NUM_ROMAN,
+    "it": K.NUM_ROMAN | K.NUM_ROMAN_CAPITALS | K.NUM_ROMAN_ORDINAL,
+    "ka": K.NUM_ROMAN,
+    "kl": K.NUM_ROMAN | K.NUM_ROMAN_CAPITALS | K.NUM_ROMAN_ORDINAL,
+    "la": K.NUM_ROMAN,
+    "pt": K.NUM_ROMAN_CAPITALS,
+    "ro": K.NUM_ROMAN,
+    "ru": K.NUM_ROMAN,
+    "sk": K.NUM_ROMAN,
+    "cs": K.NUM_ROMAN,
+    "sl": K.NUM_ROMAN,
+}
+for _l, _rf in _ROMAN_FLAGS.items():
+    _cfg = LANGS.setdefault(_l, {})
+    _cfg["numbers"] = _cfg.get("numbers", K.NUM_HUNDRED_AND) | _rf
+# max_roman / min_roman overrides (tr_languages.c); the rest keep the 49 / 2 defaults.
+for _l in ("la", "pt"):
+    LANGS.setdefault(_l, {})["max_roman"] = 5000
+LANGS.setdefault("hu", {})["max_roman"] = 899
+LANGS.setdefault("hu", {})["min_roman"] = 1
+# roman_suffix (tr_languages.c: utf8_ordinal = "º", masculine ordinal indicator) — LANG=an/it.
+for _l in ("an", "it"):
+    LANGS.setdefault(_l, {})["roman_suffix"] = "º"
+# numbers2 ordinal bits used by the Roman ordinal assembly (tr_languages.c es-block name2==an):
+# NUM2_ORDINAL_NO_AND drops the "y"/"e" between tens and units in an ordinal.
+LANGS.setdefault("an", {})["numbers2"] = LANGS.get("an", {}).get("numbers2", 0) | K.NUM2_ORDINAL_NO_AND
+
 # --- Armenian (tr_languages.c case L('h','y'), OFFSET_ARMENIAN 0x530) -----------------
 _HY_VOWELS = [0x31, 0x35, 0x37, 0x38, 0x3b, 0x48, 0x55]
 _HY_CONSONANTS = [0x32, 0x33, 0x34, 0x36, 0x39, 0x3a, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41,

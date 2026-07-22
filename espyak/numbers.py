@@ -158,6 +158,154 @@ def _three_digit(tr_dict, value, ctx, flags=0, final=True, femin=False):
 
 ORDINAL_SUFFIXES = ("st", "nd", "rd", "th")
 
+# --- Roman numerals (TranslateRoman, numbers.c:756) --------------------------
+
+# The valid Roman letters and their values (numbers.c:773 `roman_numbers`/`roman_values`).
+# Keyed lowercase — espeak lowercases the word before TranslateRoman (the original case is
+# carried in the word flags), so the table is inspected against lowercase letters.
+_ROMAN_VALUES = {"i": 1, "x": 10, "c": 100, "m": 1000, "v": 5, "l": 50, "d": 500}
+
+
+def parse_roman(word):
+    """Validate `word` as a Roman numeral and return its integer value, else None.
+
+    Faithful port of the parse/validation loop (numbers.c:791-822): the subtractive-notation
+    rules, the max-3-repeat rule, the `prev>1 && prev!=10 && prev!=100` guard, and the
+    `acc%10`/`prev*10` subtract guards. Any violation returns None ("not a Roman numeral", the
+    caller then falls through to ordinary translation). `word` must already be lowercased and
+    contain no surrounding spaces (the C loop runs until a space; here the whole string is the
+    token)."""
+    acc = 0
+    prev = 0
+    subtract = 0x7FFF
+    repeat = 0
+    for c in word:
+        value = _ROMAN_VALUES.get(c)
+        if value is None:
+            return None
+        if value == prev:
+            repeat += 1
+            if repeat >= 3:
+                return None
+        else:
+            repeat = 0
+        if prev > 1 and prev != 10 and prev != 100:
+            if value >= prev:
+                return None
+        if prev != 0 and prev < value:
+            if (acc % 10) != 0 or (prev * 10) < value:
+                return None
+            subtract = prev
+            value -= subtract
+        elif value >= subtract:
+            return None
+        else:
+            acc += prev
+        prev = value
+    acc += prev
+    return acc
+
+
+def _num2_ordinal(tr_dict, value, ctx, flags, flags2, ph_ord2, ph_ord2x):
+    """Ordinal reading of a 1..99 value (port of LookupNum2's is_ordinal path, numbers.c:1006).
+
+    Called with control bits ordinal|final|tens-units-only (0x7) — the state TranslateNumber
+    passes for a standalone <100 ordinal, which is every Roman ordinal in an/it/da/bg/fo/kl
+    (max_roman<=49) and the <100 range for hu. `ph_ord2` is the ordinal ending suffix
+    (Lookup `_#<roman_suffix>`, e.g. it/an "º"->"o"/"eno"); `ph_ord2x` its alternate
+    (`_x#<suffix>`, used with the special `_%dox` standalone forms, LANG=an)."""
+    units = value % 10
+    tens = value // 10
+    ph_ordinal = ph_ord2
+    ph_tens = ""
+    ph_digits = ""
+    found = False
+    found_ordinal = False
+    ord_type = "o"
+    # control&4 (tens+units only): a special standalone ordinal `_%dox` (irregular ordinals —
+    # it primo/terzo/quarto, an) wins over the regular `_%do` stem.
+    s = _frag(tr_dict, "%d%sx" % (value, ord_type), ctx)
+    if s:
+        found = True
+        ph_digits = s
+        if ph_ord2x:
+            ph_ordinal = ph_ord2x
+    if not found:
+        s = _frag(tr_dict, "%d%s" % (value, ord_type), ctx)  # _%do
+        if s:
+            found = True
+            ph_digits = s
+    found_ordinal = found
+    if not found and value < 20:
+        # A teen/unit with no ordinal stem: read the whole value as its cardinal and let a generic
+        # ordinal ending (`_ord`) carry the ordinal (da/kl "fjortende"). Only for value < 20 — a
+        # >=20 value is always decomposed into tens + ordinal-unit (espeak never lexicalises a
+        # tens+units ordinal, it 29 -> venti+novesimo, not the lexical "ventinove").
+        if not ((flags2 & K.NUM2_NO_TEEN_ORDINALS) and 10 < value < 20):
+            s = _frag(tr_dict, "%d" % value, ctx)  # cardinal `_%d`
+            if s:
+                found = True
+                ph_digits = s
+    if found:
+        ph_tens = ""
+    else:
+        ph_tens = _frag(tr_dict, "%dX%s" % (tens, ord_type), ctx)  # ordinal tens `_%dXo`
+        if ph_tens:
+            found_ordinal = True
+            if units != 0 and (flags2 & K.NUM2_MULTIPLE_ORDINAL):
+                ph_tens += ph_ord2
+        if not found_ordinal:
+            ph_tens = _frag(tr_dict, "%dX" % tens, ctx)
+        if not ph_tens and (flags & K.NUM_VIGESIMAL):
+            units = value % 20
+            ph_tens = _frag(tr_dict, "%dX" % (tens & 0xFE), ctx)
+        ph_digits = ""
+        if units > 0:
+            u = ""
+            if not (flags & K.NUM_SWAP_TENS):
+                u = _frag(tr_dict, "%d%s" % (units, ord_type), ctx)  # ordinal unit `_%do`
+                if u:
+                    found_ordinal = True
+            if not u:
+                u = _frag(tr_dict, "%d" % units, ctx)
+            ph_digits = u
+    if not found_ordinal and not ph_ordinal:
+        # no ordinal stem was available: append a generic ordinal ending (`_ord20` for exact
+        # tens / swap-tens, else `_ord`) — da/kl "-ende", the Danish/Greenlandic path.
+        if value >= 20 and (value % 10 == 0 or (flags & K.NUM_SWAP_TENS)):
+            ph_ordinal = _frag(tr_dict, "ord20", ctx)
+        if not ph_ordinal:
+            ph_ordinal = _frag(tr_dict, "ord", ctx)
+    if (flags & (K.NUM_SWAP_TENS | K.NUM_AND_UNITS)) and ph_tens and ph_digits:
+        ph_and = _frag(tr_dict, "0and", ctx)
+        if flags2 & K.NUM2_ORDINAL_NO_AND:
+            ph_and = ""
+        if flags & K.NUM_SWAP_TENS:
+            out = ph_digits + ph_and + ph_tens + ph_ordinal
+        else:
+            out = ph_tens + ph_and + ph_digits + ph_ordinal
+    else:
+        if ((flags & K.NUM_SINGLE_VOWEL) and ph_tens and ph_digits
+                and _first_vowel_start(ph_digits) and ph_tens[-1] in _VOWEL_LETTERS):
+            ph_tens = ph_tens[:-1]
+        out = ph_tens + ph_digits + ph_ordinal
+    if flags & K.NUM_SINGLE_STRESS:
+        out = _single_stress(out)
+    return out
+
+
+def roman_number_phonemes(tr_dict, value, ctx, flags, flags2, ordinal,
+                          ph_ord2, ph_ord2x, break_numbers=K.BREAK_THOUSANDS):
+    """The spoken-number phonemes for a Roman value: ordinal reading when `ordinal`, else the
+    plain cardinal (translate_number). The `_roman` word and any AFTER placement are added by
+    the caller (api._render_word)."""
+    if ordinal and value < 100:
+        return _num2_ordinal(tr_dict, value, ctx, flags, flags2, ph_ord2, ph_ord2x)
+    # value >= 100 ordinal (only hu's dotted range) and every cardinal Roman: read as a plain
+    # cardinal. hu's >=100 ordinal reading is not modelled (see api._translate_roman residual).
+    return translate_number(tr_dict, str(value), ctx, flags, flags2=flags2,
+                            break_numbers=break_numbers)
+
 
 def _ordinal_stem(tr_dict, value, ctx):
     """Ordinal stem for 1..99 (the `_#<suffix>` ending is appended by the caller).

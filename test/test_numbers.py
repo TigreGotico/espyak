@@ -482,3 +482,314 @@ JA_CASES = [
 @pytest.mark.parametrize("num,expected", JA_CASES)
 def test_ja_number_single_stress_domain(num, expected):
     assert _nfc(G2P("ja", force_compat=True).phonemize(num).strip()) == expected
+
+# --- Roman numerals (TranslateRoman, numbers.c:756) --------------------------------------
+# Timeless: every expected value was produced by the espeak-ng 1.52.0 oracle and reproduced
+# byte-for-byte by the force_compat engine. Covers the parse/validation loop, the per-language
+# gating flags (min/max_roman, NUM_ROMAN_CAPITALS/AFTER/ORDINAL, roman_suffix), the cardinal
+# and ordinal readings, the `_roman` word (before en/de, after fr), and — critically — that
+# real all-consonant words and invalid notation are NOT hijacked as numerals.
+
+ROMAN_VALID = [
+    ('ca', 'IX', 'nˈɔw'),
+    ('ca', 'ix', 'nˈɔw'),
+    ('ca', 'XIV', 'kətˈorzə'),
+    ('ca', 'XLII', 'kwəɾˌantəðˈos'),
+    ('ca', 'MMXXIV', 'ˈeməmʃʃˈip'),
+    ('es', 'IX', 'nwˈeβe'),
+    ('es', 'XIV', 'katˈoɾθe'),
+    ('es', 'III', 'tɾˈes'),
+    ('es', 'XL', 'kwaɾˈɛnta'),
+    ('es', 'MCMLXXXIV', 'ˌemeθˌeˈɛmeˌeleˌekisˈɛkissˈib'),
+    ('la', 'IX', 'nˈɔwɛm'),
+    ('la', 'XIV', 'kwatːwˈɔrdɛkɪm'),
+    ('la', 'IV', 'kwˈatːʊɔr'),
+    ('la', 'XXIX', 'wiːɡˈɪntiːnˈɔwɛm'),
+    ('la', 'MMXXIV', 'ˈɛmmksksˈɪw'),
+    ('en', 'IX', 'ɹˌəʊmən nˈaɪn'),
+    ('en', 'XIV', 'ɹˌəʊmən fˈɔːtiːn'),
+    ('en', 'III', 'ɹˌəʊmən θɹˈiː'),
+    ('en', 'XI', 'ɹˌəʊmən ɪlˈɛvən'),
+    ('en', 'XX', 'ɹˌəʊmən twˈɛnti'),
+    ('de', 'IX', 'rˌøːmɪʃ nˈɔøn'),
+    ('de', 'XIV', 'rˌøːmɪʃ fˈɪɾtseːn'),
+    ('de', 'IV', 'rˌøːmɪʃ fˈiːɾ'),
+    ('fr', 'IX', 'nœf ʁomˈɛ̃'),
+    ('fr', 'XIV', 'katɔʁz ʁomˈɛ̃'),
+    ('fr', 'XC', 'ˌikssˈe'),
+    ('it', 'IX', 'nˈono'),
+    ('it', 'XIV', 'kwatːorditʃˈɛzimo'),
+    ('it', 'III', 'tˈɛrtso'),
+    ('it', 'VII', 'sˈɛtːimo'),
+    ('it', 'XXIX', 'vˈentɪnovˈɛzimo'),
+    ('it', 'XLII', 'kʊaɾˈaːntadʊˈɛzimo'),
+    ('an', 'IX', 'nʊˈeno'),
+    ('an', 'XIV', 'kˌatoɾθˈeno'),
+    ('an', 'IV', 'kwatɾˈeno'),
+    ('an', 'XLII', 'kwˌaɾantaɪðˌosˈeno'),
+    ('an', 'XXIX', 'bˌintinʊˈeno'),
+    ('da', 'IX', 'nˈiənə'),
+    ('da', 'XIV', 'fjˈoɐ̯dənə'),
+    ('da', 'IV', 'fjˈeʌ'),
+    ('da', 'XXIX', 'nˈʔiʌtˈyʋənə'),
+]
+
+@pytest.mark.parametrize("lang,word,expected", ROMAN_VALID)
+def test_roman_valid(lang, word, expected):
+    assert _nfc(G2P(lang, force_compat=True).phonemize(word)) == expected
+
+
+# Real all-consonant / Roman-letter WORDS that must NOT be spoken as numbers: dictionary
+# entries spoken as themselves, or tokens the parse/min-max guards reject (fall to the rules).
+ROMAN_REJECT_WORDS = [
+    ('en', 'mix', 'mˈɪks'),
+    ('en', 'did', 'dˈɪd'),
+    ('en', 'mild', 'mˈaɪld'),
+    ('en', 'civic', 'sˈɪvɪk'),
+    ('en', 'vivid', 'vˈɪvɪd'),
+    ('en', 'li', 'lˈaɪ'),
+    ('en', 'ill', 'ˈɪl'),
+    ('en', 'dim', 'dˈɪm'),
+    ('en', 'mimic', 'mˈɪmɪk'),
+    ('en', 'civil', 'sˈɪvəl'),
+    ('it', 'mi', 'mˈi'),
+    ('it', 'ci', 'tʃˈi'),
+    ('it', 'vidi', 'vˈidɪ'),
+    ('it', 'dividi', 'divˈidɪ'),
+    ('es', 'di', 'dˈi'),
+    ('es', 'mil', 'mˈil'),
+    ('es', 'vil', 'bˈil'),
+    ('es', 'civil', 'θiβˈil'),
+    ('la', 'dic', 'dˈɪk'),
+    ('la', 'vim', 'wˈɪm'),
+    ('la', 'lex', 'lˈɛks'),
+    ('la', 'mille', 'mˈɪllɛ'),
+    ('ca', 'mix', 'mˈiks'),
+    ('ca', 'vi', 'bˈi'),
+]
+
+@pytest.mark.parametrize("lang,word,expected", ROMAN_REJECT_WORDS)
+def test_roman_reject_real_words(lang, word, expected):
+    assert _nfc(G2P(lang, force_compat=True).phonemize(word)) == expected
+
+
+# Invalid notation (>3 repeats, bad subtraction, repeated V/L/D/M), a lowercase token in a
+# CAPITALS-only language (it/da), a $abbrev dict entry (en XL), and a value over max_roman
+# (es MMXXIV) — all rejected and spelled/spoken normally.
+ROMAN_REJECT_NOTATION = [
+    ('en', 'IIII', 'ˈɪɪˌɪaɪ'),
+    ('en', 'VV', 'vˌiːvˈiː'),
+    ('en', 'IC', 'ˈaɪk'),
+    ('en', 'XM', 'ˌɛksˈɛm'),
+    ('en', 'MMMM', 'ˌɛmˌɛmˌɛmˈɛm'),
+    ('es', 'IIII', 'jjjˈi'),
+    ('es', 'VV', 'ˌuβeˈuβe'),
+    ('la', 'IIII', 'jjjjjˈɪ'),
+    ('la', 'VX', 'ˌuːˈɛks'),
+    ('it', 'ix', 'ˈiks'),
+    ('it', 'xiv', 'ksˈiv'),
+    ('it', 'iii', 'jjˈi'),
+    ('da', 'ix', 'ˈʔiɡs'),
+    ('da', 'iv', 'ˈʔiw'),
+    ('es', 'MMXXIV', 'ˌemeˌemeˈɛkissˈib'),
+    ('en', 'XL', 'ˌɛksˈɛl'),
+]
+
+@pytest.mark.parametrize("lang,word,expected", ROMAN_REJECT_NOTATION)
+def test_roman_reject_invalid_notation(lang, word, expected):
+    assert _nfc(G2P(lang, force_compat=True).phonemize(word)) == expected
+
+
+# A language WITHOUT NUM_ROMAN (Dutch) never reads a Roman-looking token as a number.
+ROMAN_DISABLED_NL = [
+    ('ix', 'ˈɪks'),
+    ('xiv', 'ksˈɪf'),
+    ('IX', 'ˈɪks'),
+    ('XIV', 'ksˈɪf'),
+    ('mix', 'mˈɪks'),
+    ('vidi', 'vˈidi'),
+    ('civil', 'sˈivɪl'),
+]
+
+@pytest.mark.parametrize("word,expected", ROMAN_DISABLED_NL)
+def test_roman_disabled_language_never_numbers(word, expected):
+    assert _nfc(G2P("nl", force_compat=True).phonemize(word)) == expected
+
+
+# Every ordinal Roman value 2..49 in the NUM_ROMAN_ORDINAL languages (it -esimo/-o, an -eno,
+# da -ende), including the single-letter/dict-entry values that fall back to spelling.
+ROMAN_ORDINAL_RANGE = [
+    ('it', 'II', 'sekˈondo'),
+    ('it', 'III', 'tˈɛrtso'),
+    ('it', 'IV', 'kwˈaːrto'),
+    ('it', 'V', 'vˈu'),
+    ('it', 'VI', 'vˈi'),
+    ('it', 'VII', 'sˈɛtːimo'),
+    ('it', 'VIII', 'otːˈavo'),
+    ('it', 'IX', 'nˈono'),
+    ('it', 'X', 'ˈiks'),
+    ('it', 'XI', 'ʊnditʃˈɛzimo'),
+    ('it', 'XII', 'doditʃˈɛzimo'),
+    ('it', 'XIII', 'treditʃˈɛzimo'),
+    ('it', 'XIV', 'kwatːorditʃˈɛzimo'),
+    ('it', 'XV', 'kwinditʃˈɛzimo'),
+    ('it', 'XVI', 'seditʃˈɛzimo'),
+    ('it', 'XVII', 'ditʃassetːˈɛzimo'),
+    ('it', 'XVIII', 'ditʃotːˈɛzimo'),
+    ('it', 'XIX', 'ditʃannovˈɛzimo'),
+    ('it', 'XX', 'ventˈɛzimo'),
+    ('it', 'XXI', 'vˈentʊnˈɛzimo'),
+    ('it', 'XXII', 'vˈentɪdʊˈɛzimo'),
+    ('it', 'XXIII', 'vˈentɪtreˈɛzimo'),
+    ('it', 'XXIV', 'vˈentɪkwatːrˈɛzimo'),
+    ('it', 'XXV', 'vˈentɪtʃinkwˈɛzimo'),
+    ('it', 'XXVI', 'vˈentɪsejˈɛzimo'),
+    ('it', 'XXVII', 'vˈentɪsetːˈɛzimo'),
+    ('it', 'XXVIII', 'vˈentotːˈɛzimo'),
+    ('it', 'XXIX', 'vˈentɪnovˈɛzimo'),
+    ('it', 'XXX', 'trentˈɛzimo'),
+    ('it', 'XXXI', 'trˈeːntʊnˈɛzimo'),
+    ('it', 'XXXII', 'trˈeːntadʊˈɛzimo'),
+    ('it', 'XXXIII', 'trˈeːntatreˈɛzimo'),
+    ('it', 'XXXIV', 'trˈeːntakwatːrˈɛzimo'),
+    ('it', 'XXXV', 'trˈeːntatʃinkwˈɛzimo'),
+    ('it', 'XXXVI', 'trˈeːntasejˈɛzimo'),
+    ('it', 'XXXVII', 'trˈeːntasetːˈɛzimo'),
+    ('it', 'XXXVIII', 'trˈeːntotːˈɛzimo'),
+    ('it', 'XXXIX', 'trˈeːntanovˈɛzimo'),
+    ('it', 'XL', 'kʊaɾaːntˈɛzimo'),
+    ('it', 'XLI', 'kʊaɾˈaːntʊnˈɛzimo'),
+    ('it', 'XLII', 'kʊaɾˈaːntadʊˈɛzimo'),
+    ('it', 'XLIII', 'kʊaɾˈaːntatreˈɛzimo'),
+    ('it', 'XLIV', 'kʊaɾˈaːntakwatːrˈɛzimo'),
+    ('it', 'XLV', 'kʊaɾˈaːntatʃinkwˈɛzimo'),
+    ('it', 'XLVI', 'kʊaɾˈaːntasejˈɛzimo'),
+    ('it', 'XLVII', 'kʊaɾˈaːntasetːˈɛzimo'),
+    ('it', 'XLVIII', 'kʊaɾˈaːntotːˈɛzimo'),
+    ('it', 'XLIX', 'kʊaɾˈaːntanovˈɛzimo'),
+    ('an', 'II', 'seɣˈundo'),
+    ('an', 'III', 'tɛɾθˈɛɾo'),
+    ('an', 'IV', 'kwatɾˈeno'),
+    ('an', 'V', 'bˌe βˈaʃa'),
+    ('an', 'VI', 'sˌeɪsˈeno'),
+    ('an', 'VII', 'sɛtˈeno'),
+    ('an', 'VIII', 'ɡwitˈeno'),
+    ('an', 'IX', 'nʊˈeno'),
+    ('an', 'X', 'ʃˈe'),
+    ('an', 'XI', 'onθˈeno'),
+    ('an', 'XII', 'doθˈeno'),
+    ('an', 'XIII', 'treθˈeno'),
+    ('an', 'XIV', 'kˌatoɾθˈeno'),
+    ('an', 'XV', 'kinθˈeno'),
+    ('an', 'XVI', 'sɛθˈeno'),
+    ('an', 'XVII', 'dˌeθisɛtˈeno'),
+    ('an', 'XVIII', 'dˌeθiɣwitˈeno'),
+    ('an', 'XIX', 'dˌeθinʊˈeno'),
+    ('an', 'XX', 'bintˈeno'),
+    ('an', 'XXI', 'bˌintiˌunˈeno'),
+    ('an', 'XXII', 'bˌintiðˌosˈeno'),
+    ('an', 'XXIII', 'bˌintitɾˌesˈeno'),
+    ('an', 'XXIV', 'bˌintikwatɾˈeno'),
+    ('an', 'XXV', 'bˌintiθinkˈeno'),
+    ('an', 'XXVI', 'bˌintisˌeɪsˈeno'),
+    ('an', 'XXVII', 'bˌintisɛtˈeno'),
+    ('an', 'XXVIII', 'bˌintiɣwitˈeno'),
+    ('an', 'XXIX', 'bˌintinʊˈeno'),
+    ('an', 'XXX', 'tɾentˈeno'),
+    ('an', 'XXXI', 'tɾˌentaɪˌunˈeno'),
+    ('an', 'XXXII', 'tɾˌentaɪðˌosˈeno'),
+    ('an', 'XXXIII', 'tɾˌentaɪtɾˌesˈeno'),
+    ('an', 'XXXIV', 'tɾˌentaɪkwatɾˈeno'),
+    ('an', 'XXXV', 'tɾˌentaɪθinkˈeno'),
+    ('an', 'XXXVI', 'tɾˌentaɪsˌeɪsˈeno'),
+    ('an', 'XXXVII', 'tɾˌentaɪsɛtˈeno'),
+    ('an', 'XXXVIII', 'tɾˌentaɪɣwitˈeno'),
+    ('an', 'XXXIX', 'tɾˌentaɪnʊˈeno'),
+    ('an', 'XL', 'kwˌaɾantˈeno'),
+    ('an', 'XLI', 'kwˌaɾantaɪˌunˈeno'),
+    ('an', 'XLII', 'kwˌaɾantaɪðˌosˈeno'),
+    ('an', 'XLIII', 'kwˌaɾantaɪtɾˌesˈeno'),
+    ('an', 'XLIV', 'kwˌaɾantˌaɪkwatɾˈeno'),
+    ('an', 'XLV', 'kwˌaɾantˌaɪθinkˈeno'),
+    ('an', 'XLVI', 'kwˌaɾantaɪsˌeɪsˈeno'),
+    ('an', 'XLVII', 'kwˌaɾantˌaɪsɛtˈeno'),
+    ('an', 'XLVIII', 'kwˌaɾantˌaɪɣwitˈeno'),
+    ('an', 'XLIX', 'kwˌaɾantˌaɪnʊˈeno'),
+    ('da', 'II', 'ˈanən'),
+    ('da', 'III', 'tʁˈɛdjə'),
+    ('da', 'IV', 'fjˈeʌ'),
+    ('da', 'V', 'ʋˈe'),
+    ('da', 'VI', 'ʋˈi'),
+    ('da', 'VII', 'sˈyʋnə'),
+    ('da', 'VIII', 'ˈʌtnə'),
+    ('da', 'IX', 'nˈiənə'),
+    ('da', 'X', 'ˈɛks'),
+    ('da', 'XI', 'ˈɛlfdə'),
+    ('da', 'XII', 'tˈʌlfdə'),
+    ('da', 'XIII', 'tʁˈ?adənə'),
+    ('da', 'XIV', 'fjˈoɐ̯dənə'),
+    ('da', 'XV', 'fˈɛmdənə'),
+    ('da', 'XVI', 'sˈɑjsdənə'),
+    ('da', 'XVII', 'sˈʔœdənə'),
+    ('da', 'XVIII', 'ˈadənə'),
+    ('da', 'XIX', 'nˈʔedənə'),
+    ('da', 'XX', 'tˈyʋənə'),
+    ('da', 'XXI', 'ˈeːnʌtˈyʋənə'),
+    ('da', 'XXII', 'tˈoʌtˈyʋənə'),
+    ('da', 'XXIII', 'tʁˈʔeʌtˈyʋənə'),
+    ('da', 'XXIV', 'fˈiʌʌtˈyʋənə'),
+    ('da', 'XXV', 'fˈεmʌtˈyʋənə'),
+    ('da', 'XXVI', 'sˈεɡsʌtˈyʋənə'),
+    ('da', 'XXVII', 'sˈʔywʌtˈyʋənə'),
+    ('da', 'XXVIII', 'ˈɒɒdəʌtˈyʋənə'),
+    ('da', 'XXIX', 'nˈʔiʌtˈyʋənə'),
+    ('da', 'XXX', 'tʁˈaftə'),
+    ('da', 'XXXI', 'ˈeːnʌtʁˈaftə'),
+    ('da', 'XXXII', 'tˈoʌtʁˈaftə'),
+    ('da', 'XXXIII', 'tʁˈʔeʌtʁˈaftə'),
+    ('da', 'XXXIV', 'fˈiʌʌtʁˈaftə'),
+    ('da', 'XXXV', 'fˈεmʌtʁˈaftə'),
+    ('da', 'XXXVI', 'sˈεɡsʌtʁˈaftə'),
+    ('da', 'XXXVII', 'sˈʔywʌtʁˈaftə'),
+    ('da', 'XXXVIII', 'ˈɒɒdəʌtʁˈaftə'),
+    ('da', 'XXXIX', 'nˈʔiʌtʁˈaftə'),
+    ('da', 'XL', 'fˌœʌtˈyʋənə'),
+    ('da', 'XLI', 'ˈeːnʌfˌœʌtˈyʋənə'),
+    ('da', 'XLII', 'tˈoʌfˌœʌtˈyʋənə'),
+    ('da', 'XLIII', 'tʁˈʔeʌfˌœʌtˈyʋənə'),
+    ('da', 'XLIV', 'fˈiʌˌʌfœʌtˈyʋənə'),
+    ('da', 'XLV', 'fˈεmʌfˌœʌtˈyʋənə'),
+    ('da', 'XLVI', 'sˈεɡsʌfˌœʌtˈyʋənə'),
+    ('da', 'XLVII', 'sˈʔywʌfˌœʌtˈyʋənə'),
+    ('da', 'XLVIII', 'ˈɒɒdəˌʌfœʌtˈyʋənə'),
+    ('da', 'XLIX', 'nˈʔiʌfˌœʌtˈyʋənə'),
+]
+
+@pytest.mark.parametrize("lang,word,expected", ROMAN_ORDINAL_RANGE)
+def test_roman_ordinal_range(lang, word, expected):
+    assert _nfc(G2P(lang, force_compat=True).phonemize(word)) == expected
+
+
+def test_parse_roman_values():
+    from espyak.numbers import parse_roman
+    assert parse_roman("i") == 1
+    assert parse_roman("iv") == 4
+    assert parse_roman("ix") == 9
+    assert parse_roman("xiv") == 14
+    assert parse_roman("xl") == 40
+    assert parse_roman("xc") == 90
+    assert parse_roman("mcmlxxxiv") == 1984
+    # a repeated 1000/500/50/5 numeral (MM, DD, VV, LL) is rejected by the
+    # `prev>1 && prev!=10 && prev!=100` guard (numbers.c:807) — espeak does not accept MM=2000.
+    assert parse_roman("mm") is None
+    assert parse_roman("cc") == 200  # 100 may repeat; only V/L/D/M may not
+
+
+def test_parse_roman_rejects():
+    from espyak.numbers import parse_roman
+    for bad in ("iiii", "vv", "ic", "xm", "ll", "dd", "mmmm", "vx", "iic", "did",
+                "civil", "dic", "vim", "lex", "abc"):
+        assert parse_roman(bad) is None, bad
+    # "mix" DOES parse (=1009) but is rejected downstream by max_roman; the parser only
+    # validates notation, the language's min/max_roman bounds the accepted value.
+    assert parse_roman("mix") == 1009

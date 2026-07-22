@@ -2287,6 +2287,13 @@ class G2P:
                         p, tonic if i == _nucleus else -1, ipa, tie, separator,
                         all_upper=_up, first_upper=_up))
                 return " ".join(x for x in _r if x)
+        # Roman numerals (TranslateRoman, numbers.c:756 / translateword.c:227): tried after the
+        # dictionary lookup fails but before the letter-to-sound rules, for an all-lower or
+        # all-upper (never Capitalised) token in a language that enables it.
+        roman = self._translate_roman(word, num_flags, all_upper, first_upper,
+                                      ipa, tie, separator, tonic)
+        if roman is not None:
+            return roman
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
                                  first_upper=first_upper, at_end=at_end, following=following,
                                  clause_ctx=clause_ctx)
@@ -2333,6 +2340,81 @@ class G2P:
             named = self._name_and_render_foreign_letter(word, tonic, ipa, tie, separator)
             if named is not None:
                 return named
+        return self._render_phonemes(ph, ipa, tie, separator)
+
+    def _translate_roman(self, word, num_flags, all_upper, first_upper, ipa, tie, separator, tonic):
+        """Port of TranslateRoman (numbers.c:756) + its gating (translateword.c:227).
+
+        Returns the fully-rendered IPA for a Roman-numeral token, or None to fall through to
+        ordinary translation. `word` is already lowercased; the original case comes from the
+        `all_upper`/`first_upper` flags."""
+        from espyak.numbers import parse_roman, roman_number_phonemes
+        # gating flag: NUM_ROMAN enables, or NUM_ROMAN_CAPITALS enables only all-caps tokens.
+        if not ((num_flags & K.NUM_ROMAN)
+                or ((num_flags & K.NUM_ROMAN_CAPITALS) and all_upper)):
+            return None
+        # translateword.c:227 `(wflags & FLAG_UPPERS) != FLAG_FIRST_UPPER`: only an all-lower or
+        # all-upper word is a Roman candidate, never a Capitalised one (Ix, Xiv).
+        if first_upper and not all_upper:
+            return None
+        # numbers.c:782: NUM_ROMAN_CAPITALS rejects a token that is not all upper case, even when
+        # NUM_ROMAN is also set (it/da: lowercase `ix`/`iv` spell, only `IX`/`IV` read as numbers).
+        if (num_flags & K.NUM_ROMAN_CAPITALS) and not all_upper:
+            return None
+        # single-letter rule (numbers.c:785): one letter is not a Roman number unless it is a
+        # dotted ordinal (NUM_ROMAN_CAPITALS|NUM_ROMAN_ORDINAL|NUM_ORDINAL_DOT + FLAG_HAS_DOT).
+        # espyak splits the trailing dot into its own token before reaching here, so the dot flag
+        # is unavailable — a lone letter always falls through (matches espeak spelling I/V/X/…).
+        if len(word) < 2:
+            return None
+        lw = word.lower()
+        ctx = LookupContext(first_upper=first_upper, all_upper=all_upper,
+                            dict_condition=self._tr.dict_condition)
+        # TranslateRoman runs only when the dictionary lookup did not find the word
+        # (translateword.c:227 `!found`). A dict entry WITH phonemes is spoken as itself; a
+        # flags-only $abbrev entry (en `xl`, `xxx`) makes espeak spell the word regardless — in
+        # both cases the Roman path is skipped and ordinary translation handles it.
+        dph, dfl = self._dict.lookup(lw, ctx)
+        if dph:
+            return None
+        if dfl is not None and (dfl & K.FLAG_ABBREV):
+            return None
+        acc = parse_roman(lw)
+        if acc is None:
+            return None
+        if acc < self._config.get("min_roman", 2) or acc > self._config.get("max_roman", 49):
+            return None
+        # hu speaks a Roman number only as an ordinal, and only when it is marked ordinal (a dot
+        # or the hyphen+'e' form, numbers.c:849) — a plain hu token spells instead. espyak has no
+        # dot/hyphen flag here, so hu Roman always falls through (residual: hu dotted ordinals).
+        if (num_flags & K.NUM_ROMAN_ORDINAL) and self.lang == "hu":
+            return None
+        ordinal = bool(num_flags & K.NUM_ROMAN_ORDINAL)
+        flags2 = self._config.get("numbers2", 0)
+        ph_ord2 = ph_ord2x = ""
+        suffix = self._config.get("roman_suffix", "")
+        if suffix:
+            ph_ord2 = self._dict.lookup("_#" + suffix, ctx)[0] or ""
+            ph_ord2x = self._dict.lookup("_x#" + suffix, ctx)[0] or ""
+        number = roman_number_phonemes(
+            self._dict, acc, ctx, num_flags, flags2, ordinal, ph_ord2, ph_ord2x,
+            break_numbers=self._config.get("break_numbers", K.BREAK_THOUSANDS))
+        if not number:
+            return None
+        # the `_roman` word ("roman"/"römisch"/"romain") precedes the number, or follows it with
+        # NUM_ROMAN_AFTER (numbers.c:830-867). Absent in most languages (empty -> nothing added).
+        ph_roman = self._dict.lookup("_roman", ctx)[0] or ""
+        if ph_roman:
+            ph_roman = ph_roman.rstrip("_")
+            if num_flags & K.NUM_ROMAN_AFTER:
+                ph = number + "||" + ph_roman
+            else:
+                ph = ph_roman + "||" + number
+        else:
+            ph = number
+        ph = self._stress_number_words(ph, tonic=tonic)
+        self._from_dict = True
+        self._skip_voicing = self._config.get("number_skip_voicing", False)
         return self._render_phonemes(ph, ipa, tie, separator)
 
     def _name_and_render_foreign_letter(self, word, tonic, ipa, tie, separator):
