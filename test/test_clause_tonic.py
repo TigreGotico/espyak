@@ -57,6 +57,17 @@ CASES = [
     ("vi", "cho ba", "tʃˌɔ1 bˈaː7"),         # `ba` nucleus; `cho` ($u) post-nuclear secondary
     ("vi", "ba cho", "bˈaː7 tʃˌɔ1"),         # nucleus stays on `ba` (content), `cho` reduces
     ("vi", "cho", "tʃˌɔ1"),                  # lone $u word: secondary nucleus (u_tonic)
+
+    # --- la $u word: a nonsyllabic onset schwa @- (translate-default stress 1) outranks the
+    # real vowel reduced to DIMINISHED (unstressed_wd1=0) and takes the clause tonic, rendering
+    # as a bare ˈ before the cluster (count_pitch_vowels PRIMARY_LAST on the @- pitch syllable).
+    ("la", "pro", "pˈrɔ"),                   # $u, p @- * O: tonic on @- not O
+    ("la", "prae", "pˈraɪ"),
+    ("la", "trans", "tˈrans"),               # $u, t @- * a n s: @- outranks the diminished a
+    # non-$u cluster words are unaffected: the real vowel keeps the primary
+    ("la", "pla", "plˈa"),                   # not $u -> normal penult/only-vowel stress
+    ("la", "credo", "krˈɛdɔ"),               # not $u, two syllables
+    ("la", "spro", "sprˈɔ"),                 # not $u, cluster + full vowel
 ]
 
 

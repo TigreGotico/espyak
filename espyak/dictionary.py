@@ -1154,6 +1154,30 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         if vowel_stress[v] >= max_stress:
             max_stress = vowel_stress[v]
             max_stress_posn = v
+    # Clause tonic on a $u word whose nonsyllabic onset schwa @- outranks every real vowel.
+    # espeak runs SetWordStress(tonic=-1) first: a $u word reduces its real vowels to
+    # unstressed_wd1 (monosyllable) / unstressed_wd2 (polysyllable), but the nonsyllabic onset
+    # @- (from a "C) r"-type rule) is untouched by SetWordStress and keeps its translate-time
+    # default stress 1 (translate.c next_stress). The separate intonation pass
+    # (count_pitch_vowels) then counts EVERY phVOWEL — @- included (SFLAG_SYLLABLE, translate.c
+    # phVOWEL test ignores phNONSYLLABIC) — as a pitch syllable and places the clause tonic
+    # (PRIMARY_LAST) on the LAST max-stress one. When unstressed_wd reduces the real vowels
+    # BELOW @-'s level 1 (wd==0, e.g. la/lt), the @- is the unique maximum and takes the tonic,
+    # rendering as a bare ˈ before the following cluster (la pro -> pˈrɔ, trans -> tˈrans). The
+    # real vowels keep their reduced level, so no visible mark lands on them.
+    nonsyl_tonic_pi = -1
+    if (tonic >= STRESS_IS_PRIMARY and unstressed_word
+            and max_stress_input < STRESS_IS_PRIMARY):
+        _reduced = tr.unstressed_wd1 if vowel_count <= 2 else tr.unstressed_wd2
+        if _reduced < STRESS_IS_UNSTRESSED:  # real vowels reduce below @-'s pitch level 1
+            for _pi in range(len(phonetic) - 1, -1, -1):
+                _p = phonetic[_pi][1]
+                if _p.type == phVOWEL and "nonsyllabic" in _p.flags:
+                    nonsyl_tonic_pi = _pi
+                    break
+            if nonsyl_tonic_pi >= 0:
+                # reduce the real vowels naturally; the @- carries PRIMARY_LAST (marked below)
+                tonic = _reduced
     if tonic >= 0:
         # A first-syllable-stress (1L) CONTENT word with no inherent stress (every vowel
         # diminished/unstressed, e.g. ga arsa -> @rs@) takes the clause tonic on syllable 1,
@@ -1210,9 +1234,9 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     # (MakePhonemeList counts it: translate.c phVOWEL test ignores phNONSYLLABIC) and, finding
     # no primary, promotes the highest-stress (here only) syllable to the clause nucleus
     # (count_pitch_vowels PRIMARY_LAST) — so an isolated `ən` renders ˈən. Mark the LAST
-    # nonsyllabic vowel for the output loop to stress.
-    nonsyl_tonic_pi = -1
-    if (tonic >= STRESS_IS_PRIMARY and vowel_count == 1
+    # nonsyllabic vowel for the output loop to stress. (The $u onset-@- case above may already
+    # have set nonsyl_tonic_pi; don't clobber it — tonic was lowered to the reduced level there.)
+    if (nonsyl_tonic_pi < 0 and tonic >= STRESS_IS_PRIMARY and vowel_count == 1
             and not unstressed_word):
         for _pi in range(len(phonetic) - 1, -1, -1):
             _p = phonetic[_pi][1]

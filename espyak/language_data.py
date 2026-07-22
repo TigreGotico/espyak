@@ -281,7 +281,10 @@ LANGS = {
     "sl": {"syllabic_consonants": "rl", "stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
            "it_lengthen": 1, "regression": 0x103, "extra_consonants": "čšž", "lopt_alt": True,
            "unstress_u_words": True, "drop_u_length": True},  # $u words: short, open vowels
-    "la": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2},
+    "la": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
+           # tr_languages.c L('l','a'): a $u word reduces to DIMINISHED (wd1=0) so a nonsyllabic
+           # onset @- (stress 1) outranks it and takes the clause tonic (pro -> pˈrɔ, trans -> tˈrans).
+           "unstressed_wd1": 0, "unstressed_wd2": 2},
     "ga": {"stress_rule": K.STRESSPOSN_1L,  # Irish: initial stress, no secondary
            "stress_flags": K.S_NO_AUTO_2},
     "lt": {"stress_rule": K.STRESSPOSN_2R, "stress_flags": K.S_NO_AUTO_2,
@@ -290,6 +293,8 @@ LANGS = {
            # runs its phoneme programs on its NATURAL stress: lt `ir` $u -> the i stays unstressed, so
            # `i`'s ChangeIfStressed(I) does NOT fire (-> ˈir, not ˈɪr); the accent is overlaid at render.
            "unstress_u_words": True,
+           # tr_languages.c L('l','t'): unstressed_wd1=0 (monosyllabic $u -> DIMINISHED).
+           "unstressed_wd1": 0, "unstressed_wd2": 2,
            "extra_vowels": "ąęėįųū", "extra_consonants": "čšž"},
     "az": {"param_suffix": 1, "stress_rule": K.STRESSPOSN_1RU, "stress_flags": K.S_NO_AUTO_2,
            "max_initial_consonants": 2,  # tr_languages.c L('a','z')
