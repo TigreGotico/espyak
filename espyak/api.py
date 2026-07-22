@@ -1277,9 +1277,33 @@ class G2P:
             stem_flags = dict_flags if dict_flags else (sdict_flags or 0)
             if not dict_flags and sdict_flags:
                 self._suffix_dict_flags = sdict_flags
+            swf = end_flags | K.FLAG_SUFFIX_REMOVED
+            if self.force_compat and (end_type & K.SUFX_M):
+                # espeak SUFX_M nested recursion, BUG REPLICATION (force_compat only,
+                # translateword.c:496-505). A multi-suffix ending (nl `@) ige (_S1m`) does not
+                # simply append its schwa: espeak re-translates the stem WITH want-endings so a
+                # further suffix can be stripped, and that re-translation runs the rules with
+                # FLAG_SUFFIX_REMOVED. Under that flag a word-initial PREFIX rule can win the
+                # match: the stems nadelig/nalatig open with the removable `na` prefix
+                # (`_) na (C@@P2 -> nˈaː`), which now matches as a two-letter SUFX_P ending, so
+                # TranslateRules returns EMPTY body phonemes with `nˈaː` carried in end_phonemes
+                # and SUFX_P set. Because SUFX_P is set, espeak's loop performs no further
+                # RemoveEnding and never re-appends the stem body (d eː l / l aː t): AppendPhonemes
+                # yields only that `na`-prefix fragment plus the outer suffix schwa
+                # (nadelige/nalatige -> naːˈə). Words whose stem does NOT open with a prefix rule
+                # (matige, gunstige, zodanige) re-translate in full and are untouched — the
+                # truncation emerges from the prefix/suffix interaction, it is not word-specific.
+                # The default engine skips this branch and keeps the full word; see
+                # docs/divergences.md (`nl-ige-suffix-recursion`).
+                s_ph, s_end, s_endph = translate_rules(
+                    self._tr, stem, self._mnem, word_flags=swf,
+                    dict_flags=stem_flags, want_endings=True)
+                if (s_end & K.SUFX_P) and not s_ph.strip():
+                    # AppendPhonemes('', end_phonemes + previous-suffix): the stem body is dropped.
+                    return s_endph + end_ph
             stem_ph, _, _ = translate_rules(
                 self._tr, stem, self._mnem,
-                word_flags=end_flags | K.FLAG_SUFFIX_REMOVED, dict_flags=stem_flags)
+                word_flags=swf, dict_flags=stem_flags)
         # SUFX_T (the `_S..t` ro suffixes): espeak determines the word's stress over the STEM
         # ALONE, holding the suffix phonemes in `end_phonemes`, and appends them only AFTER the
         # stress pass (translateword.c:525-529 skip the AppendPhonemes, :583-587 append later).

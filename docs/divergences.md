@@ -80,3 +80,55 @@ of the medial diverges from espyak's (it renders the medial in the consonant clu
 prefix and the suffix differ — a faithful fix would need espeak's full Myanmar segmentation plus
 phoneme-level language-switching (the (en) Myanmar name carries the shn tone-copy on English
 consonants). Those remain `force_compat` mismatches.
+
+---
+
+## `nl-ige-suffix-recursion` — espeak drops the stem body of `nadelige` / `nalatige`
+
+**Languages:** `nl` (Dutch)
+
+**Input → output:**
+
+| input | default (`espyak`, correct) | `force_compat` / espeak-ng |
+|-------|------------------------------|----------------------------|
+| nadelige | `naːdˈeːləɣə` | `naːˈə` (stem body dropped) |
+| nalatige | `naːlˈaːtəɣə` | `naːˈə` (stem body dropped) |
+| nadelig  | `naːdˈeːləx` | `naːdˈeːləx` |
+| matige   | `mˈaːtəɣə` | `mˈaːtəɣə` |
+| zodanige | `zoːdˈaːnəɣə` | `zoːdˈaːnəɣə` |
+
+**Who is correct:** espyak (default). *nadelige* and *nalatige* are the inflected (attributive)
+forms of the adjectives *nadelig* "disadvantageous" and *nalatig* "negligent": the stem is fully
+pronounced and the inflectional *-e* adds a final schwa, /naːˈdeːləɣə/ and /naːˈlaːtəɣə/. Collapsing
+the word to /naːˈə/ deletes the entire stem body (*d eː l* / *l aː t*), producing a non-word.
+
+**Linguistic basis (authoritative sources):**
+
+- Dutch attributive adjective inflection adds a schwa *-e* to the base form; the base is pronounced
+  unchanged and *-e* is realised as /ə/. G. Booij, *The Phonology of Dutch* (Oxford, 1995), ch. on
+  adjectival inflection; Wikipedia, *Dutch grammar — Adjectives*
+  <https://en.wikipedia.org/wiki/Dutch_grammar#Adjectives>.
+- Intervocalic *-g-* in *-ige* is the voiced velar fricative /ɣ/. Wikipedia, *Dutch phonology*
+  <https://en.wikipedia.org/wiki/Dutch_phonology>.
+
+Deleting the stem body loses all of its phonemes (a different, unpronounceable word), so reproducing
+espeak's collapse is only justified under `force_compat`, never by default.
+
+**Why espeak is wrong (mechanism + evidence):** the ending `@) ige (_S1m` is a SUFX_M ("multiple
+suffixes") rule. On removing it, espeak re-translates the stem *with want-endings* so a further
+suffix can be stripped (translateword.c:496–505), and that re-translation runs the rules with
+`FLAG_SUFFIX_REMOVED`. Under that flag a word-initial *prefix* rule can win the match: the stems
+`nadelig`/`nalatig` open with the removable `na` prefix (`_) na (C@@P2 → nˈaː`), which now matches as
+a two-letter `SUFX_P` ending — `TranslateRules` returns **empty body phonemes** with `nˈaː` carried
+in `end_phonemes` and `SUFX_P` set. Because `SUFX_P` is set, espeak's loop performs no further
+`RemoveEnding` and never re-appends the stem body, so `AppendPhonemes` yields only that `na`-prefix
+fragment plus the outer suffix schwa: `nˈaː` + `ə` → `naːˈə`. `espeak-ng -q -X -v nl nadelige` shows
+the stem re-translation stopping after `_) na (` (`Translate 'nadelig'` → `na:'@`). Stems that do
+*not* open with a prefix rule (*matige*, *gunstige*, *zodanige*) re-translate in full and are
+untouched, so the collapse is not word-specific — it emerges from the prefix/suffix interaction.
+
+**Implementation:** `_translate_with_suffix` (api.py). Under `force_compat` only, when the ending is
+`SUFX_M`, the stem is re-translated with `want_endings=True`; if that returns an empty body with
+`SUFX_P` set (the `na`-prefix-as-ending case), the stem body is dropped and the word collapses to the
+returned prefix fragment plus the outer suffix phonemes. The default engine skips this branch and
+re-translates the full stem.
