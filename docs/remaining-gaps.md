@@ -4,8 +4,10 @@
 espeak-ng **byte-for-byte, bugs included**, and the headword parity audit measures exactly
 that. This document is the per-fail ledger: it accounts for every remaining mismatch and
 separates the systematic-deferred ones (a known C feature, closable feature-by-feature)
-from the IRREDUCIBLE floor (UB / formant-synthesis allophones / oracle self-inconsistency
-that no port can recover).
+from the clause-tonic-ordering floor (deterministic mechanisms whose byte-exact port is
+blocked by an architectural ordering difference, plus a slice of genuine oracle
+self-inconsistency / UB). None of these are formant-synthesis allophones — an earlier
+"synthesis-irreducible" verdict on the `ru`/`pt` entries was re-verified and found WRONG.
 
 ## The number
 
@@ -118,10 +120,10 @@ plus the rule-recoverable stress residue.
 
 | lang | input | oracle | got | class |
 |------|-------|--------|-----|-------|
-| ru | `могла` | `mʌɡɭˈa` | `mʌɡɭˈɑ` | `a`/`ɑ` stress/position allophone (irreducible) |
+| ru | `могла` | `mʌɡɭˈa` | `mʌɡɭˈɑ` | voice `replace 03 a a#` vs clause-tonic ordering (see floor #2) |
 | la | `pro` | `pˈrɔ` | `prˈɔ` | onset-cluster stress: nonsyllabic `@-` as a pitch syllable (see floor #3) |
 | da | `barrikade` | `bˈɑʔikaaðə` | `bˌɑʔikˈaaðə` | primary/secondary placement (rule-scorer tie-break) |
-| pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | formant-synthesis allophone (irreducible) |
+| pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | grave-accent vowel path short-circuits `o (s_ → =U` (see floor #1) |
 | ko | `곗날` | jamo-by-jamo letter names | syllable render | `/`-variant `$text` respell buffer path |
 
 Most of this bucket's historical entries are now **closed** — `ru радио`, `tr ben`, `sr/hr/bs
@@ -154,19 +156,39 @@ bounded port of a known `numbers.c` branch.
 
 ---
 
-## The irreducible floor
+## The clause-tonic-ordering floor
 
-Inside bucket C (and a slice of A) sit the cases that no faithful port can recover, because
-the target output is not a function of the input plus the bundled data:
+Inside bucket C (and a slice of A) sit cases whose mechanism is fully deterministic (NOT
+formant synthesis — an earlier "synthesis-allophone" verdict on these entries was WRONG, the
+same error made and corrected for `sr/hr/bs uxd`), but whose byte-exact port is blocked by
+espyak applying the clause-intonation tonic *before* the phoneme programs (via
+`set_word_stress(tonic=4)` at the nucleus re-render) where espeak applies it *after*
+(`CalcPitches`, post-`InterpretPhoneme`). Reproducing them needs the per-word render reworked
+into espeak's clause-level phoneme-list model — the same architectural change floor #3 needs.
 
-1. **`pt pròs` / `experts` formant-synthesis allophones.** The `o (s_ -> =U` mnemonic `U`
-   is rendered `u` (close) by espeak's WAV/FMT synthesis pass in full-word context, and `ʊ`
-   (lax) when the mnemonic is fed via `[[…]]`; the oracle itself disagrees with its own
-   `-q` mnemonic. `experts` is the same class (`t`+`s#` → affricate `tʃ` only under
-   synthesis). espyak renders the mnemonic deterministically and cannot reproduce the
-   synthesis-pass branch.
-2. **`ru` `a`/`ɑ` reduction (`могла`/`смогла`/`побыла`).** A stress/position-conditioned
-   allophone espeak emits from internal state the bundled `ru` data does not encode by rule.
+1. **`pt pròs` grave-accent vowel path (`pɹˈuʃ` vs `pɹˈʊʃ`).** NOT synthesis. The grave-accented
+   `ò` is a non-Portuguese letter; espeak's accent path translates it to the *base* vowel
+   phoneme `o` with explicit stress, short-circuiting the following-context rule `o (s_ → =U`.
+   The `o` program's `ChangeIfNotStressed(u)` then yields close `u`. espyak treats `ò` as a
+   plain `o`, so the `o (s_ → =U` rule fires → phoneme `U` → lax `ʊ`. Proven with the oracle:
+   plain `pros` → `pɹˈʊʃ` (identical to espyak's `pròs`), grave `pròs` → `pɹˈuʃ`; `tòs` → `tˈoʃ`,
+   `mòs` → `mˈoʃ` confirm the grave forces phoneme `o` regardless of the `s` context. Reachable
+   by porting espeak's grave-accent letter path; deferred (one word, high pt-regression risk).
+2. **`ru` `a`/`ɑ` (`могла`/`смогла`/`побыла`).** NOT a synthesis allophone. The mechanism is the
+   voice file `lang/zle/ru` directive `replace 03 a a#`: in `SubstitutePhonemes`
+   (phonemelist.c:85-104), a word-final `a` in a non-primary syllable (flag `0x2`:
+   `(stresslevel & 0x7) > 3` skips *stressed* ones) is replaced by phoneme `a#`, which renders
+   IPA `a` and — unlike phoneme `a` — has NO `thisPh(isMaxStress) → ChangePhoneme(A)` branch, so
+   it never becomes `A`/`ɑ`. For `$u2` `могла` espeak's `SetWordStress(tonic=-1)` leaves the final
+   vowel SECONDARY (`unstressed_wd2`=3), the replace fires (3 ≯ 3) → `a#`, and only the later
+   `CalcPitches` promotes the stress MARK to primary `ˈ` — after the programs, so `a#` is locked.
+   espyak's clause-nucleus re-renders the isolated word with `set_word_stress(tonic=4)`, promoting
+   the final vowel to PRIMARY (4) *before* the programs; the replace's `>3` guard then skips it and
+   the `a` program fires `ChangePhoneme(A)` → `ɑ`. Verified with an instrumented espeak-ng 1.52
+   (`StressCondition`/`InterpretPhoneme`/`SubstitutePhonemes` prints): oracle `ph_list2` carries
+   phoneme `a`, sl=3, and it is `SubstitutePhonemes` that swaps it to `a#`. espyak already PARSES
+   this directive (`VoiceConfig.replaces`) but never applies it. Reachable, but a byte-exact fix
+   for the isolated (nucleus) case is blocked by the clause-tonic ordering above.
 3. **Two-level stress: nonsyllabic vowels as pitch syllables** (`la pro`/`prae`/`trans`
    → `pˈrɔ` not `prˈɔ`; `ar ع` → `ˈʕʕˈaːjn`; and the clause-level `de ich habe es`,
    `fr je le` nucleus relocation). espeak runs `SetWordStress` (which EXCLUDES a nonsyllabic
@@ -182,9 +204,15 @@ the target output is not a function of the input plus the bundled data:
 4. **`ro reacţiona` prefix-stress** (`rˌeaktsjˈona` vs `rˌeaktsjonˈa`): the shared de/nl/af
    `confirm_prefix` branch places the primary one syllable earlier than espyak's stem
    re-translation does; reproducing it needs espeak's exact prefix-confirm loop.
-5. **`nl` `nadelige`/`nalatige` oracle `$2`-collapse** (`naːˈə`): espeak collapses the word
-   to two phonemes via a `$2`/suffix interaction that is an oracle self-inconsistency — the
-   bundled rules pronounce the full word, the binary truncates it.
+5. **`nl` `nadelige`/`nalatige` oracle `$2`-collapse** (`naːˈə`): a genuine espeak BUG, confirmed
+   by instrumenting the oracle. The `$2` word matches the `@) ige [@]` suffix rule and then espeak
+   removes the final `-e` and RECURSIVELY re-translates the stem (`Translate 'nadelig'` /
+   `Translate 'nalatig'`). Standalone `nadelig` → `naːdˈeːləx` (full, correct), but the recursive
+   re-translation *inside* `nadelige` truncates the stem: the oracle's `ph_list2` is only
+   `n aː ə` (`d eː l` dropped) → `naːˈə`. This is an oracle self-inconsistency: espyak's default
+   engine emits the correct full `naːdˈeːləɣə`. Reproducing the truncation would require porting
+   espeak's buggy `RemoveEnding`/suffix-recursion control flow and gating it to `force_compat`;
+   deferred (narrow, high risk of truncating other nl `-ige` words).
 6. **Base-engine deleted-phoneme / segmentation cases** (e.g. `is gegnum` `hn#` mnemonic
    leak, `ko` Hangul jamo spelling): espeak's segmentation deletes or reorders phonemes via
    synthesis-time state espyak's render does not model.
@@ -250,6 +278,9 @@ voice. No variant has a fail that the base language does not.
 4. **`numbers.c` branches + `$N` fraction** (D, 10) — Devanagari numerals, `$N` dollar
    fraction.
 
-Stop before chasing the irreducible floor (the formant-synthesis allophones, the `ru`
-reduction, the oracle `$2`-collapse, the Hangul/segmentation deletions): those are the hard
-floor, not a backlog.
+The clause-tonic-ordering floor (the `pt` grave-accent vowel path, the `ru` `replace 03 a a#`
+directive, the `nl` `$2`-collapse bug, the Hangul/segmentation deletions) is deterministic and
+G2P-reachable — NOT formant synthesis — but each byte-exact fix is either blocked by the
+clause-tonic-before-programs ordering (`ru`, floor #2/#3) or is a narrow, high-regression-risk
+port (`pt` accent path; `nl` buggy suffix recursion under `force_compat`). Chase these only
+after the buckets above, and only with the clause-level phoneme-list rework in hand.
