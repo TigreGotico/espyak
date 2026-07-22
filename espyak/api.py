@@ -1927,7 +1927,14 @@ class G2P:
         # rejoin on the pause so the break survives to the render/degemination pass. (Split on the
         # distinct `_!` marker, NOT a bare `_`, which is a fragment-internal pause such as nl komma
         # `_kˈɔmaː` — splitting there would wrongly give the decimal-separator word its own primary.)
-        segments = ph.split("_!") if "_!" in ph else [ph]
+        #
+        # Split on the marker numbers.py writes for a magnitude-group break — `||_!`, a word
+        # break immediately followed by the pause — NOT on a bare `_!`. A `_!` inside a `_list`
+        # fragment is an ordinary phonPAUSE_NOLINK phoneme of that one word (every ja numeral
+        # ends in one: `_1 it_si_!`), and espeak still runs SetWordStress across it, so the
+        # assembled ja number is ONE stress domain (11 -> dzɯᵝˈitsi, one primary on the
+        # penultimate mora, not a primary per numeral).
+        segments = ph.split("||_!") if "||_!" in ph else [ph]
         out_segs = []
         last = len(segments) - 1
         extra = self._config.get("num_stress_flags", 0)
@@ -1945,7 +1952,7 @@ class G2P:
                 out_segs.append(set_word_stress(self._tr, seg, self._mnem, tonic=seg_tonic))
         finally:
             self._tr.stress_flags = saved
-        return "_!".join(out_segs)
+        return "||_!".join(out_segs)
 
     def _render_numeric_punct(self, word, tonic, ipa, tie, separator,
                               all_upper=False, first_upper=False):
@@ -1985,17 +1992,8 @@ class G2P:
             if not seg:
                 return ""
             if seg.isascii() and seg.isdigit():
-                if speak_leading_zero and seg[0] == "0":
-                    # a non-initial time group speaks its leading zeros digit by digit
-                    # ('09:05' -> "nine ZERO FIVE"); an all-zero group -> "zero zero".
-                    if set(seg) == {"0"}:
-                        digits = list(seg)
-                    else:
-                        digits = ["0"] * (len(seg) - len(seg.lstrip("0"))) + [seg.lstrip("0")]
-                    return " ".join(
-                        x for x in (self._render_word(d, 4, ipa, tie, separator) for d in digits)
-                        if x)
-                return self._render_word(seg, 4, ipa, tie, separator)
+                return self._render_word(seg, 4, ipa, tie, separator,
+                                         speak_leading_zeros=speak_leading_zero)
             # a letter or mixed group ('pm', 'a', ...): translate as its own word
             return self._render_word(seg, 4, ipa, tie, separator,
                                      all_upper=all_upper, first_upper=first_upper)
@@ -2025,7 +2023,12 @@ class G2P:
 
         pieces = []
         for i, seg in enumerate(segs):
-            speak_lz = i > 0 and puncts[i - 1] == ":"
+            # numbers.c:1587 keeps the leading zero silent for what "looks like a time 02:30":
+            # exactly two digits, a colon, and a following group of exactly two digits. Anything
+            # else with a leading zero speaks its zeros ('09:5' -> "nul negen ... vijf").
+            speak_lz = not (len(seg) == 2 and i < len(puncts) and puncts[i] == ":"
+                            and i + 1 < len(segs) and len(segs[i + 1]) == 2
+                            and segs[i + 1].isdigit())
             pieces.append(_render_group(seg, speak_lz))
             if i < len(puncts):
                 pieces.append(_render_mark(puncts[i], segs[i], segs[i + 1], at_start=(i == 0)))
@@ -2033,11 +2036,14 @@ class G2P:
 
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
                      first_upper=False, at_end=True, following=(), clause_ctx=False,
-                     switch_following=()):
+                     switch_following=(), speak_leading_zeros=True):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
         # words consumed by a language-switch multi-word entry (see the `_^_` branch below); reset
         # every call so the phonemize loop reads a fresh count for this word.
         self._switch_consumed = 0
+        # numbers.c:1585 speaks a token's leading zeros; the caller clears this for the leading
+        # group of a `0H:MM` time, which espeak reads without its zero ("02:30" -> "two thirty").
+        self._speak_leading_zeros = speak_leading_zeros
         # A switched sub-translator (G2P._SWITCH_CACHE) is reused across words AND across the
         # outer languages that switch into it; the number/letter-spell paths below reach
         # _render_phonemes WITHOUT going through translate_word, so reset the dict-entry flag
@@ -2141,7 +2147,11 @@ class G2P:
         if word and (_dig(word) or (_dig(word.replace(dsep, "", 1))
                                     and dsep in word and not word.startswith(dsep)
                                     and not word.endswith(dsep))):
-            ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
+            ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep,
+                                  flags2=self._config.get("numbers2", 0),
+                                  break_numbers=self._config.get("break_numbers",
+                                                                 K.BREAK_THOUSANDS),
+                                  leading_zeros=self._speak_leading_zeros)
             if ph:
                 ph = self._stress_number_words(ph, tonic=tonic)
                 # number fragments come from the `_list` dictionary (SFLAG_DICTIONARY), so their

@@ -579,6 +579,21 @@ for _l, _off in _INDIC_OFFSETS.items():
     LANGS[_l] = _indic_config(
         _off, stress_rule=_INDIC_STRESS_RULE.get(_l, K.STRESSPOSN_1L),
         stress_flags=_INDIC_STRESS.get(_l, K.S_FINAL_DIM_ONLY | K.S_FINAL_NO_2))
+# South-Asian magnitude grouping (tr_languages.c break_numbers): these languages count in
+# lakh (1,00,000) and crore (1,00,00,000), not in millions — the digits above the first
+# thousand group in PAIRS, so 10,00,000 is "das lakh" (ten lakh), not "one million". Each
+# language's mask names exactly where its magnitude words sit: hi/mr/or/pa/gu use
+# BREAK_LAKH_HI (…,00,00,000), ne the fully-regular BREAK_LAKH, bn/as BREAK_LAKH_BN,
+# ta/te/kn/ml BREAK_LAKH_DV, ur/sd BREAK_LAKH_UR. See numbers._split_groups.
+_INDIC_BREAK = {
+    "hi": K.BREAK_LAKH_HI, "mr": K.BREAK_LAKH_HI, "or": K.BREAK_LAKH_HI,
+    "pa": K.BREAK_LAKH_HI, "gu": K.BREAK_LAKH_HI, "si": K.BREAK_LAKH_HI,
+    "ne": K.BREAK_LAKH,
+    "bn": K.BREAK_LAKH_BN, "as": K.BREAK_LAKH_BN,
+    "ta": K.BREAK_LAKH_DV, "te": K.BREAK_LAKH_DV,
+    "kn": K.BREAK_LAKH_DV, "ml": K.BREAK_LAKH_DV,
+    "sd": K.BREAK_LAKH_UR, "ur": K.BREAK_LAKH_UR,
+}
 # as: the Bengali letter র (U+09B0, RA) has no rule in as_rules, so a word containing it can't be
 # translated and espeak spells the WHOLE word letter by letter (FLAG_SPELLWORD): each letter by its
 # NAME, and র — having no name in as — switches to its alphabet's language bn (আমার -> ˈa mˈɔ ˈakaɾ
@@ -698,6 +713,37 @@ LANGS.setdefault("py", {})["stress_rule"] = K.STRESSPOSN_1L
 # k`ʔ). A word-INTERNAL apostrophe between letters is kept (hayk'a -> hˈajk`ʔa), so the
 # ejective cluster still renders where the glyph is genuinely an ejective.
 LANGS.setdefault("qu", {})["strip_boundary_apostrophe"] = True
+
+# applied after every LANGS entry exists (si/ur are rebuilt below their _indic_config form)
+for _l, _brk in _INDIC_BREAK.items():
+    LANGS.setdefault(_l, {})["break_numbers"] = _brk
+
+# Slavic/Baltic magnitude inflection (tr_languages.c langopts.numbers2): the thousand/million
+# word takes a different case after 1, after 2-4 and after 5+ (ru "один миллион" / "два
+# миллиона" / "пять миллионов"), and in some languages the COUNT itself takes a feminine
+# form before "thousand" (ru "две тысячи"). See numbers._m_variant / _tens_units(femin).
+LANGS.setdefault("ru", {})["numbers2"] = (K.NUM2_THOUSANDPLEX_VAR_THOUSANDS
+                                          | K.NUM2_THOUSANDS_VAR1)  # Translator_Russian
+LANGS.setdefault("be", {})["numbers2"] = (K.NUM2_THOUSANDPLEX_VAR_THOUSANDS
+                                          | K.NUM2_THOUSANDS_VAR1)  # tr_languages.c L('b','e')
+LANGS.setdefault("cs", {})["numbers2"] = (K.NUM2_THOUSANDPLEX_VAR_MILLIARDS
+                                          | K.NUM2_THOUSANDS_VAR2)  # tr_languages.c L('c','s')
+LANGS.setdefault("sk", {})["numbers2"] = K.NUM2_THOUSANDS_VAR2
+LANGS.setdefault("pl", {})["numbers2"] = K.NUM2_THOUSANDS_VAR3   # tr_languages.c L('p','l')
+LANGS.setdefault("lt", {})["numbers2"] = K.NUM2_THOUSANDS_VAR4   # tr_languages.c L('l','t')
+LANGS.setdefault("sl", {})["numbers2"] = K.NUM2_THOUSANDS_VAR4   # tr_languages.c L('s','l')
+for _l in ("hr", "bs", "sr"):  # tr_languages.c L('h','r')
+    LANGS.setdefault(_l, {})["numbers2"] = (K.NUM2_THOUSANDPLEX_VAR_THOUSANDS
+                                            | K.NUM2_THOUSANDPLEX_VAR_MILLIARDS
+                                            | K.NUM2_THOUSANDS_VAR5)
+LANGS.setdefault("mk", {})["numbers2"] = (K.NUM2_THOUSANDPLEX_VAR_THOUSANDS
+                                          | K.NUM2_THOUSANDPLEX_VAR_MILLIARDS
+                                          | K.NUM2_THOUSANDS_VAR2)  # tr_languages.c L('m','k')
+LANGS.setdefault("ro", {})["numbers2"] = K.NUM2_THOUSANDPLEX_VAR_ALL  # tr_languages.c L('r','o')
+LANGS.setdefault("is", {})["numbers2"] = K.NUM2_THOUSANDPLEX_VAR_THOUSANDS
+LANGS.setdefault("el", {})["numbers2"] = K.NUM2_THOUSANDPLEX_VAR_THOUSANDS  # L('e','l')
+LANGS.setdefault("uk", {})["numbers2"] = (K.NUM2_THOUSANDPLEX_VAR_THOUSANDS
+                                          | K.NUM2_THOUSANDS_VAR1)  # Translator_Russian (shared)
 
 # --- Armenian (tr_languages.c case L('h','y'), OFFSET_ARMENIAN 0x530) -----------------
 _HY_VOWELS = [0x31, 0x35, 0x37, 0x38, 0x3b, 0x48, 0x55]

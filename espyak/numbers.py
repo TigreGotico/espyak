@@ -50,11 +50,21 @@ def _first_vowel_start(ph):
     return bool(core) and core[0] in _VOWEL_LETTERS
 
 
-def _tens_units(tr_dict, value, ctx, flags=0, final=True):
+def _tens_units(tr_dict, value, ctx, flags=0, final=True, femin=False):
     """1..99 -> phonemes. Honours NUM_SWAP_TENS (units before tens, e.g. German
     "ein-und-zwanzig"), NUM_AND_UNITS ("and" between tens and units), NUM_VIGESIMAL
     (French 73 = "soixante-treize" = 60+13) and NUM_SINGLE_VOWEL (Italian settanta+uno ->
-    settantuno)."""
+    settantuno).
+
+    `femin` is LookupNum2's control bit 3 (numbers.c:1051 "use feminine form of '2' (for
+    thousands)"): the COUNT of a magnitude whose thousandplex the language marks in numbers2
+    takes a variant (feminine) numeral — ru 1000 "однa тысяча" (`_1f`), 2000 "две тысячи"
+    (`_2f`), not "один"/"два"."""
+    if femin:
+        # numbers.c:1053 — try the whole 2-digit value (`_21fx`, then `_21f`) before decomposing.
+        var = _frag(tr_dict, "%dfx" % value, ctx) or _frag(tr_dict, "%df" % value, ctx)
+        if var:
+            return _single_stress(var) if (flags & K.NUM_SINGLE_STRESS) else var
     if value < 10:
         return _digit(tr_dict, value, ctx, final)
     if value < 20:
@@ -87,14 +97,17 @@ def _tens_units(tr_dict, value, ctx, flags=0, final=True):
         # a teen remainder from the vigesimal split (soixante-"treize")
         ph_units = _frag(tr_dict, str(unit_val), ctx)
     else:
-        ph_units = _digit(tr_dict, unit_val, ctx, final)
+        # numbers.c:1150: with control bit 3 the UNIT digit also takes its variant form first.
+        ph_units = ((_frag(tr_dict, "%df" % unit_val, ctx) if femin else "")
+                    or _digit(tr_dict, unit_val, ctx, final))
     if flags & K.NUM_SWAP_TENS:
         # units "and" tens (German "ein-und-zwanzig", Faroese "seks-og-tríati"). espeak
         # concatenates units+_0and+tens directly (numbers.c:1198); any word break comes from
         # the `_0and` fragment itself (de `||_|Unt` breaks, fo `u-o` joins as one word). The unit
         # takes its pre-magnitude form (German "ein" not "eins": _digit final=False).
         ph_and = _frag(tr_dict, "0and", ctx)
-        out = _digit(tr_dict, units, ctx, False) + ph_and + ph_tens
+        out = ((_frag(tr_dict, "%df" % units, ctx) if femin else "")
+               or _digit(tr_dict, units, ctx, False)) + ph_and + ph_tens
     else:
         ph_and = _frag(tr_dict, "0and", ctx) if (flags & K.NUM_AND_UNITS) else ""
         if (flags & K.NUM_SINGLE_VOWEL) and ph_tens and _first_vowel_start(ph_units) \
@@ -120,7 +133,7 @@ def _single_stress(ph):
     return "".join(chars)
 
 
-def _three_digit(tr_dict, value, ctx, flags=0, final=True):
+def _three_digit(tr_dict, value, ctx, flags=0, final=True, femin=False):
     """0..999 -> phonemes (no leading/trailing magnitude)."""
     hundreds, tens_units = divmod(value, 100)
     out = ""
@@ -139,7 +152,7 @@ def _three_digit(tr_dict, value, ctx, flags=0, final=True):
             if flags & K.NUM_HUNDRED_AND:
                 out += _frag(tr_dict, "0and", ctx)
             out += "||"  # break between hundreds and the tens/units
-        out += _tens_units(tr_dict, tens_units, ctx, flags, final)
+        out += _tens_units(tr_dict, tens_units, ctx, flags, final, femin)
     return out
 
 
@@ -252,7 +265,60 @@ def _translate_fraction(tr_dict, frac, ctx, flags):
     return out
 
 
-def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal_sep="."):
+def _split_groups(digits, break_numbers):
+    """Split a digit string into magnitude groups, LOW group first (index == thousandplex).
+
+    Port of the number-splitting loop in translate.c:1539. `break_numbers` is a bitmask over
+    the count of digits still to come: a set bit means "start a new magnitude word here".
+    BREAK_THOUSANDS marks every third digit (…,000,000); the Indian BREAK_LAKH_* masks mark
+    2-digit groups above the first thousand (1,00,00,000 = crore/lakh/thousand). A group
+    narrower than three digits is zero-padded back to three (translate.c:1568) so the
+    3-digit reader below sees a normal hundreds/tens/units value.
+
+    espeak only splits a token of more than four digits (translate.c:1540); up to four digits
+    the whole value goes to LookupNum3, whose internal `hundreds >= 10` branch (numbers.c:1305)
+    speaks the thousands the same way, so the plain thousands split is equivalent there.
+    """
+    digits = digits.lstrip("0") or "0"
+    n = len(digits)
+    if n <= 4 or break_numbers == K.BREAK_THOUSANDS:
+        n_val = int(digits)
+        groups = []
+        while n_val > 0:
+            groups.append(n_val % 1000)
+            n_val //= 1000
+        return groups
+    groups, cur, nx = [], "", n
+    for c in digits:
+        cur += c
+        nx -= 1
+        if nx > 0 and (break_numbers >> nx) & 1:
+            groups.append(cur)
+            cur = ""
+            if (break_numbers >> (nx - 1)) & 1:
+                cur += "00"  # the next group has only 1 digit, make it three
+            if nx >= 2 and (break_numbers >> (nx - 2)) & 1:
+                cur += "0"  # the next group has only 2 digits (Indian languages), make it three
+    groups.append(cur)
+    return [int(g) for g in reversed(groups)]
+
+
+def _leading_zeros(tr_dict, digits, ctx):
+    """The `ph_zeros` prefix (numbers.c:1596): a number token written with leading zeros speaks
+    each of them ("05" -> "zero five", "007" -> "zero zero seven"). The loop stops one short of
+    the end, so the last digit is always read as a number — "00" is one spoken zero plus the
+    value zero. The zeros are glued to each other but a word break separates them from the
+    value, which LookupNum3 emits with a leading phonEND_WORD (numbers.c:1448)."""
+    out = ""
+    for c in digits[:-1]:
+        if c != "0":
+            break
+        out += _frag(tr_dict, "0", ctx)
+    return out
+
+
+def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal_sep=".",
+                     flags2=0, break_numbers=K.BREAK_THOUSANDS, leading_zeros=True):
     """Translate a number (optionally with a decimal part) to a phoneme string with `||`
     word breaks. `flags` is the language's langopts.numbers bitfield (NUM_*). The fractional
     part is read per the language's NUM_DFRACTION_* bits — see `_translate_fraction`."""
@@ -260,7 +326,8 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         ctx = _num_ctx(tr_dict)
     if decimal_sep in digits:
         intpart, _, frac = digits.partition(decimal_sep)
-        out = translate_number(tr_dict, intpart or "0", ctx, flags)
+        out = translate_number(tr_dict, intpart or "0", ctx, flags,
+                               flags2=flags2, break_numbers=break_numbers)
         out += "||" + _frag(tr_dict, "dpt", ctx)
         out += _translate_fraction(tr_dict, frac, ctx, flags)
         # A spoken-number word break is a REAL word boundary (espeak spaces it via sourceix),
@@ -271,13 +338,16 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         # moves past the break so the space renders, while still blocking cross-boundary voicing
         # assimilation (pl `trzy przecinek zero…`: k stays k, not ɡ, and the space is kept).
         return out.replace("_||", "||_")
-    n = int(digits)
-    if n == 0:
+    # numbers.c:1585: a leading zero makes the token speak its zeros; only up to three digits,
+    # a longer zero-led string is spoken digit by digit by the caller instead.
+    if leading_zeros and len(digits) > 1 and digits[0] == "0" and len(digits) <= 3:
+        zeros = _leading_zeros(tr_dict, digits, ctx)
+        body = translate_number(tr_dict, digits.lstrip("0") or "0", ctx, flags, decimal_sep,
+                                flags2, break_numbers, leading_zeros=False)
+        return zeros + "||" + body if zeros else body
+    if int(digits) == 0:
         return _frag(tr_dict, "0", ctx)
-    groups = []
-    while n > 0:
-        groups.append(n % 1000)
-        n //= 1000
+    groups = _split_groups(digits, break_numbers)
     parts = []
     higher_emitted = False
     pause_next = False  # a preceding magnitude group whose count >= 10 forces an inter-group pause
@@ -306,11 +376,27 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
         if combined:
             part = combined
         else:
-            mag = _frag(tr_dict, "%s%d" % (_m_variant(gv, flags), thousandplex), ctx).rstrip("_")
+            # `_0of` ("of") is spoken before the magnitude word when the count carries tens
+            # (numbers.c:952); absent in most languages, so the lookup is normally empty.
+            of = _frag(tr_dict, "0of", ctx) if (gv % 100) >= 20 else ""
+            mag = _frag(tr_dict, "%s%d" % (_m_variant(gv, flags2), thousandplex), ctx)
+            if not mag:
+                # numbers.c:975 fallback chain: a magnitude word the language does not name
+                # (uk has no `_1MA1`, sl no `_0MB1`) falls back to the plain thousand entries —
+                # "say millions if neither this name nor the next lower is available", then
+                # repeat "thousand". Without it the magnitude word would vanish entirely.
+                if thousandplex > 3 and not _frag(tr_dict, "0M%d" % (thousandplex - 1), ctx):
+                    mag = _frag(tr_dict, "0M2", ctx)
+                if not mag:
+                    mag = (_frag(tr_dict, "%dM1" % gv, ctx) or _frag(tr_dict, "0M1", ctx))
+            mag = of + mag.rstrip("_")
             if gv == 1 and thousandplex == 1 and (flags & K.NUM_OMIT_1_THOUSAND):
                 body = ""  # "mil" not "one thousand" (es)
             else:
-                body = _three_digit(tr_dict, gv, ctx, flags, final=False)
+                # numbers.c:1317: the count of a magnitude the language marks in numbers2 uses
+                # the variant (feminine) numeral — ru "две тысячи", not "два тысячи".
+                femin = bool(flags2 & (1 << thousandplex)) and thousandplex <= 3
+                body = _three_digit(tr_dict, gv, ctx, flags, final=False, femin=femin)
             part = body
             if mag:
                 part += ("||" if part else "") + mag
@@ -331,10 +417,38 @@ def translate_number(tr_dict, digits, ctx=None, flags=K.NUM_HUNDRED_AND, decimal
     return "||".join(p for p in parts if p)
 
 
-def _m_variant(value, flags):
+def _m_variant(value, flags2):
     """Port of M_Variant (numbers.c:872): the magnitude-word key stem `0M` for a value, or a
-    grammatical-number variant (`0MA`/`0MB`/`1M`/`1MA`) for the Slavic languages that inflect
-    the thousand/million word by the count. Those variants are gated on the numbers2
-    NUM2_THOUSANDS_VAR_* bits, which this cardinal path does not yet thread; every other
-    language (pt included) uses the plain `0M` stem."""
+    grammatical-number variant (`0MA`/`0MB`/`1M`/`1MA`) for the languages that inflect the
+    thousand/million word by the count it follows.
+
+    Slavic (and Baltic) magnitude words take a different case/number after 1, after 2-4 and
+    after 5+ — ru "один миллион" / "два миллиона" / "пять миллионов". The variant is selected
+    by the NUM2_THOUSANDS_VAR_* bits of langopts.numbers2; a teen count (11-19, and 111-119…)
+    always takes the plain 5+ form. Every other language uses the plain `0M` stem."""
+    teens = 10 < (value % 100) < 20
+    var = flags2 & K.NUM2_THOUSANDS_VAR_BITS
+    if var == K.NUM2_THOUSANDS_VAR1:  # ru, be
+        if not teens:
+            if value % 10 == 1:
+                return "1MA"
+            if 2 <= value % 10 <= 4:
+                return "0MA"
+    elif var == K.NUM2_THOUSANDS_VAR2:  # cs, sk, mk
+        if 2 <= value <= 4:
+            return "0MA"
+    elif var == K.NUM2_THOUSANDS_VAR3:  # pl
+        if not teens and 2 <= value % 10 <= 4:
+            return "0MA"
+    elif var == K.NUM2_THOUSANDS_VAR4:  # lt, sl
+        if teens or value % 10 == 0:
+            return "0MB"
+        if value % 10 == 1:
+            return "0MA"
+    elif var == K.NUM2_THOUSANDS_VAR5:  # bs, hr, sr
+        if not teens:
+            if value % 10 == 1:
+                return "1M"
+            if 2 <= value % 10 <= 4:
+                return "0MA"
     return "0M"

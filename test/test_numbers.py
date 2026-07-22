@@ -361,3 +361,124 @@ def test_nl_grouped_number_phrase_breaks(num, expected):
 def test_nl_sentence_degemination_preserved():
     # cross-word sentence degemination must remain (kost twintig -> kˈɔs tʋˈɪntəx)
     assert _nfc(G2P("nl").phonemize("kost twintig")) == "kˈɔs tʋˈɪntəx"
+
+
+# --- Indian lakh/crore grouping (translate.c break_numbers = BREAK_LAKH_*) -----------------
+# Above the first thousand group the digits group in PAIRS, so the magnitude words are lakh
+# (1,00,000) and crore (1,00,00,000) — never "million". A wrong grouping is off by a factor
+# of ten with the RIGHT magnitude word, so each case pins the count as well as the word.
+HI_LAKH_CASES = [
+    ("1000", "ˈeːk hˈʌɟaːɾ"),
+    ("10000", "dˈʌs hˈʌɟaːɾ"),
+    ("100000", "ˈeːk lˈaːkʰ"),
+    ("1000000", "dˈʌs lˈaːkʰ"),
+    ("2000000", "bˈiːs lˈaːkʰ"),
+    ("10000000", "ˈeːk kəɾˈoːr."),
+    ("100000000", "dˈʌs kəɾˈoːr."),
+    ("12345678", "ˈeːk kəɾˈoːr. tˈeːis lˈaːkʰ paɪntˈaːlis hˈʌɟaːɾ cʰˈʌhsˈɔː ʌthˈʌtːəɾ"),
+]
+
+
+@pytest.mark.parametrize("num,expected", HI_LAKH_CASES)
+def test_hi_lakh_crore_grouping(num, expected):
+    assert _nfc(G2P("hi", force_compat=True).phonemize(num).strip()) == expected
+
+
+# --- Slavic magnitude inflection (numbers.c M_Variant + the feminine count) ----------------
+# The magnitude word inflects by the count it follows (1 / 2-4 / 5+), teens always taking the
+# 5+ form, and in ru the count before "thousand" is feminine ("одна/две", not "один/два").
+RU_VAR_CASES = [
+    ("1000", "ʌdnˈɑ tˈysʲitʃʲʌ"),
+    ("2000", "dvʲˈe tˈysʲitʃʲi"),
+    ("5000", "pʲˈɑtʲ tˈysʲitʃʲ"),
+    ("11000", "ɔdʲˈinnʌttsʌtʲ tˈysʲitʃʲ"),      # teen count -> the 5+ form
+    ("21000", "dvˈɑttsʌtʲʌdnˈɑ tˈysʲitʃʲʌ"),    # 21 ends in 1 -> the "1" form again
+    ("1000000", "ʌdʲˈin mʲˌɪɭʲɪˈon"),           # millions are NOT feminine
+    ("2000000", "dvˈɑ mʲˌɪɭɪˈona"),
+    ("5000000", "pʲˈɑtʲ mʲˌɪɭɪˈonʌf"),
+    ("12000000", "dvʲɪnˈɑttsʌtʲ mʲˌɪɭɪˈonʌf"),
+    ("1000000000", "ʌdʲˈin mʲˌɪɭɪˈjart"),
+]
+
+
+@pytest.mark.parametrize("num,expected", RU_VAR_CASES)
+def test_ru_magnitude_grammatical_number(num, expected):
+    assert _nfc(G2P("ru", force_compat=True).phonemize(num).strip()) == expected
+
+
+PL_CS_VAR_CASES = [
+    ("pl", "2000", "dvˈa tɨɕˈɔntsɛ"),
+    ("pl", "5000", "pʲˈɛɲtɕ tɨɕˈɛntsɨ"),
+    ("pl", "12000000", "dvanˈaɕtɕɛ mʲiljˈɔnuf"),   # teen -> 5+ form, not the 2-4 form
+    ("pl", "22000", "dvadʑˈɛɕtɕadvˈa tɨɕˈɔntsɛ"),
+    ("cs", "2000000", "dvˈa mˈiliˌoːni"),
+    ("cs", "5000000", "pjˈet mˈiliˌoːnuː"),
+    ("cs", "22000", "dvˈatseddvˈa cˈisiːts"),      # cs varies on the WHOLE count, not its last digit
+    ("cs", "4000000000", "tʃtˈir̝i mˈiliˌardi"),
+]
+
+
+@pytest.mark.parametrize("lang,num,expected", PL_CS_VAR_CASES)
+def test_pl_cs_magnitude_grammatical_number(lang, num, expected):
+    assert _nfc(G2P(lang, force_compat=True).phonemize(num).strip()) == expected
+
+
+def test_uk_unnamed_magnitude_variant_falls_back_to_thousand():
+    # uk shares ru's variant bits but names no `_1MA1`; the magnitude word must fall back to
+    # `_0M1` (numbers.c:975), not vanish.
+    assert _nfc(G2P("uk", force_compat=True).phonemize("1000").strip()) == "odˈen tˈesjatʃa"
+
+
+def test_sl_unnamed_magnitude_variant_falls_back_to_thousand():
+    assert _nfc(G2P("sl", force_compat=True).phonemize("10000").strip()) == "dɛsˈeːt tˈiːsɔtʃ"
+
+
+# --- leading zeros (numbers.c ph_zeros) ---------------------------------------------------
+# A number token written with a leading zero speaks each zero, all inside ONE stress domain,
+# so only the first keeps a primary. The loop stops one short of the end, so "00" is one
+# spoken zero plus the value zero. `0H:MM` is the one exception espeak treats as a time.
+LEADING_ZERO_CASES = [
+    ("nl", "05", "nˈɵl vˌɛɪf"),
+    ("nl", "005", "nˈɵlnˌɵl vˌɛɪf"),
+    ("nl", "09:05", "nˈeːɣən nˈɵl vˌɛɪf"),
+    ("nl", "09:00", "nˈeːɣən nˈɵl nˌɵl"),
+    ("nl", "00:05", "nˈɵl nˈɵl vˌɛɪf"),
+    ("nl", "09:5", "nˈɵl nˌeːɣən vˈɛɪf"),   # not a HH:MM shape -> the leading zero IS spoken
+    ("nl", "02:30", "tʋˈeː dˈɛrtəx"),       # a time: leading zero omitted
+    ("nl", "12:30", "tʋˈaːlf dˈɛrtəx"),
+    ("en", "05", "zˈiəɹəʊ fˈaɪv"),
+    ("en", "007", "zˈiəɹəʊzˈiəɹəʊ sˈɛvən"),
+    ("en", "00", "zˈiəɹəʊ zˈiəɹəʊ"),
+    ("en", "010", "zˈiəɹəʊ tˈɛn"),
+    ("en", "09:05", "nˈaɪn zˈiəɹəʊ fˈaɪv"),
+    ("en", "02:30", "tˈuː θˈɜːti"),
+    ("de", "05", "nˈʊl fˈʏnf"),
+]
+
+
+@pytest.mark.parametrize("lang,num,expected", LEADING_ZERO_CASES)
+def test_leading_zeros_spoken(lang, num, expected):
+    assert _nfc(G2P(lang, force_compat=True).phonemize(num).strip()) == expected
+
+
+# --- ja: the assembled number is ONE stress domain ----------------------------------------
+# Every ja numeral fragment ends in a phonPAUSE_NOLINK (`_1  it_si_!`), which is an ordinary
+# phoneme of that word, NOT a phrase break: espeak runs SetWordStress across the whole
+# assembled number once, so non-final numerals are demoted instead of each keeping a primary.
+JA_CASES = [
+    ("11", "dzɯᵝˈitsi"),
+    ("12", "dzˈɯᵝniː"),
+    ("20", "nˈi dzɯᵝ"),
+    ("21", "nˌi dzɯᵝˈitsi"),
+    ("42", "jo̞n dzˈɯᵝniː"),
+    ("99", "kʲɯᵝɯᵝ dzˈɯᵝkʲɯᵝɯᵝ"),
+    ("100", "ˌitsiçˈäkɯᵝ"),
+    ("101", "ˌitsiçˌäkɯᵝ ˈitsi"),
+    ("1000", "itsˈi se̞n"),
+    ("1000000", "ˌitsi çäkˈɯᵝmän"),
+]
+
+
+@pytest.mark.parametrize("num,expected", JA_CASES)
+def test_ja_number_single_stress_domain(num, expected):
+    assert _nfc(G2P("ja", force_compat=True).phonemize(num).strip()) == expected
