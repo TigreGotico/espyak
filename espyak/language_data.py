@@ -488,6 +488,10 @@ LANGS["bg"] = _cyrillic_config(K.STRESSPOSN_2R, regression=0x107)  # + word-fina
 # LOPT_REDUCE=2 also for bg (tr_languages.c:578) and ru (Translator_Russian:1675).
 LANGS["bg"]["reduce_max_stress"] = True
 LANGS["ru"]["reduce_max_stress"] = True
+# zle/ru voice `replace 03 a a#`: a $uN clause nucleus (могла $u2) must run the replace on its
+# natural (non-primary) stress before the intonation promotes the mark, so the final a -> a# (a),
+# not the a-program's ɑ. Only ru carries this replace, so only ru overlays the promoted mark.
+LANGS["ru"]["uN_nucleus_overlay"] = True
 LANGS["tt"] = _cyrillic_config(K.STRESSPOSN_1R, K.S_NO_AUTO_2)  # tr_languages.c L('t','t'): no auto-secondary
 
 # --- Greek-script setup (tr_languages.c case L('e','l'), offset 0x380) ----------------

@@ -548,7 +548,14 @@ class G2P:
                                    control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
             promoted = self._apply_alt_attribute(
                 change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags) + suf
-            return self._promote_u_via_overlay(base + suf, promoted, flags)
+            if self._config.get("uN_nucleus_overlay"):
+                # ru (zle/ru voice `replace 03 a a#`): a stress-conditioned voice-replace/program
+                # runs on the natural-stress render, so overlay the promoted marks onto THAT (могла
+                # -> mʌɡɭˈa). Every other language keeps the promoted phonemes directly — re-running
+                # programs at natural stress would wrongly reduce a nucleus that is genuinely
+                # promoted before the program (en-029 `among` final ŋ must not become n).
+                return self._promote_u_via_overlay(base + suf, promoted, flags)
+            return promoted
         if suf and (flags & 0x8) and tonic >= 4:
             # a plain $u word (no explicit $N, no $u+) carrying a SUFX_T suffix as the clause
             # nucleus: espeak's SUFX_T SetWordStress runs on the stem with tonic=-1 (so the $u stem
