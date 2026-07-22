@@ -1,13 +1,14 @@
-# Remaining gaps — why `force_compat` parity is not yet 100%
+# Remaining gaps — how `force_compat` parity reached 100%
 
 `espyak` is a clean-room Python port of espeak-ng. In `force_compat` mode it reproduces
 espeak-ng **byte-for-byte, bugs included**, and the headword parity audit measures exactly
-that. This document is the per-fail ledger: it accounts for every remaining mismatch and
-separates the systematic-deferred ones (a known C feature, closable feature-by-feature)
-from the clause-tonic-ordering floor (deterministic mechanisms whose byte-exact port is
-blocked by an architectural ordering difference, plus a slice of genuine oracle
-self-inconsistency / UB). None of these are formant-synthesis allophones — an earlier
-"synthesis-irreducible" verdict on the `ru`/`pt` entries was re-verified and found WRONG.
+that. **The audit is now at 100.00% (46228/46228, all 105 languages).** This document is
+retained as the historical account of how the tail was closed — every bucket below was
+ported feature-by-feature — and as the reference for the handful of espeak *engine bugs*
+that `force_compat` reproduces on purpose (with the DEFAULT engine kept linguistically
+correct). No mismatch was ever a genuine formant-synthesis allophone: every "irreducible"
+or "synthesis" verdict that was actually re-attempted (sr/hr/bs `uxd`, la `pro`, ko, da
+`blokade`, and finally ru/pt/nl/ar) turned out to be a deterministic, reproducible mechanism.
 
 ## The number
 
@@ -15,29 +16,32 @@ Full-headword audit (`test/parity_audit.py --cap 2000`, oracle = espeak-ng 1.52.
 `-q --ipa`, `force_compat=True`), all 105 languages with a `_list`:
 
 ```
-OVERALL 46224 / 46228 = 99.99%   →   4 mismatches
+OVERALL 46228 / 46228 = 100.00%   →   0 mismatches
 ```
 
-**Only 4 mismatches remain, across 3 languages** — 102 of 105 languages are at 100%. The
-historical A/B/C/D buckets below (a much larger tail, ~136 fails) have been closed
-feature-by-feature: the phoneme-level language switch, the `LookupDictList` abbreviation /
-letter-name / symbol chain, per-language number flags + the lakh/crore, Slavic-magnitude,
-leading-zero and Roman-numeral number paths, symbol tokenization, clause-punctuation
-stripping, the two-level (`SetWordStress` + intonation-nucleus) stress model, cross-word
-regressive voicing, `phonSYLLABIC` stress-reset, and the phoneme-code rule-tie-break were
-all ported. The bucket sections below are retained as a historical account of how the tail
-was closed; the **live** residual is just these 4:
+**All headwords now match** — 105 of 105 languages at 100%. The historical A/B/C/D buckets
+below (a much larger tail, ~136 fails) were closed feature-by-feature: the phoneme-level
+language switch, the `LookupDictList` abbreviation / letter-name / symbol chain, per-language
+number flags + the lakh/crore, Slavic-magnitude, leading-zero and Roman-numeral number paths,
+symbol tokenization, clause-punctuation stripping, the two-level (`SetWordStress` +
+intonation-nucleus) stress model, cross-word regressive voicing, `phonSYLLABIC` stress-reset,
+and the phoneme-code rule-tie-break.
 
-| lang | input | oracle | espyak | why it remains |
+The last four — genuine espeak *engine bugs* — are reproduced under `force_compat` (the
+DEFAULT engine keeps the linguistically-correct reading), each gated on its exact trigger and
+documented in `docs/divergences.md`:
+
+| lang | input | oracle (`force_compat`) | default (correct) | espeak bug reproduced |
 |------|-------|--------|--------|----------------|
-| pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | espeak malformed-multibyte `remove_accent` buffer bug (floor #1); espyak's output = plain `pros`, arguably more correct |
-| nl | `nadelige` | `naːˈə` | `naːdˈeːləɣə` | espeak `SUFX_M`/`SUFX_Q` stem-truncation bug (floor #5); espyak renders the full correct word |
+| pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | malformed-multibyte `remove_accent` buffer strips `-s` (dictionary.c:2229); default = plain `pros` |
+| nl | `nadelige` | `naːˈə` | `naːdˈeːləɣə` | `SUFX_M`/`SUFX_Q` stem-truncation via the `na` prefix; default = full word |
 | nl | `nalatige` | `naːˈə` | `naːlˈaːtəɣə` | same as `nadelige` |
-| ar | `ع` | `ˈʕʕˈaːjn` | `ʕ-ˈaːjn` | synthesis-level gemination of a *stressed* syllabic consonant (phonemelist.c `ReInterpretPhoneme`); outside a G2P front-end, and any render.py change regresses the byte-exact `s̪-ˈuːrah`/`s̪-ifr` cases |
+| ar | `ع` | `ˈʕʕˈaːjn` | `ˈʕʕˈaːjn` | gemination + tonic on a *stressed* syllabic consonant (unstressed `s̪-ˈuːrah` unchanged) |
 
-Each is an espeak-*engine* bug or synthesis-time behavior, verified with an instrumented
-espeak-ng build (printf traces) and a measured blast radius — not a heuristic guess. Two of
-the three languages are cases where **espyak is more linguistically correct than the oracle**.
+Each was verified with an instrumented espeak-ng build and a full-audit strict-subset check
+(the target word removed, zero added). For pt and nl the default engine is deliberately *more*
+linguistically correct than espeak; only `force_compat` reproduces the bug so the parity audit
+is byte-exact.
 
 ---
 
