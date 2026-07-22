@@ -11,7 +11,7 @@ from espyak.rule_compiler import RuleSet
 from espyak.dictionary import (
     Translator, translate_rules, set_word_stress, change_word_stress, MnemIndex,
     DictList, LookupContext, remove_ending, _apply_replacements, _unpronounceable,
-    _is_vowel_letter,
+    _is_vowel_letter, _REMOVE_ACCENT,
 )
 from espyak import constants as K
 from espyak import voice as _voice_mod
@@ -348,6 +348,10 @@ class G2P:
         self._sort_rules_by_phoneme_code()
         self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
+        # expose force_compat to the rule matcher: the remove_accent restart (dictionary.c:2229)
+        # keeps an s-suffix RULE_ENDING that the clean re-translation discards; translate_rules
+        # flags that byte-exact espeak bug on this translator for the render pass to reproduce.
+        self._tr.force_compat = force_compat
         # Unpronouncable2 (translateword.c:1187) reruns the letter rules under FLAG_UNPRON_TEST,
         # which needs the phoneme mnemonic index for count_vowels; expose it on the translator.
         self._tr.mnem = self._mnem
@@ -450,6 +454,7 @@ class G2P:
             clause_ctx=clause_ctx,
         )
         self._tr.expect_verb = 0
+        self._tr._compat_accent_s = False  # set by translate_rules when the remove_accent+final-s bug fires
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
         self._suffix_t_ph = ""    # a SUFX_T suffix: stress runs on the stem, suffix appended after
         self._suffix_dict_flags = 0  # a flags-only stem entry's flags adopted by the suffix path
@@ -2208,6 +2213,23 @@ class G2P:
                 pieces.append(_render_mark(puncts[i], segs[i], segs[i + 1], at_start=(i == 0)))
         return " ".join(p for p in pieces if p)
 
+    def _compat_final_s_suffix(self, word):
+        """Phonemes espeak appends for the stripped word-final ``-s`` in the remove_accent
+        force_compat bug (pt pròs). Translate the accent-removed whole word through the rules
+        and return the trailing consonant phonemes after its last vowel — the language's
+        word-final ``-s`` realisation (pt ``s#`` -> ʃ) that the malformed buffer re-appends."""
+        base = (_REMOVE_ACCENT[ord(word[-2]) - 0xC0]
+                if 0xC0 <= ord(word[-2]) < 0xC0 + len(_REMOVE_ACCENT) else 0)
+        flat = word[:-2] + (chr(base) if base else word[-2]) + word[-1]
+        raw, _, _ = translate_rules(self._tr, flat, self._mnem, want_endings=False,
+                                    pre_substituted=True)
+        toks = list(self._mnem.tokenize(raw))
+        last_v = -1
+        for i, (_m, _p) in enumerate(toks):
+            if _p.type == phVOWEL:
+                last_v = i
+        return "".join(m for m, _p in toks[last_v + 1:])
+
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
                      first_upper=False, at_end=True, following=(), clause_ctx=False,
                      switch_following=(), speak_leading_zeros=True):
@@ -2398,6 +2420,21 @@ class G2P:
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
                                  first_upper=first_upper, at_end=at_end, following=following,
                                  clause_ctx=clause_ctx)
+        if self.force_compat and getattr(self._tr, "_compat_accent_s", False) \
+                and len(word) >= 3 and word[-1:].lower() == "s":
+            # espeak force_compat remove_accent bug (pt pròs -> pɹˈuʃ): translate_rules flagged that
+            # the word-final accented vowel reached the remove_accent restart before a lone `-s`. The
+            # malformed buffer keeps the `A) s (_S1` RULE_ENDING, so the -s is stripped, the accented
+            # STEM is translated in ISOLATION (word-final vowel raising applies: prò -> pɹˈu), and the
+            # word-final -s (pt s#) is appended. Render the stem as its own word at the SAME tonic,
+            # then append the -s the accent-removed word produces after its last vowel. The default
+            # engine never sets this flag and keeps the correct pɹˈʊʃ. See docs/divergences.md.
+            self._tr._compat_accent_s = False
+            stem_ipa = self._render_word(word[:-1], tonic, ipa, tie, separator,
+                                         caps_stress=caps_stress, all_upper=all_upper,
+                                         first_upper=first_upper, at_end=at_end)
+            suffix_raw = self._compat_final_s_suffix(word)
+            return stem_ipa + self._render_phonemes(suffix_raw, ipa, tie, separator)
         if getattr(self, "_spell_prerendered", False):
             # name-first spell-word (_spell_letters_named) already produced final IPA with its own
             # (lang)…(orig) switches spliced in; return it verbatim (do not re-encode as phonemes).

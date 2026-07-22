@@ -132,3 +132,31 @@ untouched, so the collapse is not word-specific — it emerges from the prefix/s
 `SUFX_P` set (the `na`-prefix-as-ending case), the stem body is dropped and the word collapses to the
 returned prefix fragment plus the outer suffix phonemes. The default engine skips this branch and
 re-translates the full stem.
+---
+
+## `pt-remove-accent-final-s` — espeak strips `-s` after a non-native accented vowel
+
+**Languages:** `pt` (and any `remove_accent` language with the same trigger)
+
+**Input → output:**
+
+| input | default (`espyak`, correct) | `force_compat` / espeak-ng |
+|-------|------------------------------|----------------------------|
+| pròs | `pɹˈʊʃ` | `pɹˈuʃ` |
+| tòs  | `tˈʊʃ` | `tˈoʃ` |
+| pros | `pɹˈʊʃ` | `pɹˈʊʃ` |
+| após | `ɐpˈɔʃ` | `ɐpˈɔʃ` |
+
+**Who is correct:** espyak (default). `pròs` is not a Portuguese word; the grave accent is
+non-native. espyak's default treats `ò` as plain `o`, so the `o (s_ → =U` context rule fires
+and yields the lax `ʊ` of plain `pros` — the linguistically-defensible reading.
+
+**The espeak bug (force_compat reproduces it):** `ò` (UTF-8 `0xC3 0xB2`) matches no `pt` rule
+group, so espeak hits the `remove_accent` restart (dictionary.c:2229), which does an in-place
+single-byte replace `p[-1]=ix` over the 2-byte char. The resulting malformed buffer lets the
+`A) s (_S1` `RULE_ENDING` (`et=0xff800001`) survive: espeak strips the final `-s`, re-translates
+the accented stem in isolation (`prò → pɹˈu`), and re-appends `s#` → `pɹˈuʃ`. Plain `pros`
+produces the same `RULE_ENDING` while matching but the winning `s`-rule discards it
+(`end_type=0`), so no strip. This only fires for a non-native accented vowel immediately before
+a lone word-final `s`; native-accent words (após, três, país, avós) and plain `-s` words
+(livros, casas) are unaffected in both modes.

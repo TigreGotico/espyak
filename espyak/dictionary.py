@@ -2213,6 +2213,22 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                         p = p_start
                         continue
                     if 0x61 <= base <= 0x7A and len(wb) > wc_bytes:
+                        # espeak force_compat bug (pt pròs -> pɹˈuʃ): the remove_accent restart
+                        # (dictionary.c:2229) does an IN-PLACE byte replace p[-1]=ix over a 2-byte
+                        # accented char, leaving the buffer malformed such that the `A) s (_S1`
+                        # RULE_ENDING (et=0xff800001) SURVIVES — the final -s is stripped, the
+                        # accented stem is re-translated in isolation, and the word-final -s is
+                        # appended. A clean plain-`pros` translation instead discards that ending
+                        # (end_type=0), so espyak's clean re-translation loses the bug. Flag it here
+                        # when force_compat and the accented vowel is word-final before a lone `s`
+                        # (want_endings guards against the FLAG_UNPRON_TEST / suffix-stem passes);
+                        # _render_word reproduces the stem-in-isolation + appended -s. The DEFAULT
+                        # engine keeps the linguistically-correct pɹˈʊʃ. See docs/divergences.md.
+                        if (want_endings and getattr(tr, "force_compat", False)
+                                and not (word_flags & K.FLAG_UNPRON_TEST)
+                                and bytes(buf[p_start + wc_bytes:end]) == b"s"
+                                and p_start > 2 + len(lb)):
+                            tr._compat_accent_s = True
                         # slice from the CHAR START (p_start), not the advanced p: the failed
                         # default match leaves p mid-character, which split the multi-byte
                         # accented char and corrupted the re-translated word (sjn fëanor).
