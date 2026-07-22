@@ -742,6 +742,16 @@ def _ph_is_vowel(p):
     return p.type == phVOWEL and "nonsyllabic" not in p.flags
 
 
+def _deletes_word_final_schwa(schwa_ph):
+    """True if the Indic inherent-schwa phoneme's own program deletes it word-finally
+    (`IF thisPh(isWordEnd) ... THEN ChangePhoneme(NULL)`, as in hi/bn/kn/ml/te/gu/mr).
+    Languages that keep the final schwa (ta renders it ʌ, pa) have no such deletion, so
+    their word-final schwa must stay counted for stress placement."""
+    prog = getattr(schwa_ph, "program", None) or ()
+    return (any("thisPh(isWordEnd)" in ln for ln in prog)
+            and any("ChangePhoneme(NULL)" in ln for ln in prog))
+
+
 def _nonsyllabic_before_vowel(p):
     """True for a vowel-typed phoneme whose program turns it into the consonant N when the
     next phoneme is a vowel (`IF nextPh(isVowel) THEN ChangePhoneme(N)`). This is the yue/zh
@@ -856,6 +866,23 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     toks = mnem_index.tokenize(phoneme_str)
     if not toks:
         return phoneme_str
+    _stripped_final_schwa = False
+    if (tr.config.get("indic_schwa") and len(toks) >= 3 and toks[-1][0] == "V"
+            and _deletes_word_final_schwa(toks[-1][1])):
+        # The word-final inherent schwa is DELETED word-finally by the V phoneme's own program
+        # (`IF thisPh(isWordEnd) ... THEN ChangePhoneme(NULL)`), and that deletion PRECEDES the
+        # word's stress placement: GetVowelStress must not count the schwa as the final syllable,
+        # or a 1L language drops the clause tonic on it. bn করছিলাম (kVrVtS#|ilamV): with the
+        # trailing V gone the tonic lands on the last real vowel i (kˌɔɾɔtʃʰˈilam), not the schwa
+        # (kˈɔɾɔtʃʰˌilam); bn আমার (amarV -> amar) still takes syllable 1 (ˈamaɾ) by the ordinary
+        # 1L rule. Languages whose V program has NO word-final deletion (ta, pa) PRONOUNCE the
+        # schwa (பூத -> bˈuːdʌ), so are left untouched. Deletion needs a consonant before the
+        # schwa and a vowel before that (ph V's prevPhW(isNotVowel)/prev2PhW(isVowel), and hi's
+        # NOT isFirstVowel); look back past inert barrier/stress tokens.
+        _prev = [t for t in toks[:-1] if t[1].type not in (phSTRESS, phINVALID)]
+        if len(_prev) >= 2 and _prev[-1][1].type != phVOWEL and _ph_is_vowel(_prev[-2][1]):
+            toks = toks[:-1]
+            _stripped_final_schwa = True
     stressflags = tr.stress_flags
 
     unstressed_word = False
@@ -1189,10 +1216,12 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         elif (tr.config.get("indic_schwa") and unstressed_word and vowel_count > 1
                 and tr.stress_rule == K.STRESSPOSN_1L
                 and max_stress_posn == vowel_count - 1
+                and not _stripped_final_schwa
                 and phoneme_str.rstrip("'\",%/ ")[-1:] == "V"):
             # A $u function word normally keeps the last syllable (nl onze -> ɔnzˈə), but when a 1L
-            # Indic word ends in the inherent schwa V (DELETED word-finally), the clause tonic landing
-            # there is lost (bn আমার = amarV -> the V drops, leaving only ˌamaɾ); use syllable 1 (ˈamaɾ).
+            # Indic word ends in the inherent schwa V that was NOT stripped above (the deletion
+            # condition did not hold — e.g. a preceding vowel rather than consonant), the clause
+            # tonic landing on that schwa is lost; use syllable 1 instead.
             max_stress_posn = 1
         if (tonic > max_stress) or (max_stress <= STRESS_IS_PRIMARY):
             vowel_stress[max_stress_posn] = tonic
