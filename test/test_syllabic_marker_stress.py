@@ -28,6 +28,25 @@ CASES = [
 ]
 
 
+# A bare `-` after a vowel inserts a phantom vowel_stress slot that the SetWordStress output
+# loop never reads (the preceding vowel already advanced `v`), orphaning any stress marked on
+# a later syllable at that shifted index. espeak keeps the orphan and its clause nucleus falls
+# back to the last OUTPUT-reachable max-stress syllable, so the tonic must be placed in the
+# output-reachable range, not the raw vowel_count range. da barrikade (rules -> `bA-?ik'&:D@-`,
+# the `A-` = vowel A + phonSYLLABIC `-`): the explicit primary on `&:` is orphaned past the
+# reachable range, so the tonic lands on the first syllable (bˈɑ), not left unstressed.
+VOWEL_DASH_TONIC = [
+    ("da", "barrikade", "bˈɑʔikaaðə"),
+]
+
+
+@pytest.mark.parametrize("lang,word,expected", VOWEL_DASH_TONIC)
+def test_vowel_dash_tonic_orphan(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert G2P(lang).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
+
+
 @pytest.mark.parametrize("lang,word,expected", CASES)
 def test_syllabic_marker_stress(oracle, lang, word, expected):
     assert G2P(lang, force_compat=True).phonemize(word) == expected
