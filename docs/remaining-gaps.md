@@ -119,25 +119,20 @@ plus the rule-recoverable stress residue.
 | lang | input | oracle | got | class |
 |------|-------|--------|-----|-------|
 | ru | `могла` | `mʌɡɭˈa` | `mʌɡɭˈɑ` | `a`/`ɑ` stress/position allophone (irreducible) |
-| ru | `радио` | `rˈɑdʲɪo` | `ərˈɑdʲɪo` | spurious word-initial schwa |
-| tr | `ben` | `bˈæn` | `bˈɛn` | `e`/`æ` lexical vowel |
-| la | `pro` | `pˈrɔ` | `prˈɔ` | onset-cluster stress placement (`pˈr` vs `prˈ`) |
-| sr/hr/bs | `uxd` | `ˈuˌɪkzdˌə` | `ˈuˌɪɡzdˌə` | `kz`/`ɡz` voicing assimilation |
-| sr/hr/bs | `sl` | `sˈəlˌə` | `sˈl̩` | syllabic-l spell vs nucleus |
-| cs | `byl` | `bˈil` | `bˈil̩` | syllabic-l render |
-| da | `barrikade` | `bˈɑʔikaaðə` | `bˌɑʔikˈaaðə` | primary/secondary placement |
-| ky | `эмнеге` | `ˌemneɡˈe` | `emneɡˈe` | missing leading secondary |
-| is | `vegna` | `ʋˈɛɡna` | `ʋˈɛɡhn#a` | `gn` cluster (mnemonic `hn#` leaks) |
-| af | `cliché` | `kliʃˈɛɪɛɪ` (vowel copied) | `kliʃˈɛɪː` (lengthened) | diphthong-copy vs `ː` |
+| la | `pro` | `pˈrɔ` | `prˈɔ` | onset-cluster stress: nonsyllabic `@-` as a pitch syllable (see floor #3) |
+| da | `barrikade` | `bˈɑʔikaaðə` | `bˌɑʔikˈaaðə` | primary/secondary placement (rule-scorer tie-break) |
 | pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | formant-synthesis allophone (irreducible) |
-| cmn | `都` | `tˈou5` | `tˈu5` | spelled-letter vowel quality |
-| it | `й` | `ɪ brevˈe` | `ɪ brˈeve` | Cyrillic letter-name `@-` reduction / name stress |
+| ko | `곗날` | jamo-by-jamo letter names | syllable render | `/`-variant `$text` respell buffer path |
 
-**Closable share.** The onset-cluster stress (`la pro`/`prae`/`trans`), the missing leading
-secondary (`ky`), the syllabic-consonant render (`cs`/`sr` `sl`/`byl`), and the voicing
-assimilation (`sr/hr/bs uxd`) are rule-modellable — unported stress-rule arms and
-`phonSYLLABIC` / regressive-voicing details (`dictionary.md` §7). These are
-systematic-deferred, not floor.
+Most of this bucket's historical entries are now **closed** — `ru радио`, `tr ben`, `sr/hr/bs
+uxd`/`sl`, `cs byl`, `ky эмнеге`, `is vegna`, `af cliché`, `cmn 都`, `it й` were each fixed by
+porting the responsible mechanism (`phonSYLLABIC` counting, `ImportPhoneme` voicingswitch reset,
+letter-group overrides, `CountVowelPosition` semantics, raw dict keys, `SetLetterVowel`, and the
+`StressCondition` consonant/`LOPT_REDUCE=2` arms).
+
+**Closable share.** What remains here is a mix: the `da` primary/secondary case is a shared
+rule-scorer tie-break (engine-wide blast radius for one word), and the rest are the floor
+entries below.
 
 ---
 
