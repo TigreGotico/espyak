@@ -166,14 +166,19 @@ espyak applying the clause-intonation tonic *before* the phoneme programs (via
 (`CalcPitches`, post-`InterpretPhoneme`). Reproducing them needs the per-word render reworked
 into espeak's clause-level phoneme-list model — the same architectural change floor #3 needs.
 
-1. **`pt pròs` grave-accent vowel path (`pɹˈuʃ` vs `pɹˈʊʃ`).** NOT synthesis. The grave-accented
-   `ò` is a non-Portuguese letter; espeak's accent path translates it to the *base* vowel
-   phoneme `o` with explicit stress, short-circuiting the following-context rule `o (s_ → =U`.
-   The `o` program's `ChangeIfNotStressed(u)` then yields close `u`. espyak treats `ò` as a
-   plain `o`, so the `o (s_ → =U` rule fires → phoneme `U` → lax `ʊ`. Proven with the oracle:
-   plain `pros` → `pɹˈʊʃ` (identical to espyak's `pròs`), grave `pròs` → `pɹˈuʃ`; `tòs` → `tˈoʃ`,
-   `mòs` → `mˈoʃ` confirm the grave forces phoneme `o` regardless of the `s` context. Reachable
-   by porting espeak's grave-accent letter path; deferred (one word, high pt-regression risk).
+1. **`pt pròs` — espeak multibyte `remove_accent` buffer bug (`pɹˈuʃ` vs `pɹˈʊʃ`).** NOT
+   synthesis. Instrumented C trace: `ò` (UTF-8 `0xC3 0xB2`) matches no pt rule group (`points==0`,
+   pt has no 0xC3 group nor an `ò` group2 entry), so espeak hits the `remove_accent` restart
+   (dictionary.c:2229). That restart does an in-place byte replacement `p[-1]=ix` on a *2-byte*
+   char, leaving the buffer malformed such that the `A) s (_S1` rule's `RULE_ENDING`
+   (`et=0xff800001`) is *kept* — espeak strips the final `-s`, re-translates the isolated stem
+   `prò`→`pɹˈu`, and appends `s#`. Plain `pros` produces the same `RULE_ENDING` while matching but
+   the winning `s`-rule discards it (`end_type=0`), so no strip. espyak's clean-UTF-8
+   `remove_accent` rebuilds `pros` and re-translates it whole → `o (s_ → =U` → lax `ʊ` (which is
+   what plain `pros` gives, arguably more correct). Reproducing the espeak output means
+   replicating a malformed-multibyte-buffer artifact that would affect *any* Latin word with a
+   non-native accented vowel + final `s` across all remove_accent languages — deferred with
+   C-evidence (one nonsense-word headword, engine-wide-risk to reproduce an espeak bug).
 2. **`ru` `a`/`ɑ` (`могла`/`смогла`/`побыла`).** NOT a synthesis allophone. The mechanism is the
    voice file `lang/zle/ru` directive `replace 03 a a#`: in `SubstitutePhonemes`
    (phonemelist.c:85-104), a word-final `a` in a non-primary syllable (flag `0x2`:
