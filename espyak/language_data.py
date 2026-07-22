@@ -79,8 +79,12 @@ LANGS = {
         "unstressed_wd2": 2,
         "extra_vowels": "áéíóúü",
         "encoding": "iso-8859-1",
-        # an reads the fraction digit-by-digit (no NUM_DFRACTION bit, tr_languages.c L('a','n')).
-        "numbers": K.NUM_HUNDRED_AND | K.NUM_DECIMAL_COMMA,
+        # Aragonese number flags (tr_languages.c es block, name2==L('a','n')): NUM_SINGLE_STRESS,
+        # NUM_AND_UNITS ("y" between tens and units, not after hundred), NUM_OMIT_1_HUNDRED/THOUSAND
+        # ("cien" not "un cien"). NOT NUM_HUNDRED_AND — that wrongly inserts "y" after the hundred
+        # (105 -> ciento cinco, not ciento y cinco). Fraction digit-by-digit (no NUM_DFRACTION bit).
+        "numbers": (K.NUM_SINGLE_STRESS | K.NUM_AND_UNITS | K.NUM_OMIT_1_HUNDRED
+                    | K.NUM_OMIT_1_THOUSAND | K.NUM_DECIMAL_COMMA),
     },
     # Catalan shares the es (Spanish) Translator block but the 'ca' voice adds S_NO_AUTO_2
     # (no automatic secondary stress — biocomsc -> biokˈɔmsk, no ˌi) and S_FIRST_PRIMARY
