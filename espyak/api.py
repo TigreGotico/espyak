@@ -852,6 +852,20 @@ class G2P:
                     rest_ph = set_word_stress(self._tr, rest_ph, self._mnem,
                                               dict_flags=flags, tonic=3)
                     end_ph = _reduce_extra_primaries(end_ph)
+                elif (not self._config.get("lopt_prefixes") and not (end_type & K.SUFX_T)
+                      and (flags or "'" in end_ph)):
+                    # C else-branch (translateword.c:573-576), gated on the same
+                    # prefix_flags||prefix_stress as the lopt case but for a NON-LOPT language
+                    # without SUFX_T: "stress position affects the whole word, including the
+                    # prefix" — espeak assembles prefix+stem into one phoneme buffer and runs a
+                    # single SetWordStress over it. A dict stress-position flag ($N) therefore
+                    # counts syllables from the WORD start, not the suffix-stripped stem
+                    # (ro reacţiona $3 -> rˌeaktsjˈona: primary on the 3rd vowel o, not the
+                    # stem acţiona's 3rd = final a). The `|` barrier keeps the prefix-final and
+                    # stem-initial vowels from re-tokenising into one diphthong phoneme
+                    # (re+a stays e|a = two vowels, matching espeak's distinct phoneme codes).
+                    return set_word_stress(self._tr, end_ph + "|" + rest_ph, self._mnem,
+                                           dict_flags=flags, tonic=-1), flags
                 return end_ph + rest_ph, flags
         if end_type and (end_type & K.SUFX_Q):
             # "lookup stem in *_list without the suffix" (it `_S1q`): if the stem is a

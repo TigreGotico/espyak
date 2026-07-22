@@ -42,3 +42,22 @@ def test_clause_stress(oracle, lang, text, expected):
 @pytest.mark.parametrize("lang,word", ISOLATED)
 def test_isolated_word_matches_oracle(oracle, lang, word):
     assert G2P(lang, force_compat=True).phonemize(word) == oracle(word, lang, "ipa")
+
+
+# A NON-LOPT_PREFIXES language (ro) with a dictionary stress-position flag ($N) on a
+# prefix word: espeak assembles prefix+stem into one buffer and runs a single SetWordStress,
+# so the $N counts syllables from the WORD start, not the suffix-stripped stem
+# (translateword.c:573-576, "stress position affects the whole word, including prefix").
+# reacţiona is `reacţiona $3`: primary on the 3rd vowel (o) of the whole word, not the stem
+# acţiona's 3rd vowel (its final a).
+NONLOPT_PREFIX = [
+    ("ro", "reacţiona", "rˌeaktsjˈona"),
+    ("ro", "realiza", "rˌealizˈa"),
+    ("ro", "reci", "rˈetʃʲ"),  # prefix discarded on the suffix-stripped stem (unchanged)
+]
+
+
+@pytest.mark.parametrize("lang,word,expected", NONLOPT_PREFIX)
+def test_nonlopt_prefix_whole_word_stress(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
