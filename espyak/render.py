@@ -181,6 +181,24 @@ def encode_phoneme_string(s, table):
             pending_stress = None
             continue
         if (ph.type == phVIRTUAL and ph.ipa is None and m == "-"
+                and entries and entries[-1].ph.type != phVOWEL
+                and pending_stress is not None and pending_stress >= STRESS_IS_SECONDARY):
+            # A STRESSED syllabic consonant (a stress mark '/, immediately before a
+            # consonant that the `-` then marks syllabic, e.g. ar `ع = [A-a:jn]` fed through
+            # SetWordStress as `'A-a:jn`). espeak's phonemelist.c reinterprets a stressed
+            # syllabic consonant as TWO segments carrying the tonic: the consonant geminates
+            # and the first copy takes the primary/secondary mark (ˈʕʕ). The pending stress is
+            # NOT consumed here — it also carries on to the following vowel, so the vowel keeps
+            # its own tonic (ar ع -> `ˈʕʕˈaːjn`, both syllables stressed). An UNSTRESSED
+            # syllabic consonant (no pending stress, e.g. ar `s̪-ˈuːrah`, `s̪-ifr`) falls
+            # through to the literal-`-` branch below and is left byte-exact.
+            prev = entries[-1]
+            prev.synthflags |= SFLAG_SYLLABLE
+            prev.stresslevel = pending_stress
+            geminate = PhonemeListEntry(prev.ph)
+            entries.append(geminate)
+            continue
+        if (ph.type == phVIRTUAL and ph.ipa is None and m == "-"
                 and (not entries or entries[-1].ph.type == phVOWEL)):
             # the `-` syllabic-consonant marker (phsource/phonemes:135) makes the PREVIOUS
             # phoneme syllabic. GetTranslatedPhonemeString (dictionary.c:657) only writes it as a

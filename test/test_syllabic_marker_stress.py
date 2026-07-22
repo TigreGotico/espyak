@@ -78,3 +78,36 @@ def test_number_connective_dash_no_spurious_secondary(oracle, lang, word, expect
 def test_syllabic_marker_stress(oracle, lang, word, expected):
     assert G2P(lang, force_compat=True).phonemize(word) == expected
     assert expected == oracle(word, lang, "ipa")
+
+
+# A STRESSED syllabic consonant: a stress mark placed by SetWordStress immediately before a
+# consonant that the `-` then marks syllabic. espeak reinterprets it (phonemelist.c) as TWO
+# segments carrying the tonic — the consonant GEMINATES and the first copy takes the mark. ar
+# `ع = [A-a:jn] $atend` feeds SetWordStress as `'A-a:jn`; the primary lands on the syllabic ʕ,
+# so it doubles to `ˈʕʕ` while the following vowel keeps its own tonic -> `ˈʕʕˈaːjn`. This is
+# the sole distinction from the UNSTRESSED syllabic consonant (`s̪-uːrah`, `s̪-ifr`): when NO
+# stress precedes the `-`, the consonant is left single with a literal `-` (below). Both surfaces
+# are byte-exact against espeak-ng; the gemination MUST NOT bleed onto the unstressed case.
+STRESSED_SYLLABIC_CONSONANT = [
+    ("ar", "ع", "ˈʕʕˈaːjn"),
+]
+
+# The unstressed syllabic consonant guard: same `-`-after-consonant shape but no preceding
+# stress mark, so no gemination and the literal `-` survives. If the stressed-consonant branch
+# ever over-triggers, these regress (s̪s̪, dropped `-`, or a stray tonic on the consonant).
+UNSTRESSED_SYLLABIC_CONSONANT = [
+    ("ar", "ى", "ʔˈalif mˌaqs̪-ˈuːrah"),
+    ("ar", "صفر", "s̪ˈifr"),
+]
+
+
+@pytest.mark.parametrize("lang,word,expected", STRESSED_SYLLABIC_CONSONANT)
+def test_stressed_syllabic_consonant_geminates(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
+
+
+@pytest.mark.parametrize("lang,word,expected", UNSTRESSED_SYLLABIC_CONSONANT)
+def test_unstressed_syllabic_consonant_not_geminated(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
