@@ -1343,6 +1343,19 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             # (dictionary.c:1391 `*p == phonSYLLABIC`), matching the extra slot get_vowel_stress
             # counted — so `v` stays aligned with vowel_stress.
             v_stress = vowel_stress[v]
+            # A real vowel immediately followed by the phonSYLLABIC `-` marker has its stress reset
+            # to the following syllable's pending (default-unstressed) level — espeak's phoneme-list
+            # build does this unconditionally (translate.c:587-589 sets prev_vowel.stresslevel =
+            # next_stress for every phonSYLLABIC). The clause nucleus is re-promoted by a separate
+            # intonation pass, which here has already run: max_stress_posn carries the tonic. So only
+            # a NON-nucleus vowel is wiped. A number connective that plants `-` right after a vowel
+            # (fo "36" seks-og-tríati `s%Egsu-otr%e:dIvU`) drops the spurious trochaic secondary the
+            # auto-secondary loop gave `u` (sɛɡsuo… not sɛɡsˌuo…), while da barrikade `bA-?ik'&:D@-`,
+            # whose `A` IS the nucleus (max_stress_posn), keeps its clause primary (bˈɑ…).
+            if (_ph_is_vowel(ph) and v != max_stress_posn and _pi + 1 < len(phonetic)
+                    and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1])):
+                v_stress = STRESS_IS_UNSTRESSED
+                vowel_stress[v] = v_stress
             if v_stress <= STRESS_IS_UNSTRESSED:
                 if (v > 1) and (max_stress >= 2) and (stressflags & K.S_FINAL_DIM) and (v == vowel_count - 1):
                     v_stress = STRESS_IS_DIMINISHED

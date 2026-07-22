@@ -47,6 +47,33 @@ def test_vowel_dash_tonic_orphan(oracle, lang, word, expected):
     assert expected == oracle(word, lang, "ipa")
 
 
+# A number connective can plant the phonSYLLABIC `-` immediately after a vowel that is NOT the
+# clause nucleus. Faroese "-6" tens (seks-og-tríati = units `_6` s%Egs + `_0and` u-o + tens
+# `_3X` tr%e:dIvU) assemble to `s%Egsu-otr%e:dIvU`: the trochaic auto-secondary loop gives the
+# connective vowel `u` a secondary, but espeak's phoneme-list build resets every phonSYLLABIC's
+# preceding vowel to the following (unstressed) level, so the nucleus (the last syllable) keeps
+# the primary and `u` stays plain — sɛɡsuo…, never sɛɡsˌuo…. Every fo tens ending in 6 exercises
+# this, and "B36" checks it survives a leading spelled letter.
+NUMBER_CONNECTIVE_DASH = [
+    ("fo", "36", "sɛɡsuotɹˌeːdɪʋˈʊ"),
+    ("fo", "26", "sɛɡsuotʃˌɜœːwˈʊ"),
+    ("fo", "46", "sɛɡsuofjˌ2ːɹɪdˈɪ"),
+    ("fo", "56", "sɛɡsuohɔltɹˈʊɟss"),
+    ("fo", "66", "sɛɡsuotɹˈʊɟss"),
+    ("fo", "76", "sɛɡsuohɔlfjˈɛzz"),
+    ("fo", "86", "sɛɡsuofˈʊzz"),
+    ("fo", "96", "sɛɡsuohɔlfˈɛms"),
+    ("fo", "B36", "beː sɛɡsuotɹˌeːdɪʋˈʊ"),
+]
+
+
+@pytest.mark.parametrize("lang,word,expected", NUMBER_CONNECTIVE_DASH)
+def test_number_connective_dash_no_spurious_secondary(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert G2P(lang).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
+
+
 @pytest.mark.parametrize("lang,word,expected", CASES)
 def test_syllabic_marker_stress(oracle, lang, word, expected):
     assert G2P(lang, force_compat=True).phonemize(word) == expected
