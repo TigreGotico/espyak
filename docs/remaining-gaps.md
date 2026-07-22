@@ -18,24 +18,26 @@ Full-headword audit (`test/parity_audit.py --cap 2000`, oracle = espeak-ng 1.52.
 OVERALL 46224 / 46228 = 99.99%   →   4 mismatches
 ```
 
-The 136 fails are spread thin: **46 of 105 languages** have any fail at all, and the
-largest single concentration is **`it` = 31** (26 of which are one mechanism — Cyrillic
-single letters spelled through a `ru` language switch). No other language exceeds 5 fails;
-**59 languages are at 100%**, including every one that historically dominated the gap —
-`shn` 2000/2000, `et` 211/211, `lv` 570/570, `smj`/`ur`/`yue`/`pl`/`lb` all 100%.
+**Only 4 mismatches remain, across 3 languages** — 102 of 105 languages are at 100%. The
+historical A/B/C/D buckets below (a much larger tail, ~136 fails) have been closed
+feature-by-feature: the phoneme-level language switch, the `LookupDictList` abbreviation /
+letter-name / symbol chain, per-language number flags + the lakh/crore, Slavic-magnitude,
+leading-zero and Roman-numeral number paths, symbol tokenization, clause-punctuation
+stripping, the two-level (`SetWordStress` + intonation-nucleus) stress model, cross-word
+regressive voicing, `phonSYLLABIC` stress-reset, and the phoneme-code rule-tie-break were
+all ported. The bucket sections below are retained as a historical account of how the tail
+was closed; the **live** residual is just these 4:
 
-Symptom histogram (input shape, not cause): `word=55, single-char=39, non-alpha=26,
-two-letter=15, single-symbol=1`. The root-cause buckets below sum to 136.
+| lang | input | oracle | espyak | why it remains |
+|------|-------|--------|--------|----------------|
+| pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | espeak malformed-multibyte `remove_accent` buffer bug (floor #1); espyak's output = plain `pros`, arguably more correct |
+| nl | `nadelige` | `naːˈə` | `naːdˈeːləɣə` | espeak `SUFX_M`/`SUFX_Q` stem-truncation bug (floor #5); espyak renders the full correct word |
+| nl | `nalatige` | `naːˈə` | `naːlˈaːtəɣə` | same as `nadelige` |
+| ar | `ع` | `ˈʕʕˈaːjn` | `ʕ-ˈaːjn` | synthesis-level gemination of a *stressed* syllabic consonant (phonemelist.c `ReInterpretPhoneme`); outside a G2P front-end, and any render.py change regresses the byte-exact `s̪-ˈuːrah`/`s̪-ifr` cases |
 
-| Bucket | Root cause | Count | Kind |
-|--------|------------|------:|------|
-| **A** | Phoneme-level language switch / codepoint verbalization not crossed | **29** | systematic-deferred |
-| **B** | Letter-name / abbreviation / symbol spelling (`LookupDictList` long tail) | **45** | systematic-deferred |
-| **C** | Word stress / vowel-quality / voicing not derivable by rule | **52** | mixed (some irreducible) |
-| **D** | `numbers.c` branches + `$N` dollar-fraction | **10** | systematic-deferred |
-
-`B` and `D` and most of `A` are systematic and closable feature-by-feature. The
-IRREDUCIBLE residue lives inside `C` (and a slice of `A`): see "The irreducible floor".
+Each is an espeak-*engine* bug or synthesis-time behavior, verified with an instrumented
+espeak-ng build (printf traces) and a measured blast radius — not a heuristic guess. Two of
+the three languages are cases where **espyak is more linguistically correct than the oracle**.
 
 ---
 
