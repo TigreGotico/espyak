@@ -379,7 +379,11 @@ class G2P:
         # must sort by those, NOT the mnemonic ASCII: tn code(b)<code(B) keeps b->B winning,
         # while ga code(@)<code(v) makes mh->v win over r)m->@m. (A mnemonic sort gets ga
         # right but tn wrong, since 'B'<'b' in ASCII but code(b)<code(B).)
-        code = {m: i for i, m in enumerate(self.phoneme_table.phonemes)}
+        # The codes are espeak's REAL CompilePhoneme codes (PhonemeSource.codes), not a
+        # table-insertion-order proxy: da `?o`(124) > `?V`(109) are single glottalised-vowel
+        # phonemes whose real ordering makes `bl) o (k+`->?V sort before `L03) o (L01a+`->?o,
+        # so ?o wins the >= tie (blokade -> blʔokˈaaðə). An insertion-order proxy inverts them.
+        code = self._phsource.codes.get(self._ph_table_name, {})
         tok = self._mnem.tokenize
 
         # group_seq leads the key: it's constant within a single .group block (so this is identical

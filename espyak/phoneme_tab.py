@@ -14,6 +14,7 @@ enough to capture ``ipa`` attributes and phoneme types, and skip the rest.
 Reference: espeak-ng phsource/phonemes, src/libespeak-ng/compile_phoneme.c.
 """
 import os
+import re
 
 from espyak import data_paths
 
@@ -67,6 +68,37 @@ _PLACE_KEYWORDS = {
     "blb", "lbd", "bld", "dnt", "alv", "rfx", "pla", "alp", "pal",
     "vel", "lbv", "uvl", "phr", "glt",
 }
+
+
+# espeak's CompilePhoneme (compiledata.c) assigns each phoneme a numeric CODE (its index in
+# the compiled phoneme_tab). The dictionary rule compiler (compiledict.c string_sorter) sorts
+# each rule group by the rule's compiled phoneme-CODE bytes, and the matcher's last-best-wins
+# tie-break then picks the sort-last equal scorer. Reproducing that tie-break byte-for-byte
+# needs the REAL codes, not a mnemonic-ASCII or table-insertion-order proxy (da `?o`/`?V` are
+# single glottalised-vowel phonemes whose codes decide `blokade` -> blʔokˈaaðə vs blʔʌkˈaaðə).
+#
+# The codes come from: (1) a fixed reserved block (stress/pause/schwa markers, the phon* enum
+# in phoneme.h — codes 1..33, identical in every table); then (2) every other phoneme APPENDED
+# at the point of its FIRST appearance — declaration OR reference — while CompilePhoneme walks
+# the table's phonemes in file order (so `?V`, referenced in an early IF before its own
+# `phoneme ?V` line, gets a lower code than `?o`, which is only referenced by its own later
+# declaration). A child `phonemetable N parent` inherits the parent's codes, then appends.
+_RESERVED_PHONEMES = [
+    ("\x01", 1), ("%", 2), ("%%", 3), (",", 4), (",,", 5), ("'", 6), ("''", 7), ("=", 8),
+    ("_:", 9), ("_", 10), ("_!", 11), (":", 12), ("@", 13), ("@-", 14), ("||", 15),
+    ("*", 16), ("1", 17), ("#X1", 18), ("?", 19), ("-", 20), ("_^_", 21), ("_X1", 22),
+    ("_|", 23), ("_::", 24), ("t#", 25), ("'!", 26), ("_;_", 27),
+    ("#@", 28), ("#a", 29), ("#e", 30), ("#i", 31), ("#o", 32), ("#u", 33),
+]
+# a phoneme-mnemonic operand inside a program instruction (nextPhW(V), ChangePhoneme(D), ...);
+# a bare `voicingswitch X` / `import_phoneme T/X` also names a phoneme (its code is reserved
+# when CompilePhoneme resolves the switch/import target).
+_MNEM_RE = r"[A-Za-z0-9@#%?/;:!^&*'~._+=|~-]{1,4}"
+_PH_REF_RE = re.compile(
+    r"(?:PhW?|thisPh|prevPhW?|nextPhW?|next2PhW?|next3PhW?|"
+    r"ChangePhoneme|InsertPhoneme|AppendPhoneme|IfNextVowelAppend|"
+    r"ChangeIfDiminished|ChangeIfUnstressed|ChangeIfNotStressed|ChangeIfStressed)"
+    r"\((" + _MNEM_RE + r")\)")
 
 
 def _unescape_mnemonic(tok):
@@ -379,6 +411,96 @@ class PhonemeSource:
         self._derive_voiced_types()
         self._resolve_call_types()
         self._derive_voiced_types()
+
+        # per-table {mnemonic -> phoneme code}, replicating CompilePhoneme's code allocation,
+        # used as the rule-group sort key (see _RESERVED_PHONEMES note above).
+        self.codes = self._compute_codes()
+
+    def _compute_codes(self):
+        master = data_paths.phonemes_master()
+
+        def refs_in(line):
+            tok = line.split()
+            if tok and len(tok) > 1 and tok[0] in ("voicingswitch", "import_phoneme"):
+                t = tok[1]
+                if tok[0] == "import_phoneme" and "/" in t:
+                    t = t.split("/", 1)[1]
+                return [_unescape_mnemonic(t)]
+            return [m.group(1) for m in _PH_REF_RE.finditer(line)]
+
+        # parse master into per-table ordered line lists (procedures captured separately),
+        # mirroring espeak's file order without the attribute interpretation _load does.
+        tables = {}          # name -> (parent, [lines])
+        table_order = []
+        procedures = {}
+        cur_name, cur_parent, cur_lines = "base", None, []
+        table_order.append("base")
+        in_proc, cur_proc = False, None
+        for line in self._iter_lines(master):
+            tok = line.split()
+            head = tok[0]
+            if head == "procedure":
+                in_proc, cur_proc = True, (tok[1] if len(tok) > 1 else "")
+                procedures[cur_proc] = []
+                continue
+            if head == "endprocedure":
+                in_proc, cur_proc = False, None
+                continue
+            if in_proc:
+                procedures[cur_proc].append(line)
+                continue
+            if head == "phonemetable":
+                tables[cur_name] = (cur_parent, cur_lines)
+                cur_name = tok[1]
+                cur_parent = tok[2] if len(tok) > 2 else None
+                cur_lines = []
+                table_order.append(cur_name)
+                continue
+            cur_lines.append(line)
+        tables[cur_name] = (cur_parent, cur_lines)
+
+        computed = {}
+
+        def build(name, seen):
+            if name in computed:
+                return computed[name]
+            if name not in tables or name in seen:
+                return None
+            seen.add(name)
+            parent, lines = tables[name]
+            order = []
+            code = {}
+
+            def add(m):
+                if m and m not in code:
+                    code[m] = len(order)
+                    order.append(m)
+
+            for m, _c in sorted(_RESERVED_PHONEMES, key=lambda x: x[1]):
+                add(_unescape_mnemonic(m))
+            if parent:
+                pc = build(parent, seen)
+                if pc:
+                    for m in pc[0]:
+                        add(m)
+            for line in lines:
+                tok = line.split()
+                head = tok[0]
+                if head == "phoneme" and len(tok) > 1:
+                    add(_unescape_mnemonic(tok[1]))
+                elif head == "CALL" and len(tok) > 1 and tok[1] in procedures:
+                    for pl in procedures[tok[1]]:
+                        for r in refs_in(pl):
+                            add(r)
+                else:
+                    for r in refs_in(line):
+                        add(r)
+            computed[name] = (order, code)
+            return computed[name]
+
+        for name in table_order:
+            build(name, set())
+        return {name: code for name, (order, code) in computed.items()}
 
     def _derive_voiced_types(self):
         """compiledata.c: a phVOICED stop/fricative becomes phVSTOP/phVFRICATIVE."""
