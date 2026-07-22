@@ -779,6 +779,32 @@ def _is_syllabic_marker(mnem, ph):
     return ph.type == K.phVIRTUAL and mnem == "-"
 
 
+def _output_nucleus_count(phonetic):
+    """Number of syllable nuclei the SetWordStress OUTPUT loop actually emits — i.e. how far
+    its `v` counter runs. It advances once per real vowel and once per syllabic CONSONANT
+    (a consonant immediately before phonSYLLABIC `-`), mirroring dictionary.c:1384 exactly.
+
+    This can be SMALLER than GetVowelStress's `vowel_count-1`: a `-` that follows a VOWEL
+    still gets its own vowel_stress slot in GetVowelStress (dictionary.c:868 counts every
+    phonSYLLABIC unconditionally) but the output loop does NOT consume it (the preceding vowel
+    already advanced `v`, and `-`'s own `*p` is the next real phoneme, not another `-`). Every
+    such vowel+`-` leaves one trailing vowel_stress index that the output loop never reads, so
+    an explicit primary marked on a post-`-` vowel is orphaned there. espeak keeps that
+    orphan; its clause nucleus (intonation) then falls back to the last OUTPUT-reachable
+    max-stress syllable — which is what the tonic placement below must target."""
+    n = 0
+    m = len(phonetic)
+    for pi, (mnem, ph) in enumerate(phonetic):
+        if _nonsyllabic_before_vowel(ph) and pi + 1 < m and _ph_is_vowel(phonetic[pi + 1][1]):
+            continue
+        syl_cons = (not _ph_is_vowel(ph) and ph.type not in (phINVALID, phPAUSE)
+                    and pi + 1 < m
+                    and _is_syllabic_marker(phonetic[pi + 1][0], phonetic[pi + 1][1]))
+        if _ph_is_vowel(ph) or syl_cons:
+            n += 1
+    return n
+
+
 def get_vowel_stress(toks, stressed_syllable=0):
     """Port of GetVowelStress. Returns (vowel_stress list, phonetic toks, count, primary).
 
@@ -1175,9 +1201,14 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             if vowel_stress[_v] == STRESS_IS_PRIMARY:
                 vowel_stress[_v] = STRESS_IS_SECONDARY
 
+    # Scan only the OUTPUT-reachable syllables: a vowel+`-` leaves a trailing vowel_stress slot
+    # the output loop never reads (see _output_nucleus_count), so a primary orphaned there must
+    # not win the max-stress position — espeak's nucleus falls back to the last reachable one.
+    # For every word WITHOUT a vowel+`-` this equals vowel_count-1, so behaviour is unchanged.
+    _reachable = min(vowel_count - 1, _output_nucleus_count(phonetic))
     max_stress = STRESS_IS_DIMINISHED
     max_stress_posn = 0
-    for v in range(1, vowel_count):
+    for v in range(1, _reachable + 1):
         if vowel_stress[v] >= max_stress:
             max_stress = vowel_stress[v]
             max_stress_posn = v
