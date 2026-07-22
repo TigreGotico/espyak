@@ -1357,18 +1357,33 @@ class G2P:
                 return True
             if _cat0 == "P":
                 if _c == ":":
-                    # ':' is a VOWEL-LENGTH marker in most languages (sv/smj/no/fi/de/nl/af:
-                    # a: -> ɑː), consumed by the letter-to-sound rules — it must stay in the
-                    # word, NOT be peeled as a spelled token (else smj O:/A: letter names lose
-                    # their length: dOdnO: -> …oː). Only a few languages SPELL it as "colon"
-                    # (en, lv); peel it there. A ':' next to a digit always stays in-word for
-                    # the time/range number path (12:30, 2.-a).
-                    if not self._config.get("colon_spelled"):
-                        return False
+                    # A ':' BETWEEN two letters terminates the word: espeak's clause reader
+                    # inserts a space at any letter<->non-letter boundary that is not
+                    # punct_within_word (translate.c:1182 `!IsAlpha(c) && !IsSpace(c) &&
+                    # punct_within_word==0` after an alpha `prev_out`), so `usa:s` becomes the
+                    # words `usa` `:` `s` and the trailing `s` is spoken as its own letter name
+                    # (sv ˌʉɛsˈɑː ˈɛs; hu ÁFAa:f -> ˈaːfɑɑ ˈɛff). The isolated ':' is NOT a
+                    # length mark that lengthens across the split — `da:g` -> dˈa ɡˈeː keeps the
+                    # `a` SHORT — it simply drops (its own token translates to nothing) unless
+                    # the language SPELLS it "colon" (en/lv, colon_spelled), which peels it even
+                    # at a word edge. Elsewhere the peel is gated on a FOLLOWING letter: a
+                    # word-FINAL ':' (smj dOdnO:) has no letter to spell separately, so it stays
+                    # in-word as an inert length mark (dropping it would strip the clause-final
+                    # long-vowel letter name of its length -> …oː, not …oɔ). A ':' next to a
+                    # digit stays in-word for the time/range number path (12:30, 2.-a).
                     _p = text[_k - 1] if _k else ""
                     _n = text[_k + 1] if _k + 1 < len(text) else ""
                     if (_p.isascii() and _p.isdigit()) or (_n.isascii() and _n.isdigit()):
                         return False
+                    if not self._config.get("colon_spelled"):
+                        if not (_p.isalpha() and _n.isalpha()):
+                            return False
+                        # smj (caps_are_letters): a ':' after an UPPERCASE letter is that
+                        # letter's long-vowel NAME (A: -> ɑː), kept in-word for the caps
+                        # letter-name peel (_split_caps_word), not a word-splitting ':'
+                        # (bA:lldaj -> bˈeː ˈɑːl ltˈɑj, the geminate straddles A:).
+                        if self._config.get("caps_are_letters") and _p.isupper():
+                            return False
                 return True
             return False
         if any(_isol(_k) for _k in range(len(text))):

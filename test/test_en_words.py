@@ -126,24 +126,37 @@ def test_letter_punctuation_splits_and_spells(text, ipa):
 
 
 # Letter<->punctuation break across languages: a subscript digit is read as its number name
-# (ca co₂ -> 'co' + ₂ -> "dos"), and ca's in-word middle dot is kept. NB: ':' is a vowel-length
-# marker in most languages (sv/smj a: -> ɑː) and stays in the word — only colon-spelling
-# languages (en/lv) peel it (see LETTER_PUNCT_SPLIT / test_colon_length_vs_spelled).
+# (ca co₂ -> 'co' + ₂ -> "dos"), and ca's in-word middle dot is kept.
 MULTILANG_PUNCT_SPLIT = [
     ("ca", "co₂", "kˈɔ ðˈos"),
     ("ca", "col·legi", "kullˈɛʒi"),
 ]
 
 
-# ':' handling is language-specific: en/lv SPELL it ("colon"/"kols"), most languages treat it as
-# a vowel-length marker consumed by the rules (a: -> ɑː) and never peel it (smj letter names).
+# ':' handling is language-specific. en/lv SPELL it ("colon"/"kols") even at a word edge.
+# Elsewhere a ':' BETWEEN two letters is a word break (translate.c:1182: a non-alpha,
+# non-punct_within_word char after a letter terminates the word), dropped rather than
+# spelled: the run after it becomes its own word, spoken as its letter name (sv usa:s ->
+# ˌʉɛsˈɑː ˈɛs). The ':' is NOT a length mark that carries across the split — sv da:g keeps
+# the `a` SHORT (dˈa ɡˈeː), not dˈɑː. A word-FINAL ':' has no following letter to break to,
+# so it stays in-word as an inert length mark (smj dOdnO: keeps the clause-final long-vowel
+# letter name -> …oː). In smj (caps_are_letters) a ':' after an UPPERCASE letter is that
+# letter's long-vowel NAME (A: -> ɑː) and is kept in-word for the caps letter-name peel.
 COLON_CASES = [
     # colon-spelling languages emit the "colon"/"kols" name; byte-exact to oracle
     ("en", "a:b", "ɐ kˈəʊlən bˈiː"),
     ("lv", "a:b", "ˈaː kˈoːls bˈeː"),
-    # length languages consume ':' as length in the rules — smj letter names keep their length
+    # length languages: a medial ':' splits, the following letter(s) spell as their own word
+    ("sv", "usa:s", "ˌʉɛsˈɑː ˈɛs"),
+    ("sv", "a:s", "ˈɑː ˈɛs"),
+    ("hu", "ÁFAa:fA", "ˈaːfɑɑ ˈɛff ˈɑː"),
+    # the split does NOT lengthen the letter before ':' — bare `da` gives a SHORT a
+    ("sv", "da:g", "dˈa ɡˈeː"),
+    # a word-final ':' stays in-word; smj letter names keep their (name-inherent) length
     ("smj", "dOdnO:", "dˈeː ˈoɔtn ˈoː"),
+    # smj: ':' after an uppercase letter is its long-vowel name, kept for the caps peel
     ("smj", "bA:lldaj", "bˈeː ˈɑːl ltˈɑj"),
+    ("smj", "dO:dnO", "dˈeː ˈoɔ dˈeːˌɛn ˈoː"),
 ]
 
 
