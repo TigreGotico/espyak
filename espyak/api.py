@@ -339,6 +339,8 @@ class G2P:
             # voice-file `dictrules` are authoritative; union with any hardcoded config value.
             merged = sorted(set(self._config.get("dictrules", ())) | set(self._voice_dictrules))
             self._config = {**self._config, "dictrules": merged}
+        self._interp.reduce_max_stress = bool(self._config.get("reduce_max_stress"))
+        self._plist_by_output = {}
         self._rules = RuleSet.compile_file(data_paths.rules_path(dict_name))
         self._sort_rules_by_phoneme_code()
         self._tr = Translator(phsource=self._phsource, config=self._config)
@@ -1535,6 +1537,9 @@ class G2P:
         # previous word's phonemes and spelling and the next word's onset — state espeak keeps in
         # its clause-level phoneme list but the per-word render here otherwise loses.
         word_slots = []
+        # rendered form -> the phoneme list it came from, for the clause-level regressive
+        # voicing pass (cleared per clause so a stale list can never be re-rendered).
+        self._plist_by_output = {}
         # Each rendered real unit, recorded so the intonation nucleus can be located after the
         # whole clause is assembled and that ONE unit re-rendered with the clause tonic.
         units = []
@@ -1673,6 +1678,8 @@ class G2P:
                 out[u["idx"]] = rendered
         # cross-word sandhi over the assembled clause (espeak's clause-level phoneme list):
         # en linking/intrusive r, nl homorganic-stop degemination.
+        if ipa and self._config.get("regression"):
+            self._apply_cross_word_voicing(out, word_slots)
         if ipa and self._config.get("linking_r"):
             self._apply_linking_r(out, word_slots)
         if ipa and self._config.get("degeminate_stops"):
@@ -1744,6 +1751,55 @@ class G2P:
     def _starts_with_vowel(self, ph):
         s = ph.lstrip("ˈˌ")
         return bool(s) and s[0] in self._R_VOWELS
+
+    def _apply_cross_word_voicing(self, out, word_slots):
+        """Regressive voicing assimilation ACROSS a word boundary.
+
+        espeak runs SetRegressiveVoicing ONCE over the whole clause phoneme list
+        (phonemelist.c:214-216, after the words have been concatenated), so a word-final
+        obstruent sees the FOLLOWING word's initial consonant: pl `plik zapisany` ->
+        plˈiɡ zˌapisˈanɨ, cs/sk `byt dobry` -> bˈid dˈobri, sr/hr/bs `rat bio` -> rˈad bˌɪo.
+        espyak renders word by word, so its per-word pass misses exactly that context.
+
+        Nothing here is language-specific: the same LOPT_REGRESSIVE_VOICING bits that
+        SetRegressiveVoicing already honours decide whether voicing crosses the boundary.
+        Bit 0x04 resets the accumulator at a word start (bg 0x107) and a value with no low
+        nibble performs no assimilation at all (de/nl/mt 0x100, final devoicing only), so
+        those languages are unaffected by construction rather than by an exception list.
+
+        Only the DIFFERENCE the neighbouring word makes is applied: the pass is run twice
+        over the previous word — alone and with the next word appended — and a phoneme is
+        rewritten only where the two runs disagree, so nothing word-internal can shift.
+        """
+        reg = self._config.get("regression", 0)
+        table = self.phoneme_table
+        for pi, _ps, ci, _cs in self._slot_pairs(out, word_slots):
+            prev = self._plist_by_output.get(out[pi])
+            cur = self._plist_by_output.get(out[ci])
+            if prev is None or cur is None or prev[0] is cur[0]:
+                continue
+            pl, ipa, tie, separator = prev
+            cl = cur[0]
+            orig_p = [e.ph for e in pl]
+            orig_c = [e.ph for e in cl]
+            set_regressive_voicing(pl, table, reg)
+            alone = [e.ph for e in pl]
+            for e, ph in zip(pl, orig_p):
+                e.ph = ph
+            set_regressive_voicing(pl + cl, table, reg)
+            changed = False
+            for k, e in enumerate(pl):
+                if e.ph is alone[k]:
+                    e.ph = orig_p[k]          # no cross-word effect here: keep as rendered
+                else:
+                    changed = True
+            for e, ph in zip(cl, orig_c):     # the next word is only context; never rewritten
+                e.ph = ph
+            if not changed:
+                continue
+            new = render_phoneme_list(pl, table, ipa=ipa, tie=tie, separator=separator)
+            self._plist_by_output[new] = prev
+            out[pi] = new
 
     def _apply_linking_r(self, out, word_slots):
         """en linking/intrusive r (phonemelist pd_INSERTPHONEME): a word ending in a non-rhotic
@@ -2535,6 +2591,11 @@ class G2P:
                     e.stresslevel = 3
         result = render_phoneme_list(plist, self.phoneme_table,
                                      ipa=ipa, tie=tie, separator=separator)
+        # Keep the finished phoneme list reachable by its rendered form so the clause-level
+        # regressive-voicing pass can re-run SetRegressiveVoicing across a word boundary
+        # (espeak runs it once over the WHOLE clause list, phonemelist.c:214-216).
+        if self._config.get("regression") and not self._config.get("no_cross_word_voicing"):
+            self._plist_by_output[result] = (plist, ipa, tie, separator)
         if getattr(self, "_neutral_tone", False):
             # cmn neutral tone is unstressed: drop the one tonic mark espeak omits.
             result = result.replace("ˈ" if ipa else "'", "", 1)

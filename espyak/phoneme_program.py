@@ -196,9 +196,11 @@ _OFF_END_CTX = {"word_end": True, "first_vowel": False, "second_vowel": False,
 
 
 class Interpreter:
-    def __init__(self, source, table):
+    def __init__(self, source, table, reduce_max_stress=False):
         self.source = source
         self.table = table
+        # langopts.param[LOPT_REDUCE] & 2 (tr_languages.c: bg, is, ru)
+        self.reduce_max_stress = reduce_max_stress
         self._prog_cache = {}
 
     def _program(self, ph):
@@ -369,6 +371,17 @@ class Interpreter:
             if getattr(plist[i], "dict_no_reduce", False):
                 return False
             lvl = plist[i].stresslevel
+            if self.reduce_max_stress:
+                # LOPT_REDUCE&2 (synthdata.c:434-437): "treat the most stressed syllable in an
+                # unstressed word as stressed" — StressCondition raises stress_level to
+                # STRESS_IS_PRIMARY whenever it already equals this word's maximum stresslevel.
+                # So in is/bg/ru an unstressed function word still keeps its full (long/tense)
+                # vowel: is `var` alone is ʋˈaːr and `skráin var vistuð` is still ...ʋaːr...,
+                # because a: -> a (ChangeIfNotStressed) never fires on the word's own peak.
+                ws, we = self._word_bounds(plist, i)
+                word_max = max((plist[j].stresslevel & 0xf for j in range(ws, we)), default=0)
+                if (lvl & 0xf) >= word_max:
+                    lvl = 4
             cond = {
                 "ChangeIfDiminished": lvl == 0,
                 "ChangeIfUnstressed": lvl <= 1,

@@ -254,6 +254,16 @@ class PhonemeSource:
                 if cur_ph is not None and imported is not None:
                     # keep the new mnemonic, inherit attributes
                     imported.mnemonic = cur_ph.mnemonic
+                    if imported.type != phVOWEL:
+                        # espeak stores a consonant's voicingswitch in the end_type field, and
+                        # ImportPhoneme (compiledata.c:1726-1727) CLEARS end_type for non-vowels:
+                        # "voicingswitch, this must be set later to refer to a local phoneme".
+                        # So an imported consonant loses its source's voicing partner unless the
+                        # importing phoneme restates `voicingswitch` itself. ru's `t`/`k` import
+                        # pl/t and consonants/k- and therefore do NOT participate in regressive
+                        # voicing (кот дом -> kˈot dˈom), while ru's own `S` (not imported) does
+                        # (наш дом -> nˈaʒ dˈom).
+                        imported.voicing_switch = None
                     cur_phonemes[cur_ph.mnemonic] = imported
                     cur_ph = imported
                 continue

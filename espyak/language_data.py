@@ -222,6 +222,10 @@ LANGS = {
            "reset_letter_bits": 0x18,
            "set_letter_bits": [(K.LETTERGP_F, "kpst"), (K.LETTERGP_H, "jvr")],
            "letter_groups_override": {K.LETTERGP_B: "cfhktpxþ"},
+           # LOPT_REDUCE=2 (tr_languages.c:1051): StressCondition counts a word's own most
+           # stressed syllable as PRIMARY, so ChangeIfNotStressed(a) never fires on it — an
+           # unstressed word keeps its long vowel (skráin var vistuð -> … ʋaːr …).
+           "reduce_max_stress": True,
            "set_letter_vowel": "y"},
     # sv reads the fraction digit-by-digit; decimal separator is ',' (tr_languages.c L('s','v')).
     "sv": {"stress_rule": K.STRESSPOSN_1L, "extra_vowels": "y",
@@ -476,6 +480,9 @@ LANGS["uk"]["letter_bits_codes"] = LANGS["uk"]["letter_bits_codes"] + [
     (K.LETTERGP_Y, [0x15, 0x18, 0x34, 0x37]),
 ]
 LANGS["bg"] = _cyrillic_config(K.STRESSPOSN_2R, regression=0x107)  # + word-final devoicing
+# LOPT_REDUCE=2 also for bg (tr_languages.c:578) and ru (Translator_Russian:1675).
+LANGS["bg"]["reduce_max_stress"] = True
+LANGS["ru"]["reduce_max_stress"] = True
 LANGS["tt"] = _cyrillic_config(K.STRESSPOSN_1R, K.S_NO_AUTO_2)  # tr_languages.c L('t','t'): no auto-secondary
 
 # --- Greek-script setup (tr_languages.c case L('e','l'), offset 0x380) ----------------
