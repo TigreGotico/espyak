@@ -482,13 +482,27 @@ class Interpreter:
             entry.stresslevel = was
             orig.stresslevel = 0
             if was >= 4:
-                # the diminished vowel carried the PRIMARY — promote it back to the previous
-                # syllabic vowel (MakePhonemeList promotion): ms klci, the final aɪ tonic moves
-                # to the c's iː -> kˌeəlsˈiːaɪ, not a primary-less kˌeəlsˌiːaɪ.
-                for j in range(i - 1, -1, -1):
+                # the diminished vowel carried the PRIMARY — promote it back within the word
+                # (MakePhonemeList promotion): ms klci, the final aɪ tonic moves to the c's iː ->
+                # kˌeəlsˈiːaɪ, not a primary-less kˌeəlsˌiːaɪ. Prefer the nearest preceding vowel
+                # that ALREADY carries a stress (>= secondary): the lost primary REPLACES that
+                # syllable's stress rather than leaving a stray secondary beside a fresh primary
+                # (ms bersesuaian b@Rs,@su'aI: the aɪ primary lands on the existing secondary ->
+                # bərsˈəsuaɪan, not bərsˌəsˈuaɪan). With no stressed preceding vowel it falls on
+                # the immediately preceding syllable (kesesuaian -> kəsəsˈuaɪan).
+                _ws = i
+                while _ws > 0 and not (plist[_ws].newword & 1):
+                    _ws -= 1
+                _nearest = None
+                for j in range(i - 1, _ws - 1, -1):
                     if plist[j].ph.type == phVOWEL:
-                        plist[j].stresslevel = was
-                        break
+                        if _nearest is None:
+                            _nearest = j
+                        if (plist[j].stresslevel & 0xf) >= 2:  # already carries a (secondary+) stress
+                            _nearest = j
+                            break
+                if _nearest is not None:
+                    plist[_nearest].stresslevel = was
         # The main loop already passed index i (the inserting phoneme is now at i+1), so the
         # inserted phoneme would never get its own program run. Run it now so e.g. the
         # epenthetic @- before 'r' applies its conditional `ipa NULL` (ru при -> prʲɪ, not
