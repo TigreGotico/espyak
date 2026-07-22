@@ -693,7 +693,7 @@ LANGS["ar"] = {
 }
 # Sindhi is written in the Arabic script (OFFSET_ARABIC); reuse the Arabic letter bits so
 # vowels are detected, but Sindhi stress is penultimate (2R), not Arabic's antepenult (3R).
-LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R)
+LANGS["sd"] = dict(LANGS["ar"], stress_rule=K.STRESSPOSN_2R, unstress_u_nucleus=True)
 # Urdu: the voice file (lang/.../ur) sets `stressRule 6` = STRESSPOSN_1RH (last heaviest syllable,
 # excluding the final) — the Hindi/Urdu weight-based stress. Default 2R put the accent on the wrong
 # syllable for words whose final syllable is heavy (انھوں UnHo:n -> ʊnhˈoːn, the long oː).

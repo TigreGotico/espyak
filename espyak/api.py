@@ -546,8 +546,9 @@ class G2P:
             # fighting the nucleus (ro cărora $u1 -> kˌəɾoɾˈa, not kˈəɾoɾˌa).
             base = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
                                    control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
-            return self._apply_alt_attribute(
+            promoted = self._apply_alt_attribute(
                 change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags) + suf
+            return self._promote_u_via_overlay(base + suf, promoted, flags)
         if suf and (flags & 0x8) and tonic >= 4:
             # a plain $u word (no explicit $N, no $u+) carrying a SUFX_T suffix as the clause
             # nucleus: espeak's SUFX_T SetWordStress runs on the stem with tonic=-1 (so the $u stem
@@ -559,9 +560,21 @@ class G2P:
                                    control=ctrl) + suf
             return self._apply_alt_attribute(
                 change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags)
-        return self._apply_alt_attribute(
-            set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
-                            control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0)), flags) + suf
+        stressed = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
+                                   control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+        if (flags & 0x8) and tonic >= 4 and self._config.get("unstress_u_nucleus"):
+            # A plain $u word (no explicit $N, no $u+, no suffix) promoted to the clause tonic in a
+            # language whose $u-nucleus vowel is reduced by a stress-conditioned program that runs
+            # BEFORE the intonation promotes it (sd ٿي: the i: program `IF isUnstressed THEN
+            # ChangePhoneme(i)` shortens the long vowel -> tʰˈi). Render the programs on the natural
+            # stress and overlay the promoted primary (see _promote_u_via_overlay). Most languages
+            # instead promote such a word to full stress BEFORE the program runs, so their stressed
+            # nucleus vowel keeps its full form (bg на -> nˈa, not nˈɐ); those never set this flag.
+            natural = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
+                                      control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+            return self._promote_u_via_overlay(
+                natural + suf, self._apply_alt_attribute(stressed, flags) + suf, flags)
+        return self._apply_alt_attribute(stressed, flags) + suf
 
     def _apply_alt_attribute(self, ph, flags):
         """ApplySpecialAttribute2 (translateword.c, LOPT_ALT&2: it/pt/sl). A $alt/$alt2 word
@@ -601,6 +614,29 @@ class G2P:
                     return out
                 break
         return ph
+
+    def _promote_u_via_overlay(self, natural, promoted, flags):
+        """A $u (unstressed function/short word) promoted to the clause tonic: return the mnemonic
+        carrying the word's NATURAL (un-tonic) stress so the stress-conditioned phoneme programs in
+        _render_phonemes run against THAT, and stash the promoted marks in ``_u_out_str`` to overlay
+        the clause-accent primary afterward.
+
+        This mirrors espeak's ordering: SetWordStress places the word's natural stress, the
+        phoneme programs (and voice `replace` directives) run on that level, and only the intonation
+        pass promotes the nucleus syllable's mark to primary. A program gated on stress therefore
+        sees the natural level, not the tonic — sd `i:` (IF isUnstressed -> short i) laxes to `i`,
+        and the zle/ru voice `replace 03 a a#` fires on a non-primary word-final `a` (могла ->
+        mʌɡɭˈa, not mʌɡɭˈɑ). For content words tonic=-1 and tonic=4 place identical marks, so those
+        never reach here; only $u words diverge, keeping the regression surface to $u nuclei.
+
+        A $alt/$alt2 word in a lopt_alt language (it/pt/sl) has its post-primary vowel already
+        shifted in ``promoted`` (ApplySpecialAttribute2 keys off the primary mark, absent in the
+        natural form); render it from ``promoted`` directly since the overlay transfers only stress
+        levels, not the vowel shift."""
+        if self._config.get("lopt_alt") and (flags & (K.FLAG_ALT_TRANS | K.FLAG_ALT2_TRANS)):
+            return promoted
+        self._u_out_str = promoted
+        return natural
 
     def _translate_core(self, word, ctx, word_flags=0, inherit_flags=0):
         """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
