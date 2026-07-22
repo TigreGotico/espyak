@@ -656,6 +656,19 @@ class G2P:
         if dict_ph:
             hangul = self._config.get("decompose_hangul")
             nfc_ph = unicodedata.normalize("NFC", dict_ph) if hangul else dict_ph
+            if flags & K.FLAG_TEXTMODE and hangul and "/" in dict_ph:
+                # A $text value carrying a '/' variant marker (ko 곗날 -> 곈ː날/겐ː날). espeak
+                # re-injects the value as ONE whitespace-delimited word (translate.c:150-193, split
+                # on isspace only — '/' is not whitespace), then TranslateWord3 translates it: the
+                # embedded '/' matches the en `/ slaS $max3` dict entry mid-word, which flags the
+                # word FLAG_SPELLWORD. TranslateClause then re-speaks the ORIGINAL source word letter
+                # by letter (translate.c:1608-1617) — NOT the replacement — so the spelled string is
+                # the original 곗날, decomposed to jamo: each consonant-initial jamo by its dict name
+                # (ᄀ -> gij'@q), each vowel/final jamo by its rule sound, with the final ㅅ giving the
+                # unreleased t- that the isolated final ㄴ of the replacement would not. Spell the
+                # ORIGINAL decomposed word by name (SpeakIndividualLetters/TranslateLetter).
+                self._spelled = True
+                return self._spell_letters_named(_decompose_hangul(word)), 0
             if flags & K.FLAG_TEXTMODE and " " in nfc_ph.strip():
                 # $text whose value is MULTIPLE words (xex j -> "íki flu"): espeak puts the text
                 # back in the source buffer and re-tokenises it, so each word is translated and
