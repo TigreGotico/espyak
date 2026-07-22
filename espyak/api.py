@@ -28,6 +28,8 @@ _IRISH_VOWELS = set("aeiouáéíóúàèìòùAEIOUÁÉÍÓÚÀÈÌÒÙ")
 # `:` is included: attached to a word it terminates the clause (`Warning:` -> wˈɔːnɪŋ),
 # even though ALONE it has a spoken name (colon) — a lone symbol is left untouched below.
 _CLAUSE_PUNCT = ".,;:!?…\"'“”‘’«»()[]{}"
+# ':' handled separately (trailing-only drop): a leading ':' is spoken (en :30 -> colon thirty).
+_CLAUSE_PUNCT_NO_COLON = ".,;!?…\"'“”‘’«»()[]{}"
 # The subset that stays silent even STANDING ALONE: pure clause structure. `!` and `:`
 # are deliberately absent — English names them (exclamation, colon) while Dutch does not,
 # so those are left to the per-language dictionary rather than hardcoded here.
@@ -1377,6 +1379,13 @@ class G2P:
             if _cat0 == "S" or _c == "%":
                 return True
             if _cat0 == "P":
+                # Clause-structure punctuation (. , ; ! ? … and quote/bracket pairs) is consumed
+                # by the reader, not spoken as a word — leave it attached so the _CLAUSE_PUNCT
+                # strip drops it (yes! -> jˈɛs, not …ˈɛkskləmˌeɪʃən). Only SPOKEN symbols/marks
+                # (# hash, @ at, & and, *) are isolated here. ':' is neither — it has its own
+                # between-letters rule below (a:b spelled / usa:s split / Warning: dropped).
+                if _c in _CLAUSE_PUNCT and _c != ":":
+                    return False
                 if _c == ":":
                     # A ':' BETWEEN two letters terminates the word: espeak's clause reader
                     # inserts a space at any letter<->non-letter boundary that is not
@@ -1396,15 +1405,20 @@ class G2P:
                     _n = text[_k + 1] if _k + 1 < len(text) else ""
                     if (_p.isascii() and _p.isdigit()) or (_n.isascii() and _n.isdigit()):
                         return False
-                    if not self._config.get("colon_spelled"):
-                        if not (_p.isalpha() and _n.isalpha()):
-                            return False
-                        # smj (caps_are_letters): a ':' after an UPPERCASE letter is that
-                        # letter's long-vowel NAME (A: -> ɑː), kept in-word for the caps
-                        # letter-name peel (_split_caps_word), not a word-splitting ':'
-                        # (bA:lldaj -> bˈeː ˈɑːl ltˈɑj, the geminate straddles A:).
-                        if self._config.get("caps_are_letters") and _p.isupper():
-                            return False
+                    # A ':' is only isolated BETWEEN two letters (a:b, usa:s). A clause-final
+                    # ':' (Warning:, before a space or end) is clause punctuation consumed by
+                    # the reader — dropped by the _CLAUSE_PUNCT strip, never spelled, even in a
+                    # colon-spelling language (en Warning: -> wˈɔːnɪŋ, not …kˈəʊlən). A
+                    # standalone ':' still reaches the dictionary, which names it (en colon).
+                    if not (_p.isalpha() and _n.isalpha()):
+                        return False
+                    # smj (caps_are_letters): a ':' after an UPPERCASE letter is that
+                    # letter's long-vowel NAME (A: -> ɑː), kept in-word for the caps
+                    # letter-name peel (_split_caps_word), not a word-splitting ':'
+                    # (bA:lldaj -> bˈeː ˈɑːl ltˈɑj, the geminate straddles A:).
+                    if (not self._config.get("colon_spelled")
+                            and self._config.get("caps_are_letters") and _p.isupper()):
+                        return False
                 return True
             return False
         if any(_isol(_k) for _k in range(len(text))):
@@ -1450,7 +1464,10 @@ class G2P:
             # which is especially bad for screen-reader use where most utterances end in one.
             #
             # A punctuation character STANDING ALONE is a separate case, handled below.
-            _stripped = raw_tok.strip(_CLAUSE_PUNCT)
+            # ':' is dropped only as a TRAILING clause terminator (Warning:, 12: -> the ':'
+            # ends the clause); a LEADING ':' is spoken/handled by the number-and-colon path
+            # (:30 -> kˈəʊlən θˈɜːti in en), so it is not lstripped.
+            _stripped = raw_tok.strip(_CLAUSE_PUNCT_NO_COLON).rstrip(":")
             if _stripped:
                 raw_tok = _stripped
             elif all(c in _SILENT_ALONE for c in raw_tok):
