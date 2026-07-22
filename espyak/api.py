@@ -29,7 +29,10 @@ _IRISH_VOWELS = set("aeiouáéíóúàèìòùAEIOUÁÉÍÓÚÀÈÌÒÙ")
 # even though ALONE it has a spoken name (colon) — a lone symbol is left untouched below.
 _CLAUSE_PUNCT = ".,;:!?…\"'“”‘’«»()[]{}"
 # ':' handled separately (trailing-only drop): a leading ':' is spoken (en :30 -> colon thirty).
-_CLAUSE_PUNCT_NO_COLON = ".,;!?…\"'“”‘’«»()[]{}"
+# The ASCII apostrophe is NOT stripped here: it can be part of the word (eo `l'` is a dict
+# entry meaning "la", fr `l'eau`, en `don't`), and espeak's own word-boundary-apostrophe rule
+# (translate.c:1361, the dedicated branch below) already decides when it is a separator.
+_CLAUSE_PUNCT_NO_COLON = ".,;!?…\"“”‘’«»()[]{}"
 # The subset that stays silent even STANDING ALONE: pure clause structure. `!` and `:`
 # are deliberately absent — English names them (exclamation, colon) while Dutch does not,
 # so those are left to the per-language dictionary rather than hardcoded here.
@@ -1470,6 +1473,20 @@ class G2P:
             # ends the clause); a LEADING ':' is spoken/handled by the number-and-colon path
             # (:30 -> kˈəʊlən θˈɜːti in en), so it is not lstripped.
             _stripped = raw_tok.strip(_CLAUSE_PUNCT_NO_COLON).rstrip(":")
+            # A quote apostrophe around a word ('hello') is clause punctuation, but a word-final
+            # or word-internal one can belong to the word (eo `l'` is the dict entry for "la",
+            # `dank'`; en `don't`), so `'` is NOT in _CLAUSE_PUNCT_NO_COLON. espeak decides this
+            # per language via LOPT_APOSTROPHE / char_plus_apostrophe — the dedicated
+            # `strip_boundary_apostrophe` branch below implements that, so only peel a LEADING
+            # quote here (never the trailing one, which that branch owns).
+            while len(_stripped) > 1 and _stripped[0] == "'" and _stripped[1].isalpha():
+                _stripped = _stripped[1:]
+            # A TRAILING apostrophe is a closing quote too ('hello' -> hello), unless the whole
+            # token with it is a dictionary headword — eo `l'` is the _list entry for "la", so
+            # peeling it there would lose the word (and yield the fr-style l'-elision instead).
+            while (len(_stripped) > 1 and _stripped[-1] == "'" and _stripped[-2].isalpha()
+                   and not self._dict.lookup_flags(_stripped.lower())):
+                _stripped = _stripped[:-1]
             if _stripped:
                 raw_tok = _stripped
             elif all(c in _SILENT_ALONE for c in raw_tok):

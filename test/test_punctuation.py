@@ -71,3 +71,24 @@ def test_dotted_abbreviations_still_work(en, oracle, text):
 @pytest.mark.parametrize("text", ["don't", "it's", "O'Brien"])
 def test_internal_apostrophe_preserved(en, oracle, text):
     assert en.phonemize(text) == oracle(text, "en")
+
+
+# The apostrophe is not blanket clause punctuation: it can be part of the word. A quote
+# apostrophe around a word peels (en 'hello'), but a word-final one that makes a dictionary
+# headword stays (eo `l'` is the _list entry for "la"), and a word-internal one always stays
+# (en don't, fr l'eau). qu strips its boundary apostrophe via strip_boundary_apostrophe.
+APOSTROPHE_CASES = [
+    ("en", "'hello'", "həlˈəʊ"),
+    ("en", "don't", "dˈəʊnt"),
+    ("en", "'tis", "tˈɪz"),
+    ("eo", "l'", "lˈa"),
+    ("eo", "dank'", "dˈank"),
+    ("fr", "l'eau", "lˈo"),
+    ("qu", "k'", "kˈaː"),
+]
+
+
+@pytest.mark.parametrize("lang,text,ipa", APOSTROPHE_CASES)
+def test_apostrophe_word_vs_quote(lang, text, ipa):
+    import unicodedata
+    assert unicodedata.normalize("NFC", G2P(lang, force_compat=True).phonemize(text)) == ipa
