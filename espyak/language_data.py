@@ -251,6 +251,10 @@ LANGS = {
     "ht": {"stress_rule": K.STRESSPOSN_1R,  # Haitian Creole: final-syllable stress
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM, "extra_vowels": "àèéò"},
     "it": {"stress_rule": K.STRESSPOSN_2R, "extra_vowels": "àèéìíîòóùú",
+           # tr_languages.c:1081 SetLetterVowel(tr,'y'): y joins the vowel groups A+VOWEL2 (and
+           # leaves the consonant groups), so a `CACA`/vowel right-context spans a trailing `…Cy`
+           # (montgomery: o (CACA_ -> O opens the stressed o to ɔ, montɡˈɔmerɪ not montɡˈomerɪ).
+           "set_letter_vowel": "y",
            "stress_flags": K.S_NO_AUTO_2 | K.S_FINAL_DIM_ONLY | K.S_PRIORITY_STRESS,
            "it_lengthen": 2,  # remove length from unstressed/non-penultimate
            "lopt_alt": True,  # ApplySpecialAttribute2: $alt/$alt2 shift the post-stress e<->E o<->O

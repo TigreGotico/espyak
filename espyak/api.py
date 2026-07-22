@@ -789,6 +789,16 @@ class G2P:
                         # drop the prefix, and fall through to the standard suffix branches below
                         # (SUFX_Q keeps the in-context stem — ro reci -> rˈetʃʲ, not rˈekʲ).
                         end_type, end_ph, ph = end2, end_ph2, ph2
+                    else:
+                        # the prefix survives on the suffix-stripped stem, but the stem's
+                        # retranslation may recognise a DIFFERENT (shorter) prefix than the whole
+                        # word did. espeak reassigns end_type to that stem translation
+                        # (translateword.c:350) and continues the strip loop from it, so the
+                        # (shorter) stem prefix is removed from the FULL word: de umgehen matched
+                        # `umge`P4, but stem `umgeh` re-matches only `um`P2 (`umge`'s `@` syllable
+                        # post-context fails on the vowelless `h`), so `um` is stripped and `gehen`
+                        # translated -> ʊmɡˈeːˌən, not the over-stripped ʊmɡˈəhˌeːn.
+                        end_type, end_ph, ph = sp_end_type, _se, _sp
             if end_type & K.SUFX_P:
                 # still a prefix: remove it, translate the stem, prepend the prefix phonemes
                 prefix_len = end_type & 0x3f
@@ -2481,14 +2491,12 @@ class G2P:
         if getattr(self, "_neutral_tone", False):
             # cmn neutral tone is unstressed: drop the one tonic mark espeak omits.
             result = result.replace("ˈ" if ipa else "'", "", 1)
-        if ipa and (self._config.get("stress_flags", 0) & K.S_FIRST_PRIMARY):
-            # ca S_FIRST_PRIMARY: within ONE multi-word dict entry (a || expansion rendered here as a
-            # single token) only the first primary survives; later parts reduce to secondary (ccoo ->
-            # cumisiˈonz uβɾˌeɾəs). Applied per-token so separately-rendered tokens — digit splits
-            # (co2 -> kˈɔ ðˈos) and '/' splits (a/e -> ə βˈarə ˈɛ) — each keep their own primary.
-            first = result.find("ˈ")
-            if first >= 0:
-                result = result[:first + 1] + result[first + 1:].replace("ˈ", "ˌ")
+        # ca/nl S_FIRST_PRIMARY (dictionary.c:1321-1328) reduces primaries after the first to
+        # secondary INSIDE SetWordStress, over one stress domain — a `||` multi-word dict value
+        # (ccoo -> cumisiˈonz uβɾˌeɾəs) is one such domain and is already collapsed there. It must
+        # NOT cross a spelled-prefix boundary: an unpronounceable word's SetSpellingStress prefix
+        # and its rule-translated remainder are stressed in SEPARATE domains, so both keep a primary
+        # (ca Mgfca -> ˈeməkfkˈa). A post-render global reduction would wrongly merge those domains.
         return result
 
     _SWITCH_CACHE = {}
