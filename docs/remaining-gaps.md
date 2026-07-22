@@ -193,23 +193,17 @@ the target output is not a function of the input plus the bundled data:
 6. **Base-engine deleted-phoneme / segmentation cases** (e.g. `is gegnum` `hn#` mnemonic
    leak, `ko` Hangul jamo spelling): espeak's segmentation deletes or reorders phonemes via
    synthesis-time state espyak's render does not model.
-7. **`sr`/`hr`/`bs` `uxd`/`xba` inherited-`k` voicing-switch staleness** (`ˈuˌɪkzdˌə` vs
-   espyak `ˈuˌɪɡzdˌə`): a spelled `x` → `iks`, and regressive voicing (`LOPT_REGRESSIVE_VOICING
-   0x3`) before the voiced `d` voices the fricative `s`→`z`. The stop `k` should **not** voice
-   to `ɡ` — and in the oracle it does not, while `t`→`d`, `p`→`b`, `s`→`z`, `š`→`ž`, `f`→`v`,
-   `x`→`ɣ`, `č`→`dž` all do. `SetRegressiveVoicing` (phonemelist.c:503) switches a consonant via
-   `ph->end_type`, which for consonants holds the `voicingswitch` target as a **numeric phoneme
-   code resolved in the phoneme's defining table** (compiledata.c:1990). `k` reaches the
-   sr/hr/bs table via `import_phoneme base2/k` (ph_slovak), so its copied end_type is `base2`'s
-   `g` index; `base2` is not an ancestor of the sr→hr→sk→pl→base1 chain, so that stale code no
-   longer maps to `g` in the derived table and the switch silently no-ops. Locally-redefined
-   stops (`t`, `p` in ph_croatian) keep a table-local, valid switch, which is why only `k`→`ɡ`
-   fails. espyak resolves `voicing_switch` by **mnemonic** (`table.get('g')`), always finding
-   the current table's `g`, so it switches `k`→`ɡ` "correctly" and diverges. Replicating the
-   bug faithfully would require modelling espeak's per-table numeric phoneme codes and their
-   staleness across `import_phoneme`/inheritance — a phoneme-table-loader change whose blast
-   radius (every inherited obstruent with a `voicingswitch`, in every language) far exceeds the
-   6 affected headwords.
+7. **Clause-level regressive voicing runs after the phoneme programs, not before.**
+   espeak calls `SetRegressiveVoicing` on the whole clause list (phonemelist.c:214-216)
+   *before* `InterpretPhoneme` executes the phoneme programs. espyak renders word by word,
+   so the clause pass (`_apply_cross_word_voicing`) necessarily runs on lists whose programs
+   have already fired, and it only rewrites a phoneme where appending the next word changes
+   the result. Where a program has already substituted the word-final phoneme, the later
+   voicing pass no longer sees the phoneme espeak saw: `pl gnieść wgrał` -> oracle
+   `ɡɲʲˈɛʑdʑ vɡrˈaw`, espyak `ɡɲʲˈɛɕtɕ vɡrˈaw` (the word-final `Z;`/`dz;` have already been
+   rendered voiceless by their own programs, so the cross-word `v` finds nothing to switch).
+   Fixing this needs the per-word render reworked into espeak's clause-level phoneme-list
+   model — the same architectural change item 3 above is blocked on.
 
 These put a permanent floor a few hundredths of a percent below a clean byte-for-byte 100%.
 
