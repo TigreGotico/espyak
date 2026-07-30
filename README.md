@@ -1,14 +1,14 @@
 # espyak
 
-**A pure-Python reimplementation of [espeak-ng](https://github.com/espeak-ng/espeak-ng)'s
-grapheme-to-phoneme (G2P) front-end.** Text → phonemes only: no synthesis, no audio, no C
-extension, no runtime dependencies.
+`espyak` is a pure-Python reimplementation of [espeak-ng](https://github.com/espeak-ng/espeak-ng)'s
+grapheme-to-phoneme (G2P) front-end. It converts text to phonemes only: no synthesis, no
+audio, no C extension, no runtime dependencies.
 
-> Reproduces the `espeak-ng` binary (pinned **1.52.0**) byte-for-byte. The full-headword
-> parity audit (every `*_list` word, `force_compat` mode) is **99.71%** across 105
-> languages — **59 at 100%** — and **99.69%** across 22 sub-dialect variants (pt-br, en-us,
-> es-419, …). 117 languages bundled. The remaining fails are catalogued in
-> [`docs/remaining-gaps.md`](docs/remaining-gaps.md).
+> `espyak` reproduces the `espeak-ng` binary (pinned **1.52.0**) byte-for-byte. The
+> full-headword parity audit (every `*_list` word, `force_compat` mode) reaches **99.71%**
+> across 105 languages - **59 at 100%** - and **99.69%** across 22 sub-dialect variants
+> (pt-br, en-us, es-419, …). The package bundles 117 languages. [`docs/remaining-gaps.md`](docs/remaining-gaps.md)
+> lists the remaining fails.
 
 ```python
 from espyak import G2P
@@ -24,9 +24,9 @@ G2P("ru").phonemize("привет")             # 'prʲivʲˈet'
 
 ## Why
 
-`espyak` gives projects espeak-ng's phonemes without the native dependency: nothing to
-shell out to, no C-extension to build, and the rules are readable and patchable in Python.
-It drops in as a backend for [phoonnx](https://github.com/TigreGotico/phoonnx).
+`espyak` gives a project espeak-ng's phonemes without the native dependency. There is
+nothing to shell out to and no C extension to build, and the rules stay readable and
+patchable in Python. It works as a backend for [phoonnx](https://github.com/TigreGotico/phoonnx).
 
 ## Install
 
@@ -35,8 +35,9 @@ pip install -e .          # from a clone (the espeak-ng source data is bundled, 
 # or:  uv pip install -e .
 ```
 
-Python ≥ 3.9. The espeak-ng `dictsource/`, `phsource/`, and `lang/` data are bundled under
-`espyak/data/` at the pinned `1.52.0` tag, so nothing is needed system-wide.
+Python 3.9 or later is required. The espeak-ng `dictsource/`, `phsource/`, and `lang/` data
+ship bundled under `espyak/data/` at the pinned `1.52.0` tag, so no system-wide install is
+needed.
 
 ## Usage
 
@@ -45,29 +46,29 @@ Python ≥ 3.9. The espeak-ng `dictsource/`, `phsource/`, and `lang/` data are b
 ```python
 from espyak import G2P
 
-g2p = G2P("en")                      # one translator per language — construct once, reuse
+g2p = G2P("en")                      # one translator per language - construct once, reuse
 
 g2p.phonemize("read")                # 'ɹˈiːd'
 g2p.phonemize("2024 dogs")           # numbers expand to words, then phonemes
 
-g2p.phonemize("cat", ipa=True)       # 'kˈat'        — Unicode IPA (default)
-g2p.phonemize("cat", ipa=False)      # "k'at"        — Kirshenbaum ASCII (espeak -x)
-g2p.phonemize("cat", separator="_")  # 'k_ˈa_t'      — separate phonemes
+g2p.phonemize("cat", ipa=True)       # 'kˈat'        - Unicode IPA (default)
+g2p.phonemize("cat", ipa=False)      # "k'at"        - Kirshenbaum ASCII (espeak -x)
+g2p.phonemize("cat", separator="_")  # 'k_ˈa_t'      - separate phonemes
 g2p.phonemize("cat", tie="͡")         # tie multi-char phoneme names
 ```
 
-### Dialects / sub-dialect variants
+### Dialects and sub-dialect variants
 
-A variant code (`pt-br`, `en-us`, `es-419`, `fr-be`, …) is loaded the same way — pass it to
-`G2P`. espeak-ng models a sub-dialect as a small voice file that **layers** over the shared
-base language (its dictionary, rules and translator config), overriding only the phoneme
+A variant code (`pt-br`, `en-us`, `es-419`, `fr-be`, …) loads the same way: pass it to
+`G2P`. espeak-ng models a sub-dialect as a small voice file that layers over the shared
+base language (its dictionary, rules, and translator config), overriding only the phoneme
 table, the dictionary conditionals, and a few post-translation phoneme substitutions:
 
 ```python
-G2P("pt-br").phonemize("dia")        # 'dʒˈiæ'   — Brazilian di palatalization
-G2P("pt").phonemize("dia")           # 'dˈiɐ'    — base (European) Portuguese
-G2P("en-us").phonemize("better")     # 'bˈɛɾɚ'   — rhotic, the en-us replace table
-G2P("es-419").phonemize("cielo")     # 'sjˈelo'  — seseo (θ→s); base es → 'θjˈelo'
+G2P("pt-br").phonemize("dia")        # 'dʒˈiæ'   - Brazilian di palatalization
+G2P("pt").phonemize("dia")           # 'dˈiɐ'    - base (European) Portuguese
+G2P("en-us").phonemize("better")     # 'bˈɛɾɚ'   - rhotic, the en-us replace table
+G2P("es-419").phonemize("cielo")     # 'sjˈelo'  - seseo (θ→s); base es → 'θjˈelo'
 ```
 
 The 22 supported variants (codes are case-insensitive):
@@ -101,7 +102,7 @@ echo "привет" | espyak -v ru -       # read from stdin
 | `separator="_"`       | `--sep=_`   | insert a separator between phonemes |
 | `tie="͡"`              | `--tie`     | tie character within multi-char names |
 
-`G2P(lang).phonemize(text, ipa=True, tie=None, separator=None)` is the whole surface; see
+`G2P(lang).phonemize(text, ipa=True, tie=None, separator=None)` is the whole surface. See
 [`docs/usage.md`](docs/usage.md) for details and `render()` (raw phoneme-string rendering).
 
 ## How it works
@@ -113,8 +114,8 @@ text → dictionary _list lookup → prefix/suffix retranslation → letter-to-s
      → SetWordStress → phoneme programs (ChangePhoneme/InsertPhoneme) → render (IPA / -x)
 ```
 
-Fidelity is inherited from the bundled data; the matcher, stress, number, and
-phoneme-program logic are re-implemented to match the binary, espeak-ng's quirks included.
+Fidelity comes from the bundled data. The matcher, stress, number, and phoneme-program
+logic are re-implemented to match the binary, including espeak-ng's quirks.
 [`docs/architecture.md`](docs/architecture.md) has the module map and pipeline.
 
 ## Verification
@@ -128,23 +129,23 @@ python test/parity_audit.py --variants --cap 2000   # the same for the 22 sub-di
 ```
 
 The reference ("oracle") is a pinned `espeak-ng 1.52.0` build, used only to generate
-expected outputs — `espyak` never calls it at runtime. Every dictionary `*_list` headword
-is a free test case. `parity_audit.py` tests **every** headword in `force_compat` mode (the
-edge cases — single accented letters, abbreviations, codepoint names — are where parity
-breaks) and writes a per-language table plus a JSONL of every mismatch; `--variants` audits
+expected outputs. `espyak` never calls it at runtime. Every dictionary `*_list` headword is
+a free test case. `parity_audit.py` tests every headword in `force_compat` mode, where the
+edge cases (single accented letters, abbreviations, codepoint names) are where parity
+breaks, and writes a per-language table plus a JSONL of every mismatch. `--variants` audits
 each dialect's base headwords through its voice layer. `test/report.md` holds the
 per-language sweep pass rate.
 
 ## Coverage
 
 Full-headword parity is **99.71%** (105 languages, `--cap 2000`) and **99.69%** across the
-22 variants, with 59 base languages at 100%. The ~136 remaining base fails are concentrated
-in phoneme-level language switches, letter-name/abbreviation spelling (`LookupDictList`),
+22 variants, with 59 base languages at 100%. The remaining ~136 base fails concentrate in
+phoneme-level language switches, letter-name/abbreviation spelling (`LookupDictList`),
 unported `numbers.c` branches, and a small irreducible floor (formant-synthesis allophones,
-the `ru` `a`/`ɑ` reduction, oracle self-inconsistencies). They are catalogued, classified,
-and prioritized in [`docs/remaining-gaps.md`](docs/remaining-gaps.md). The default engine
-(`force_compat=False`) is the linguistically-correct G2P and may deviate from espeak-ng only
-at the entries in [`docs/divergences.md`](docs/divergences.md).
+the `ru` `a`/`ɑ` reduction, oracle self-inconsistencies). [`docs/remaining-gaps.md`](docs/remaining-gaps.md)
+catalogs, classifies, and prioritizes them. The default engine (`force_compat=False`) is the
+linguistically correct G2P, and it deviates from espeak-ng only at the entries in
+[`docs/divergences.md`](docs/divergences.md).
 
 ## Project layout
 
@@ -152,10 +153,10 @@ at the entries in [`docs/divergences.md`](docs/divergences.md).
 espyak/            the engine (one module per espeak-ng translation unit)
   api.py           public G2P entry point
   dictionary.py    MatchRule / TranslateRules / SetWordStress / LookupDict2
-  rule_compiler.py compiledict.c — rule byte encoding + groups
-  phoneme_tab.py   phsource loader; phoneme_program.py — ChangePhoneme/InsertPhoneme
+  rule_compiler.py compiledict.c - rule byte encoding + groups
+  phoneme_tab.py   phsource loader; phoneme_program.py - ChangePhoneme/InsertPhoneme
   language_data.py per-language translator config (tr_languages.c + voice files)
-  voice.py         sub-dialect VARIANT loader (voices.c LoadVoice) — pt-br/en-us/es-419/…
+  voice.py         sub-dialect VARIANT loader (voices.c LoadVoice) - pt-br/en-us/es-419/…
   numbers.py       TranslateNumber + ordinals/fractions
   render.py        phoneme list → IPA / Kirshenbaum / stress / tie / separator
   data/            bundled espeak-ng dictsource/ phsource/ lang/ @ 1.52.0
@@ -166,11 +167,11 @@ test/              unit tests, oracle fixtures, sweep + corpus + parity_audit ha
 
 ## Provenance
 
-`espyak` is an **AI-assisted port**. The Python was written by an AI coding assistant that
-read and instrumented espeak-ng's C source; **human review has been minimal**. It is not an
+`espyak` is an AI-assisted port. An AI coding assistant wrote the Python after reading and
+instrumenting espeak-ng's C source, and human review has been minimal. It is not an
 independent clean-room implementation.
 
 ## License
 
-`espyak` is **GPL-3.0-or-later**, the same as espeak-ng — from which it is derived and whose
-data it bundles under `espyak/data/`. See [`LICENSE`](LICENSE).
+`espyak` is GPL-3.0-or-later, the same license as espeak-ng, from which it is derived and
+whose data it bundles under `espyak/data/`. See [`LICENSE`](LICENSE).
