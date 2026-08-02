@@ -59,8 +59,16 @@ def voice_path(code):
     # voice file declares on its `language` lines (en-gb -> the gmw/en file, which is the
     # canonical British voice). Prefer an exact filename hit, then a case-fold filename
     # match, then a declared-language match.
+    #
+    # Multiple voice files can declare the same requested code (e.g. `en`, `en-GB-scotland`
+    # and `en-GB-x-rp` all declare `language en-gb ...`); the trailing number on the
+    # `language` line is espeak-ng's match PRIORITY (lower = better/more canonical), so the
+    # declared-language fallback must pick the lowest-priority declaration, not merely the
+    # first one `os.listdir` happens to yield -- directory iteration order is filesystem-
+    # dependent (a fresh checkout vs. an existing one can list entries differently), which
+    # previously made this resolution non-deterministic across environments/checkouts.
     name_fallback = None
-    lang_fallback = None
+    best_lang_fallback = None  # (priority, fpath)
     code_lower = code.lower()
     for group in sorted(os.listdir(LANG_DIR)):
         gdir = os.path.join(LANG_DIR, group)
@@ -69,28 +77,38 @@ def voice_path(code):
         cand = os.path.join(gdir, code)
         if os.path.isfile(cand):
             return cand
-        for name in os.listdir(gdir):
+        for name in sorted(os.listdir(gdir)):
             fpath = os.path.join(gdir, name)
             if not os.path.isfile(fpath):
                 continue
             if name_fallback is None and name.lower() == code_lower:
                 name_fallback = fpath
-            elif lang_fallback is None and _declares_language(fpath, code_lower):
-                lang_fallback = fpath
-    return name_fallback or lang_fallback
+            priority = _declared_language_priority(fpath, code_lower)
+            if priority is not None and (best_lang_fallback is None or priority < best_lang_fallback[0]):
+                best_lang_fallback = (priority, fpath)
+    if name_fallback is not None:
+        return name_fallback
+    return best_lang_fallback[1] if best_lang_fallback else None
 
 
-def _declares_language(fpath, code_lower):
-    """True if the voice file has a ``language <code>`` line matching ``code_lower``."""
+def _declared_language_priority(fpath, code_lower):
+    """Priority (lower = better match) of a ``language <code> [priority]`` line matching
+    ``code_lower`` in the voice file at ``fpath``, or ``None`` if it declares no such code.
+    A line with no explicit priority number defaults to espeak-ng's own default of 5."""
     try:
         with open(fpath, encoding="utf-8") as fh:
             for line in fh:
                 parts = line.split()
                 if len(parts) >= 2 and parts[0] == "language" and parts[1].lower() == code_lower:
-                    return True
+                    if len(parts) >= 3:
+                        try:
+                            return int(parts[2])
+                        except ValueError:
+                            pass
+                    return 5
     except OSError:
         pass
-    return False
+    return None
 
 
 def phonemes_master():

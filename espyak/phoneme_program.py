@@ -139,10 +139,19 @@ _FEATURES = {
     "isWordEnd": lambda ph, e, ctx: ctx.get("word_end", False),
     "isFirstVowel": lambda ph, e, ctx: ctx.get("first_vowel", False),
     "isFinalVowel": lambda ph, e, ctx: ctx.get("final_vowel", False),
-    "isStressed": lambda ph, e, ctx: e is not None and e.stresslevel >= 4,
-    "isNotStressed": lambda ph, e, ctx: e is None or e.stresslevel < 4,
-    "isUnstressed": lambda ph, e, ctx: e is None or e.stresslevel <= 1,
-    "isDiminished": lambda ph, e, ctx: e is not None and e.stresslevel == 0,
+    # Stress predicates follow espeak's StressCondition (synthdata.c:410): for a VOWEL the level is
+    # its own stresslevel; for a CONSONANT the level is taken from the immediately FOLLOWING vowel,
+    # and if the next phoneme is not a vowel the condition returns FALSE (a coda consonant has "no
+    # stress level"). ctx["stress_level"] carries that consonant-aware value (sentinel -1 = "no
+    # level" -> every condition false). Thresholds match condition_level[]:
+    #   isStressed=SECONDARY (>3), isNotStressed=NOT_STRESSED (<4), isUnstressed=UNSTRESSED (<2),
+    #   isDiminished=DIMINISHED (<1). This is what keeps gd pre-aspiration `#` (a consonant before
+    # another consonant) alive: thisPh(isNotStressed) is false, so ChangePhoneme(NULL) does not fire
+    # (mac -> mˈaxɡ, cat -> kˈahd, letter w -> dˈɔhbəljuː).
+    "isStressed": lambda ph, e, ctx: ctx.get("stress_level", -1) > 3,
+    "isNotStressed": lambda ph, e, ctx: 0 <= ctx.get("stress_level", -1) < 4,
+    "isUnstressed": lambda ph, e, ctx: 0 <= ctx.get("stress_level", -1) < 2,
+    "isDiminished": lambda ph, e, ctx: ctx.get("stress_level", -1) == 0,
     "isMaxStress": lambda ph, e, ctx: ctx.get("max_stress", False),
     # isVelar tests phPLACE_VELAR (==8), set only by the `vel` keyword (lbv is phPLACE_LABIO_VELAR,
     # a different place). isPalatal tests the phPALATAL phflag (bit 9), set by pal/alp/pzd —
@@ -176,11 +185,22 @@ class _Pause:
 
 _PAUSE = _Pause()
 
+# Context for a target position off the end of the (per-word) phoneme list: espeak's
+# phoneme_list always carries trailing clause pauses, so a phoneme at the very end of a
+# word is word-final (isWordEnd true) and its off-end neighbour is a pause. The other
+# word-scoped features (first/second/final vowel, stress relations) are meaningless for a
+# pause and evaluate false, matching the C conditions on a phPAUSE target.
+_OFF_END_CTX = {"word_end": True, "first_vowel": False, "second_vowel": False,
+                "after_stress": False, "final_vowel": False, "max_stress": False,
+                "stress_level": -1, "translation_given": False}
+
 
 class Interpreter:
-    def __init__(self, source, table):
+    def __init__(self, source, table, reduce_max_stress=False):
         self.source = source
         self.table = table
+        # langopts.param[LOPT_REDUCE] & 2 (tr_languages.c: bg, is, ru)
+        self.reduce_max_stress = reduce_max_stress
         self._prog_cache = {}
 
     def _program(self, ph):
@@ -233,10 +253,18 @@ class Interpreter:
         # (synthdata.c CountVowelPosition stops at sourceix; isFinalVowel/isAfterStress walk to
         # the next/previous word boundary). Use newword&1 marks as the sourceix equivalent.
         ws, we = self._word_bounds(plist, i)
-        vowels = [j for j in range(ws, we) if plist[j].ph.type == phVOWEL]
-        first_vowel = bool(vowels and vowels[0] == i)
-        second_vowel = bool(len(vowels) > 1 and vowels[1] == i)
-        final_vowel = bool(vowels and vowels[-1] == i)
+        # isFirstVowel/isSecondVowel (synthdata.c:635-638) test CountVowelPosition(plist)==1/==2,
+        # where CountVowelPosition (synthdata.c:454) walks BACKWARD from this phoneme to the word
+        # start counting vowels (this phoneme included if it is a vowel). So the flags hold for a
+        # CONSONANT sitting after the 1st/2nd vowel too, not only at the vowel itself — e.g. the
+        # word-final k of the Malayalam letter name `_ik` counts 1 preceding vowel, so isFirstVowel
+        # is true there and the k->g voicing (guarded by NOT isFirstVowel) is correctly suppressed.
+        vcount = sum(1 for j in range(ws, i + 1) if plist[j].ph.type == phVOWEL)
+        first_vowel = vcount == 1
+        second_vowel = vcount == 2
+        # isFinalVowel (synthdata.c:625-632) walks FORWARD to the next word boundary; true if no
+        # further vowel is found — so it also holds for a trailing consonant after the last vowel.
+        final_vowel = not any(plist[j].ph.type == phVOWEL for j in range(i + 1, we))
         # isMaxStress (synthdata.c:440-441): stress_level >= pl->wordstress, where wordstress
         # is the max stresslevel in THIS word (phonemelist.c:227-239) and stress_level is this
         # vowel's level (or the FOLLOWING vowel's if this is a consonant; StressCondition).
@@ -257,6 +285,7 @@ class Interpreter:
         return {"word_end": word_end, "first_vowel": first_vowel,
                 "second_vowel": second_vowel, "after_stress": after_stress,
                 "final_vowel": final_vowel, "max_stress": max_stress,
+                "stress_level": sl,
                 "translation_given": getattr(self, "_translation_given", False)}
 
     @staticmethod
@@ -342,6 +371,17 @@ class Interpreter:
             if getattr(plist[i], "dict_no_reduce", False):
                 return False
             lvl = plist[i].stresslevel
+            if self.reduce_max_stress:
+                # LOPT_REDUCE&2 (synthdata.c:434-437): "treat the most stressed syllable in an
+                # unstressed word as stressed" — StressCondition raises stress_level to
+                # STRESS_IS_PRIMARY whenever it already equals this word's maximum stresslevel.
+                # So in is/bg/ru an unstressed function word still keeps its full (long/tense)
+                # vowel: is `var` alone is ʋˈaːr and `skráin var vistuð` is still ...ʋaːr...,
+                # because a: -> a (ChangeIfNotStressed) never fires on the word's own peak.
+                ws, we = self._word_bounds(plist, i)
+                word_max = max((plist[j].stresslevel & 0xf for j in range(ws, we)), default=0)
+                if (lvl & 0xf) >= word_max:
+                    lvl = 4
             cond = {
                 "ChangeIfDiminished": lvl == 0,
                 "ChangeIfUnstressed": lvl <= 1,
@@ -420,6 +460,17 @@ class Interpreter:
         from espyak.phoneme_tab import phVOWEL
         entry = PhonemeListEntry(ph)
         plist.insert(i, entry)
+        # espeak (phonemelist.c:308) inserts by OVERWRITING the current slot with the alternative
+        # (`plist3->phcode = alternative`) and re-queueing the original for the next iteration; the
+        # freshly memset()-ed re-inserted entry gets sourceix=0. So the word-start marker (sourceix)
+        # stays on the slot the inserted phoneme now occupies — i.e. it TRANSFERS from the original
+        # to the inserted phoneme when the original started the word. Without this, an epenthetic @-
+        # inserted before a word-initial `r` sees the `r` still flagged as word-start, so its
+        # `IF nextPhW(r) THEN ipa NULL` mis-fails and the schwa is kept (ru радио -> ərˈɑdʲɪo, lt
+        # raj -> ərajˈɔnas, instead of rˈɑdʲɪo / rajˈɔnas).
+        if plist[i + 1].newword & 1:
+            entry.newword |= plist[i + 1].newword
+            plist[i + 1].newword = 0
         # espeak (phonemelist.c ~309: "if we insert a phoneme before a vowel then we loose the
         # stress"): the inserted phoneme takes the vowel's stress slot, and since it is
         # non-syllabic the stress no longer renders — the vowel is effectively diminished. In a
@@ -431,13 +482,27 @@ class Interpreter:
             entry.stresslevel = was
             orig.stresslevel = 0
             if was >= 4:
-                # the diminished vowel carried the PRIMARY — promote it back to the previous
-                # syllabic vowel (MakePhonemeList promotion): ms klci, the final aɪ tonic moves
-                # to the c's iː -> kˌeəlsˈiːaɪ, not a primary-less kˌeəlsˌiːaɪ.
-                for j in range(i - 1, -1, -1):
+                # the diminished vowel carried the PRIMARY — promote it back within the word
+                # (MakePhonemeList promotion): ms klci, the final aɪ tonic moves to the c's iː ->
+                # kˌeəlsˈiːaɪ, not a primary-less kˌeəlsˌiːaɪ. Prefer the nearest preceding vowel
+                # that ALREADY carries a stress (>= secondary): the lost primary REPLACES that
+                # syllable's stress rather than leaving a stray secondary beside a fresh primary
+                # (ms bersesuaian b@Rs,@su'aI: the aɪ primary lands on the existing secondary ->
+                # bərsˈəsuaɪan, not bərsˌəsˈuaɪan). With no stressed preceding vowel it falls on
+                # the immediately preceding syllable (kesesuaian -> kəsəsˈuaɪan).
+                _ws = i
+                while _ws > 0 and not (plist[_ws].newword & 1):
+                    _ws -= 1
+                _nearest = None
+                for j in range(i - 1, _ws - 1, -1):
                     if plist[j].ph.type == phVOWEL:
-                        plist[j].stresslevel = was
-                        break
+                        if _nearest is None:
+                            _nearest = j
+                        if (plist[j].stresslevel & 0xf) >= 2:  # already carries a (secondary+) stress
+                            _nearest = j
+                            break
+                if _nearest is not None:
+                    plist[_nearest].stresslevel = was
         # The main loop already passed index i (the inserting phoneme is now at i+1), so the
         # inserted phoneme would never get its own program run. Run it now so e.g. the
         # epenthetic @- before 'r' applies its conditional `ipa NULL` (ru при -> prʲɪ, not
@@ -498,11 +563,31 @@ class Interpreter:
             step = 1 if func == "nextVowel" else -1
             j = i + step
             while 0 <= j < len(plist):
+                # nextVowel/prevVowel do NOT cross a word boundary (synthdata.c:532-546):
+                # nextVowel returns false if it meets a word-start (sourceix) before the vowel;
+                # prevVowel is scoped to the previous vowel of THIS word. A word boundary is the
+                # newword&1 mark on the first phoneme of a word — so for the backward scan the
+                # boundary sits ON a word-start phoneme (which may itself be that word's vowel:
+                # test it before bailing). This stops ru `V`(-дцать) from reaching the following
+                # number word's stressed vowel across a `||` join: двенадцать||тысяч keeps `V`->ʌ
+                # (dvʲɪnˈɑttsʌtʲ), while двадцать+два within one word crosses to два (…tsatʲ…).
+                # nextVowel (forward) tests the boundary FIRST (synthdata.c:534): a word-start
+                # ends the scan even if that phoneme is itself a vowel. prevVowel (backward) is the
+                # previous vowel in this word, so a vowel sitting ON the word-start still counts —
+                # test the vowel first, then stop at the boundary.
+                at_boundary = bool(plist[j].newword & _START_OF_WORD)
+                if step > 0 and at_boundary:
+                    return False
                 if plist[j].ph.type == phVOWEL:
                     feat = _FEATURES.get(arg)
                     if feat is not None:
-                        return feat(plist[j].ph, plist[j], {})
+                        # context-dependent features (isMaxStress, isFirstVowel, …) must be
+                        # evaluated for the SCANNED vowel's own position, not with an empty
+                        # context — espeak re-runs the predicate at that phoneme.
+                        return feat(plist[j].ph, plist[j], self._context(plist, j))
                     return plist[j].ph.mnemonic == arg
+                if at_boundary:  # backward scan reached this word's start with no vowel
+                    return False
                 j += step
             return False
         # espeak merges a length marker (:) into the preceding vowel (SFLAG_LENGTHEN), so it is
@@ -550,7 +635,19 @@ class Interpreter:
             ph, entry = _PAUSE, None
         feat = _FEATURES.get(arg)
         if feat is not None:
-            return feat(ph, entry, ctx if func == "thisPh" else {})
+            # Position-relative features (isWordEnd, isFinalVowel, isMaxStress, ...) are a
+            # property of whichever phoneme the predicate points at, not of thisPh: espeak
+            # re-derives them from the target's own position (synthdata.c evaluates the
+            # condition after advancing `plist` to prevPh/nextPh/next2Ph). Compute the
+            # target's context so e.g. `nextPh(isWordEnd)` sees the next phoneme's word-end
+            # status (tr `e -> &` before a word-final nasal: ben -> bˈæn).
+            if func == "thisPh":
+                tctx = ctx
+            elif 0 <= target_i < len(plist):
+                tctx = self._context(plist, target_i)
+            else:
+                tctx = _OFF_END_CTX
+            return feat(ph, entry, tctx)
         if arg.startswith("#"):
             # #i / #@ / #o ... — a vowel category. espeak (synthdata.c:583) matches prevPh()
             # / prevPhW() on the previous vowel's END type (a diphthong eI ends in #i), and

@@ -83,7 +83,7 @@ espeak's points are an integer that selects the winning rule via **last-best-win
 | RULE_ENDING | `end_type` decode + LOPT_SUFFIX guard (C 1823-1834) | PY 1305-1314 | OK |
 | RULE_NO_SUFFIX | `+1`, `post_ptr--`; FLAG_SUFFIX_REMOVED fail (C 1837-1843) | PY 1315-1320 | OK |
 | RULE_SKIPCHARS `(J` | scan to target/LETTERGP2 (C 1788-1804) | PY 1321-1342 | OK (see §6 note) |
-| RULE_DEL_FWD | find next `'e'`, mark del_fwd (C 1814-1822) | PY 1303-1304 `pass` | UNIMPLEMENTED (§3 POTENTIAL-BUG-2) |
+| RULE_DEL_FWD | find next `'e'`, mark del_fwd (C 1814-1822) | PY 1479-1486 | OK — ported; the winning match's del_fwd index is applied in `translate_rules` |
 | RULE_SPELLING `'W'` | not a distinct C POST arm | PY 1241-1249 | added feature, scoped to spelling mode (justified, §6) |
 | default literal byte | `21 - distance_right` if not utf8-cont (C 1846-1850) | PY 1343-1348 | OK |
 
@@ -102,9 +102,9 @@ espeak's points are an integer that selects the winning rule via **last-best-win
 | RULE_NOVOWELS | `+3` (C 1960) | PY 1443 | OK |
 | RULE_IFVERB | `+1` (C 1966) | PY 1421 | OK |
 | RULE_CAPITAL | `+1` (C 1973) | PY 1427 | OK |
-| `'.'` (dot-before) | `+50` (C 1977-1986) | — | UNIMPLEMENTED (§3 POTENTIAL-BUG-3) |
+| `'.'` (dot-before) | `+50` (C 1977-1986) | PY 1661-1671 | OK — ported; scans back to word-start, `+50` if a `.` precedes |
 | `'-'` | `22 - distance_right`; FLAG_HYPHEN (C 1989-1990) | PY 1444-1446 | OK |
-| RULE_SKIPCHARS `J)` | scan backwards (C 1995-2016) | — | UNIMPLEMENTED (§7) |
+| RULE_SKIPCHARS `J)` | scan backwards (C 1995-2016) | PY 1616-1647 | OK — ported (backward skip to target byte / LETTERGP2 group); lv `L41J) e` narrow-vowel rules now fire |
 | default: `RULE_SPACE -> +4`, else `21 - distance_left` (C 2019-2025) | PY 1449-1455 | OK |
 
 `_letter_group_no` (PY 1066) ports `LetterGroupNo` (`g = *p - 'A'; if (g < 0) g += 256`).
@@ -112,61 +112,38 @@ Matches.
 
 ---
 
-## 3. POTENTIAL-BUG deviations (flagged prominently)
+## 3. Scoring-arm deviations
 
-> These could change emitted phonemes. None is in the core scoring arithmetic of common
-> languages, but each is a real divergence from the C and is listed for a maintainer to
-> confirm against the parity audit.
+> PB-1 through PB-4 below were flagged in an earlier pass and are now **ported** (commit
+> `46e98d3` MatchRule del-fwd / tone-numbers digit / pre-dot, and the PRE-dollar part-end
+> fix). They are retained here as RESOLVED notes so the history of the scoring arms is
+> traceable. PB-5 (priority-stress gating) remains a documented design divergence.
 
-### POTENTIAL-BUG-1 — RULE_DIGIT `tone_numbers` post branch dropped (POST), and the missing PRE tone_numbers
+### POTENTIAL-BUG-1 — RULE_DIGIT `tone_numbers` post branch — RESOLVED
 - **C ref:** `dictionary.c:1700-1704` (POST RULE_DIGIT): when `langopts.tone_numbers` is
   set, a `D` post-rule matches **even with no digit present** (`add_points = 20-distance_right; post_ptr--`).
-- **PY:** `_match_post` RULE_DIGIT (PY 1229-1234) only matches a real digit; no
-  `tone_numbers` fallback. Same for the top-of-`translate_rules` digit dispatch — the
-  `IsDigit(wc) && (tone_numbers==0 || !any_alpha)` guard (C 2146) is approximated by
-  "try rules first, then number-name" (PY 1585-1598), not the exact C gate.
-- **Effect:** tonal languages whose `.group` rules use a trailing `D` post-rule to match a
-  syllable lacking an explicit tone digit could score that rule differently (wrong tone /
-  dropped phoneme). Affects `cmn`/`yue`/`vi`/`th` style tone-number tables. Verify whether
-  any active rule depends on the no-digit-D match; if none does in the shipped tables this
-  is harmless, but it is a genuine omission of a scoring path.
+- **PY:** `_match_post` RULE_DIGIT now takes the `tr.config.get("tone_numbers")` arm (PY
+  ~1400) so a `D` post-rule in a tone-number table scores without a literal digit. The
+  `cmn`/`yue` tables now match.
 
-### POTENTIAL-BUG-2 — RULE_DEL_FWD not implemented
+### POTENTIAL-BUG-2 — RULE_DEL_FWD forward-`e` deletion — RESOLVED
 - **C ref:** `dictionary.c:1814-1822` + `2322-2323` (`*match1.del_fwd = REPLACED_E`).
-  The rule finds the next `'e'` in the post-context and, on the winning match, rewrites it
-  to `REPLACED_E` so a later group treats it as already-consumed (English silent-e logic,
-  e.g. `…e…e` words).
-- **PY:** `_match_post` RULE_DEL_FWD is `pass` (PY 1303-1304); `del_fwd` is carried but
-  `translate_rules` never applies it.
-- **Effect:** English (and any lang using `//`-style del-fwd rules) words relying on the
-  forward-e deletion get the un-rewritten letter re-translated, possibly emitting a spurious
-  vowel. The inline comment calls it "rare; English 'e' replacement". Confirm against the
-  English parity set — flagged because it is a silently-skipped instruction, not a documented
-  force_compat divergence.
+- **PY:** `_match_post` RULE_DEL_FWD (PY 1479-1486) finds the next `'e'` and records its
+  index; the winning match's `del_fwd` is applied in `translate_rules`, so a later group
+  treats it as already-consumed (English silent-e logic).
 
-### POTENTIAL-BUG-3 — PRE `'.'` (dot-before) rule not implemented
+### POTENTIAL-BUG-3 — PRE `'.'` (dot-before) rule — RESOLVED
 - **C ref:** `dictionary.c:1977-1986`: a `.` in the pre-context scans backward for any `.`
-  earlier in the word and, if found, adds **+50** (a very large score) — used for
-  abbreviation / decimal handling.
-- **PY:** no `'.'` arm in `_match_pre`; it falls through to the `default` literal-byte case
-  (PY 1449), which only matches a literal `.` byte at exactly the previous position and
-  scores `21-distance_left`, not +50, and does not scan backward.
-- **Effect:** any rule using `.` in the pre-context (abbreviation tables, some number rules)
-  scores ~29 points lower and loses to competing rules. Languages with dotted-abbreviation
-  rules affected. Flagged: this changes the winning rule, not just a tie.
+  earlier in the word and, if found, adds **+50**.
+- **PY:** the `ord(".")` arm of `_match_pre` (PY 1661-1671) scans back to the word-start
+  space and adds `+50` when a `.` precedes; abbreviation / dotted rules now win as in C.
 
-### POTENTIAL-BUG-4 — PRE RULE_DOLLAR passes `post_ptr` (undefined in `_match_pre`)
+### POTENTIAL-BUG-4 — PRE RULE_DOLLAR part-end — RESOLVED
 - **C ref:** `dictionary.c:1923-1929` (PRE RULE_DOLLAR → `DollarRule`).
-- **PY:** `_match_pre` RULE_DOLLAR (PY 1398-1402) calls
-  `_dollar_rule(tr, command, word_flags, dict_flags, buf, post_ptr)` — but `_match_pre` has
-  **no `post_ptr` parameter or local**. If this arm is ever reached for a `$list`/`$p_alt`
-  in a PRE context it raises `NameError`. (`_match_post` correctly passes its own
-  `post_ptr`.) The `$list`/`$p_alt` part-word lookup in `_dollar_rule` needs `part_end`;
-  with a NameError it would crash rather than mis-score.
-- **Effect:** crash (not wrong-phoneme) for any language with a `$list`/`$p_alt`/`$NN` dollar
-  command inside a **pre**-context rule. Likely currently unreached (pre-context dollar rules
-  are rare), but it is a latent bug, not a divergence — a maintainer should replace
-  `post_ptr` with `pre_ptr` (or the correct part-end index) to match the C.
+- **PY:** both `_match_post` and `_match_pre` RULE_DOLLAR (PY 1435, 1588) now pass a
+  well-defined `part_end` (`match_end_ptr`, the rule's match end per `dictionary.c:3030`),
+  not the previously-undefined `post_ptr` — no NameError, and the `da el (l$p_alt` part-word
+  lookup keys off the match end (`appel`), not the scanned post-context.
 
 ### POTENTIAL-BUG-5 (design divergence) — priority-stress demotion gated to `pt` only
 - **C ref:** `dictionary.c:891-907` — the `max_stress == STRESS_IS_PRIORITY` block runs
@@ -254,19 +231,19 @@ means "fail if set", else "fail if not set", `+1` on success. Matches exactly.
 
 | C feature | C ref | who it affects | category |
 |---|---|---|---|
-| `tone_numbers` no-digit RULE_DIGIT match (POST) | C 1700-1704 | tonal langs (cmn/yue/vi/th tables) | POTENTIAL-BUG-1 (§3) |
-| RULE_DEL_FWD forward-`e` deletion | C 1814-1822, 2322 | en (silent-e), any del-fwd rule | POTENTIAL-BUG-2 (§3) |
-| PRE `'.'` dot-before (+50) | C 1977-1986 | abbreviation / dotted rules | POTENTIAL-BUG-3 (§3) |
-| PRE RULE_SKIPCHARS `J)` (backward skip) | C 1995-2016 | lv-style backward suffix skip | UNIMPLEMENTED — POST `(J` is ported (PY 1321), the PRE `J)` is not; affects langs using backward skip in pre-context |
-| `phonSYLLABIC` syllabic-consonant counting | C 868-874, 1384 | langs with explicit `phonSYLLABIC` (cs/sl syllabic r/l, some Indic) | UNIMPLEMENTED — PY handles `_nonsyllabic_before_vowel` (yue ng) but not the generic `phcode == phonSYLLABIC` "previous consonant is a syllable nucleus" count in get_vowel_stress / set_word_stress output loop |
+| `tone_numbers` no-digit RULE_DIGIT match (POST) | C 1700-1704 | tonal langs (cmn/yue/vi/th tables) | PORTED (§3 PB-1) |
+| RULE_DEL_FWD forward-`e` deletion | C 1814-1822, 2322 | en (silent-e), any del-fwd rule | PORTED (§3 PB-2) |
+| PRE `'.'` dot-before (+50) | C 1977-1986 | abbreviation / dotted rules | PORTED (§3 PB-3) |
+| PRE RULE_SKIPCHARS `J)` (backward skip) | C 1995-2016 | lv-style backward suffix skip | PORTED — POST `(J` (PY 1321) and PRE `J)` (PY 1616-1647); lv `L41J) e`/`ē` narrow-vowel rules fire (flamenko → flamˈeŋkoː) |
+| `phonSYLLABIC` syllabic-consonant counting | C 868-874, 1384 | langs with explicit `phonSYLLABIC` (cs/sl syllabic r/l, some Indic) | UNIMPLEMENTED — PY handles `_nonsyllabic_before_vowel` (yue ng) but not the generic `phcode == phonSYLLABIC` "previous consonant is a syllable nucleus" count. Surfaces as the cs/sr `byl`/`sl` syllabic-l render fails in `remaining-gaps.md` (C) |
 | `vowel_pause` word-initial PAUSE insert | C 1366-1373 | langs with `langopts.vowel_pause & 0x30` (e.g. de glottal stop) | UNIMPLEMENTED — PY set_word_stress omits the leading `phonPAUSE_NOLINK`/`phonPAUSE_VSHORT` |
 | `STRESSPOSN_ALL` (mark all stressed) | C 1188-1193 | langs with stress_rule ALL | UNIMPLEMENTED — no PY switch arm; falls through to no-op (only auto-secondary runs) |
-| `STRESSPOSN_GREENLANDIC` (kl) | C 1194-1221 | `kl` | UNIMPLEMENTED — no PY arm |
+| `STRESSPOSN_GREENLANDIC` (kl) | C 1194-1221 | `kl` | PORTED — `kl` config sets `stress_rule=STRESSPOSN_GREENLANDIC` + `S_NO_AUTO_2`; kl is 100% in the audit |
 | `S_FINAL_LONG` (final long-vowel stress) | C 1075-1079 | langs with S_FINAL_LONG flag | UNIMPLEMENTED — PY STRESSPOSN_2R omits the `vowel_length[n-1] > vowel_length[n-2]` final-stress shift |
 | S_FINAL_SPANISH per-lang `an`/`ia` + `-ns` default | C 1060-1071 | `an` (Aragonese), `ia` (Interlingua), the generic `-ns`-keeps-penult default | PARTIAL — PY (PY 728-732) implements the `ca`/`es` "not s/n, or preceded-by-consonant" form but not the `an`/`ia` branches nor the C default arm's `phNASAL` `-ns` special-case. Affects an/ia and any lang hitting the default S_FINAL_SPANISH arm |
 | `LookupDictList` abbrev (`a.b.c`), MAX3 repeat, FLAG_SUFX_E_ADDED / SUFX_D re-lookups, FLAG_ACCENT letter fallback chain | C 2720-2852 | abbreviations, repeated-word capping, suffix-stripped re-lookup | UNIMPLEMENTED in this module — `DictList.lookup` ports `LookupDict2` selection only; the surrounding `LookupDictList` retry logic lives elsewhere or is not ported. `FLAG_ACCENT` is partially handled via `_last_accent` (PY 380-382) |
 | LookupDict2 `FLAG_ALT2_TRANS` hu-specific, `expect_verb_s`, `prev_dict_flags` en-`to` verb-`s` suppression, FLAG_NATIVE translator-switch | C 2616-2647 | hu, en verb forms after "to", translator-switched words | UNIMPLEMENTED — PY `_eval` checks the simple VERB/PAST/NOUN/CAPITAL/ALLCAPS/DOT/ATEND/ATSTART/SENTENCE/STEM conditions (PY 425-444) but not the en/hu-specific extra gates. Affects en verb-after-"to" and hu alt-trans |
-| TranslateRules language-switch (`phonSWITCH`/`%cen`), bracket pauses, dieresis re-translate | C 2210-2262, 2297-2301 | non-Latin→Latin fallback, bracketed words | PARTIAL — PY does accent-removal re-translate (PY 1635-1647) and FLAG_SPELLWORD (PY 1648-1654) but not the `phonSWITCH` language switch, bracket pauses, or `LOPT_DIERESES` path. Noted in PY docstring 1566 |
+| TranslateRules language-switch (`phonSWITCH`/`%cen`), bracket pauses, dieresis re-translate | C 2210-2262, 2297-2301 | non-Latin→Latin fallback, bracketed words | PARTIAL — PY does accent-removal re-translate, FLAG_SPELLWORD, a string-level `(lang)…(orig)` switch, and an in-band `\x01<hex>\x02` codepoint-spelling sentinel that carries the switch so shn's tone post-pass crosses it (shn is 100%). The general phoneme-level switch over a shared buffer (so any source post-processing crosses the boundary) is still string-level — the residual `it` Cyrillic-letter and `nog` switch fails in `remaining-gaps.md` (A) |
 
 ---
 
@@ -294,20 +271,20 @@ means "fail if set", else "fail if not set", `+1` on success. Matches exactly.
 ## 9. Summary
 
 - **MatchRule scoring:** every points arm verified equal to the C, **including** the two C
-  quirks (PRE LETTERGP2 / NONALPHA using `distance_right`). The only missing POST/PRE arms
-  are RULE_DEL_FWD, PRE `'.'`, PRE `J)`, and the `tone_numbers` no-digit branch — all in §3/§7.
+  quirks (PRE LETTERGP2 / NONALPHA using `distance_right`). RULE_DEL_FWD, PRE `'.'`, PRE
+  `J)`, and the `tone_numbers` no-digit branch are now all ported (§3 PB-1..4, §7); no
+  scoring arm is unimplemented.
 - **SetWordStress auto-secondary loop (PY 857-887 ↔ C 1281-1329):** verified line-by-line —
   `S_FINAL_NO_2`, `0x8000` (first-vowel), trochaic `(v-1)<=UNSTRESSED && (v+1)<=UNSTRESSED|…`,
   `S_NO_AUTO_2`, `S_2_TO_HEAVY` (both the "heavy follows" and "directly-followed-by-heavy"
   checks), and `S_FIRST_PRIMARY` all match. The diminished-emit loop (PY 988-1014 ↔
   C 1378-1438) matches including `S_FINAL_DIM`/`S_NO_DIM`/`S_MID_DIM` and LOPT_IT_LENGTHEN.
-- **Stress-rule switch:** STRESSPOSN_2R/1R/3R/SYLCOUNT/1RH/1RU/1SL/EU/2LLH verified equal;
-  **STRESSPOSN_ALL, STRESSPOSN_GREENLANDIC, S_FINAL_LONG, and the S_FINAL_SPANISH an/ia/-ns
-  arms are not ported** (§7).
+- **Stress-rule switch:** STRESSPOSN_2R/1R/3R/SYLCOUNT/1RH/1RU/1SL/EU/2LLH and
+  STRESSPOSN_GREENLANDIC (kl) verified equal; **STRESSPOSN_ALL, S_FINAL_LONG, and the
+  S_FINAL_SPANISH an/ia/-ns arms** are the residue not ported (§7 — `om`/`ia` now set
+  S_FINAL_LONG / the es-block flags, so these affect a shrinking set).
 - **Priority `''` / `=`:** the priority-demotion is moved out of GetVowelStress and gated to
-  `pt` (§3 PB-5) — the biggest behavioural gap; the `=` guard is a justified compensating
-  change.
+  `pt` (§3 PB-5); the `=` guard is a justified compensating change.
 
-The deviations that can change emitted phonemes are concentrated in §3 (PB-1..PB-5) and the
-§7 unimplemented stress-rule / TranslateRules-switch features; the scoring core itself is
-faithful.
+PB-1..PB-4 are ported; the remaining behavioural gap is PB-5 (priority-stress gating) and
+the §7 stress-rule / phoneme-level-switch features. The scoring core itself is faithful.

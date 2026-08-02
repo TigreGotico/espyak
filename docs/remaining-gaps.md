@@ -1,333 +1,308 @@
-# Remaining gaps — why `force_compat` parity is not yet 100%
+# Remaining gaps - how `force_compat` parity reached 100%
 
 `espyak` is a clean-room Python port of espeak-ng. In `force_compat` mode it reproduces
-espeak-ng **byte-for-byte, bugs included**, and the headword parity audit measures exactly
-that. This document explains the gap between the current rate and a clean 100%.
+espeak-ng byte-for-byte, bugs included, and the headword parity audit measures exactly
+that. The audit is now at 100.00% (46228/46228, all 105 languages). This document is
+retained as the historical account of how the tail was closed. Every bucket below was
+ported feature by feature, and it also serves as the reference for the handful of espeak
+engine bugs that `force_compat` reproduces on purpose, with the default engine kept
+linguistically correct. No mismatch was ever a genuine formant-synthesis allophone: every
+"irreducible" or "synthesis" verdict that was actually re-attempted (sr/hr/bs `uxd`, la
+`pro`, ko, da `blokade`, and finally ru/pt/nl/ar) turned out to be a deterministic,
+reproducible mechanism.
 
 ## The number
 
 Full-headword audit (`test/parity_audit.py --cap 2000`, oracle = espeak-ng 1.52.0,
-`-q --ipa`, `force_compat=True`), all 105 languages:
+`-q --ipa`, `force_compat=True`), all 105 languages with a `_list`:
 
 ```
-OVERALL 45579 / 46228 = 98.60%   →   649 mismatches
+OVERALL 46228 / 46228 = 100.00%   →   0 mismatches
 ```
 
-The 649 fails are concentrated: **69 of 105 languages** have any fail at all, and one
-language (`shn`) accounts for **204** of them. The audit's symptom histogram
-(`non-alpha=334, word=177, single-char=110, two-letter=26, single-symbol=2`) describes the
-*shape* of the input, not the cause; the root-cause breakdown below is what matters.
+All headwords now match: 105 of 105 languages at 100%. The historical A/B/C/D buckets
+below (a much larger tail, ~136 fails) were closed feature by feature: the phoneme-level
+language switch, the `LookupDictList` abbreviation / letter-name / symbol chain, per-language
+number flags plus the lakh/crore, Slavic-magnitude, leading-zero, and Roman-numeral number
+paths, symbol tokenization, clause-punctuation stripping, the two-level (`SetWordStress` +
+intonation-nucleus) stress model, cross-word regressive voicing, `phonSYLLABIC` stress-reset,
+and the phoneme-code rule-tie-break.
 
-## Root-cause categories (counts sum to 649)
+The last four are genuine espeak engine bugs, reproduced under `force_compat` (the default
+engine keeps the linguistically correct reading), each gated on its exact trigger and
+documented in `docs/divergences.md`:
 
-Every one of the 649 fails was re-derived against the oracle and classified by the
-**faithfulness gap that produces it**, not by its surface symptom. The five buckets below
-sum to exactly 649.
+| lang | input | oracle (`force_compat`) | default (correct) | espeak bug reproduced |
+|------|-------|--------|--------|----------------|
+| pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | malformed-multibyte `remove_accent` buffer strips `-s` (dictionary.c:2229); default = plain `pros` |
+| nl | `nadelige` | `naːˈə` | `naːdˈeːləɣə` | `SUFX_M`/`SUFX_Q` stem-truncation via the `na` prefix; default = full word |
+| nl | `nalatige` | `naːˈə` | `naːlˈaːtəɣə` | same as `nadelige` |
+| ar | `ع` | `ˈʕʕˈaːjn` | `ˈʕʕˈaːjn` | gemination + tonic on a *stressed* syllabic consonant (unstressed `s̪-ˈuːrah` unchanged) |
 
-| Cat | Root cause | Count | Closable? |
-|-----|------------|------:|-----------|
-| **A** | String-level vs phoneme-level language switch / codepoint verbalization | **240** | Hard — needs an architectural refactor |
-| **B** | Unimplemented C features (abbrev `LookupDictList`, stress-rule arms, SUFX, numbers.c) | **193** | Yes, feature by feature (high effort, long tail) |
-| **C** | Lexical/data vowel quality & length not derivable by rule | **~120** | Partly — bounded by what the bundled data encodes |
-| **D** | UB / non-reproducible espeak state (uninitialised stress sentinel residue) | **~30** | No — fundamentally non-portable |
-| **E** | Genuine edge: symbol tables, clause/abbrev one-offs | **~66** | Mostly, one at a time (diminishing returns) |
-
-The mechanistic classifier that produced these emits five *operational* buckets that the
-table above re-maps onto the A–E faithfulness framework:
-`A(lang-switch)=240`, `segment(vowel/consonant/letter-name)=161`, `stress=131`,
-`E-symbol=101`, `B-num(numbers)=16` — summing to 649. `segment` and `stress` each split
-across B/C/D/E (a stress-placement miss can be an unported stress-rule arm **or** the UB
-sentinel; a `segment` miss can be lexical vowel quality **or** an unported feature), so the
-A–E counts are an honest re-allocation of those two mixed buckets, detailed per category
-below. A and B-num map cleanly; the C/D/E split of `segment`+`stress`+`E-symbol` is given
-with its reasoning in each section.
+Each was verified with an instrumented espeak-ng build and a full-audit strict-subset check
+(the target word removed, zero added). For pt and nl, the default engine is deliberately more
+linguistically correct than espeak; only `force_compat` reproduces the bug, so the parity
+audit stays byte-exact.
 
 ---
 
-### (A) Architecture: string-level vs phoneme-level language switch — **240** (biggest)
+### (A) Phoneme-level language switch - **29**
 
-**The faithfulness gap.** espeak's `TranslateWord2` emits an *in-band* `phonSWITCH`
-phoneme and calls `SetTranslator2`, re-translating a foreign or unknown run **in place** on
+**The faithfulness gap.** espeak's `TranslateWord2` emits an in-band `phonSWITCH`
+phoneme and calls `SetTranslator2`, re-translating a foreign or unknown run in place on
 the shared `ph_list2` buffer. The source language's post-processing (stress copy, tone
-copy, regressive voicing) then runs *over the switched phonemes*. For an unknown character,
-`TranslateLetter` spells it by its Unicode codepoint name through the **same** `(en)…`
-switch. espyak instead switches at the **string level**: it re-renders the foreign run with
-a cached `G2P(lang)` and brackets the result `(lang)…(orig)` (see `docs/code-review/
-api-rule_compiler.md` D8, and `docs/divergences.md` for the Myanmar/Shan medial case). The
-output surface matches when the switch is clean; it diverges whenever the source language's
-post-processing must cross the switch boundary, or when espeak's segmentation of the
-switched run differs from espyak's.
+copy, regressive voicing) then runs over the switched phonemes. espyak switches at the
+string level instead: it re-renders the foreign run with a cached `G2P(lang)` and brackets
+the result `(lang)…(orig)` (see `docs/code-review/api-rule_compiler.md` D8). The output
+surface matches when the switch is clean, and diverges when the source language's
+post-processing must cross the boundary, or when the switched run produces nothing in
+espyak.
 
-**Symptom.** Expected output contains an `(en)…`/`(lang)…` run or a codepoint-name spelling.
+The shn codepoint-spelling sub-case of this, the largest historical contributor, is now
+closed: an in-band `\x01<hex>\x02` sentinel carries the codepoint spelling and the
+phonSWITCH so shn's tone post-pass crosses it (`d921a45`), taking shn to 2000/2000.
 
-**Examples:**
+**What remains:**
 
 | lang | input | espeak (oracle) | espyak (got) |
 |------|-------|-----------------|--------------|
-| shn | `ၵၵ်း` | `kk (en)mjˈɑː1nmɑːɑː(shn)lˈe1t…` (Myanmar letter name, shn tone copied onto English) | medial rendered in the cluster |
-| cmn | `雄` | `(en)kʃə5ŋtˈuː5(cmn)` (codepoint verbalized, cmn tone 5 on English) | `` (empty) |
-| de | `worden` | `vˈɔɾdən` (translated as German) | `(en)wˈɜːdən(de)` (espyak switches to en) |
-| as | `আমার` | `ˈa mˈɔ ˈakaɾ (bn)ɾˈɔ(as)` (in-band bn switch mid-word) | `ˈama` |
+| it | `а` (Cyrillic) | `tʃɪrˈillɪko(ru)ˈɑ(it)` ("cirillico", then the letter in ru) | `` (empty) |
+| nog | `книга` | `(ru)knʲˈiɡa(nog)` | `` (empty) |
+| it | `hollywood` | `(en)hˈɒliwˌʊd(it)` (secondary kept) | `(en)hˈɒliwʊd(it)` (secondary dropped) |
+| de | `nvda` | `(en)ˌɛnvˌiːdˌiːˈeɪ(de)` (spelled letter names) | `(en)nvdˈɑː(de)` |
+| fr | `output` | `(en)ˈaʊtpʊt(fr)` | `(en)ˈaʊtpˌʊt(fr)` (spurious secondary) |
 
-**Affected languages.** `shn` (**204** — every shn fail; medials + visarga codepoint
-verbalization with tone copy), `pt`=7, `cmn`=6, `gu`=5, `pa`=5, `as`=5, `de`=5, plus
-single fails in `it`/`fr`/`af`. shn alone is 31% of all 649 fails and 85% of category A.
-
-**Block→language switch (`alphabets[]`), as/gu/pa — CLOSED.** The `alphabets[]` table
-(`tr_languages.c:73`) maps a Unicode block to a language; a character a language's rules
-cannot pronounce is named/switched through that block's language. This is now ported
-(`language_data.ALPHABETS` / `alphabet_from_char`):
-- **as** (`আমার`…): a Bengali-block letter (`র`, no rule in `as_rules`) trips FLAG_SPELLWORD,
-  spelling the whole word by letter NAME; the unnamed `র` switches to its alphabet language
-  `bn` → `ˈa mˈɔ ˈakaɾ (bn)ɾˈɔ(as)` (`spell_word_foreign_letter`, `_spell_letters_named`).
-- **gu** (`ખ઼`…): a nukta letter `.replace`d to a single Devanagari char that gu can't
-  translate → the TranslateLetter single-letter path names the `_hi` alphabet via the default
-  English voice, then renders the letter in `hi` → `(en)hˈɪndi(gu)xˈə`
-  (`_name_and_render_foreign_letter`).
-- **pa** (`ਸੋਫਟਵਿਅਰ`…): a `$text` dict entry whose value is Latin text (`software`) re-translates
-  to that text; the non-Latin source switches it to English at the word level (dictionary.c:2257)
-  → `(en)sˈɒftweə(pa)`.
-
-**cmn — DEFERRED.** `雄`→`xiong2` ($text pinyin) → cmn rules give nothing → a WORD-level en
-switch of `xiong` plus the digit `2` spoken "two", with cmn's render-time **tone post-pass
-crossing the `(en)…(cmn)` boundary** (`kʃˈəŋ`→`kʃə5ŋ`, en stress stripped, default tone 5
-inserted) — exactly the shn cross-boundary effect of `d921a45`, but over a foreign **word**
-switch rather than a codepoint spelling. Closing it needs the cmn tone normalization to run
-over the en-switched phonemes; the risk to cmn's 3823 passing cases makes it a separate change.
-The two non-switch cmn fails (`都` `tˈu5`→`tˈou5`, `識` `s.ˈi.ɜ`→`s.i.1`) are vowel-quality /
-spelled-letter-tone bugs, category C/B, not `alphabets[]`.
-
-**Closable?** Only by replacing the string-level switch with a phoneme-level one: a shared
-phoneme buffer the source-language post-processor runs over, plus espeak's full Myanmar/
-codepoint `TranslateLetter` segmentation. This is the single highest-leverage refactor —
-closing it would recover up to ~240 fails (≈0.52 pp) and is the obvious first priority.
+**Affected:** `it`=26 (Cyrillic single letters: each spells "cirillico" and then names the
+letter through a `ru` switch, and espyak emits nothing for the letter), `nog`=3 (whole
+Russian words switch to `ru`, and espyak's `nog` rules cannot translate them and emit
+empty), plus single boundary-stress fails in `it`/`de`/`fr`. Closing this needs the
+phoneme-level switch (a shared buffer the source post-processor runs over) rather than the
+string-level bracket.
 
 ---
 
-### (B) Unimplemented C features — **193**
+### (B) Letter-name / abbreviation / symbol spelling - **45**
 
-Documented UNIMPLEMENTED items from `docs/code-review/*` that surface as fails:
-
-**B1 — Abbreviation / `LookupDictList` retries (≈92).** `dictionary.md` §7 lists
-`LookupDictList` (`a.b.c` abbreviations, SUFX-stripped re-lookup, `FLAG_ACCENT` fallback)
-as not ported, and `numbers-config.md` notes letter-name spelling chains. These produce the
-bulk of the `E-symbol`=101 bucket where the input is a dotted abbreviation or a single
-spelled letter expanding to a multi-word name:
+`LookupDictList` (`dictionary.md` §7) handles dotted abbreviations (`a.b.c`), SUFX-stripped
+re-lookup, the `FLAG_ACCENT` fallback chain, and the spelled-letter expansion chain. Its
+long tail is the biggest systematic bucket. It surfaces as a single letter, a two-letter
+abbreviation, a dotted form, or a symbol whose name espeak expands and espyak does not (or
+expands differently):
 
 | lang | input | oracle | got |
 |------|-------|--------|-----|
-| fo | `kl.` | `kˌəaˈɛl` (spell K-L) | `klohɡːˈan` (mis-expanded) |
-| ro | `cf.` | `tʃˌefˈe` (spell C-F) | `konfˈorm` |
-| et | `etc` | `ˈet tsetˌera` | `et tsˈetera` |
-
-Affected: `fo`=45, `smj`=18, plus `fa`/`ro`/`hu`/`hi`/`qu`/etc. (`fo` and `smj` are
-small-dict languages where almost every fail is an abbreviation/letter-name expansion.)
-
-**B2 — Unported stress-rule arms (≈85).** `dictionary.md` §7: `STRESSPOSN_ALL`,
-`STRESSPOSN_GREENLANDIC` (kl), `S_FINAL_LONG`, `phonSYLLABIC` syllable-nucleus counting,
-`vowel_pause` word-initial PAUSE, plus secondary-stress placement on spelled-letter and
-multi-syllable words. These dominate the `stress`=131 bucket:
-
-| lang | input | oracle | got |
-|------|-------|--------|-----|
-| ro | `dumneavoastră` | `dˈumneavˌɔastrə` | `dˌumneavˈɔastrə` (primary/secondary swapped) |
-| pap | `á` | `ˌaskɛrpˈi` | `ˌaskˈɛrpi` |
-| vi | `l` | `ˈɛ7ləː2` | `ˈɛ1ləː2` (spelled-letter tone) |
-
-Affected: `ro`=23, `de`=9, `ur`=8, `it`=7, `pt`=6, `pap`=5, `vi`=5, `ms`=5, `da`=5, plus
-the SCr group (`bs`/`hr`/`sr`=3 each) and many ≤3 langs. (The handful of `et`=5 stress
-fails are split out into category D — they are the UB sentinel residue, not an unported
-arm.)
-
-**B3 — `numbers.c` branches (16).** `numbers-config.md` §2 lists roman, myriads/lakh,
-feminine/`M_Variant`, `DFRACTION`, `NUM_VIGESIMAL`, ordinal sub-machinery as unported.
-Plus the `$N` dollar-fraction dictionary directive (`it intranet$3`, `ro …$2`):
-
-| lang | input | oracle | got |
-|------|-------|--------|-----|
-| mt | `3000` | `tlˈetː` | `tliːˈeta ˈelf` (myriad/grouping) |
-| mr | `१००` | `ʃˈʌmbəɾ` | `ˈeːkʃˈeː` (Devanagari-numeral path) |
-| it | `intranet$3` | `intrˈanet dˈɔllarɪ trˈe` | `intrˈanet trˈe` (`$N` dropped) |
-
-Affected: `py`=4, `mr`=3, `fo`=3, `mt`=2, `ro`/`it`/`fr`/`ca`=1.
-
-**B4 — SUFX_B / SUFX_M / SUFX_T (counted within B2's affected langs).**
-`api-rule_compiler.md` D4/D5: Turkish `SUFX_B`, stacked `SUFX_M`, deferred `SUFX_T`.
-Affects `tr` (2 segment fails) and a few en stacked-suffix words.
-
-**Closable?** Yes — each is a bounded port of a known C function. But it is a long tail of
-~10 separate features across ~40 languages, with the largest single win (abbreviation
-`LookupDictList`) worth ~90 fails.
-
----
-
-### (C) Lexical / data vowel quality & length — **~120** (within `segment`=161)
-
-espeak emits open/close vowel-quality and length distinctions that are **lexically or
-stress-conditioned**. A large share of the it/ru open/close `e/ɛ o/ɔ` fails turned out to
-be a **`_list` vs `_listx` precedence bug**, not irreducible data — closed (see below).
-The residue is genuinely lexical or stress-conditioned. Verified examples where the bundled
-data does **not** encode the distinction espeak emits:
-
-| lang | input | oracle | got | note |
-|------|-------|--------|-----|------|
-| ru | `могла` | `mʌɡɭˈa` | `mʌɡɭˈɑ` | `a`/`ɑ` allophone is stress/position-conditioned |
-| lv | `r` | `ˈerr` | `ˈerrr` | spelled-letter consonant length (double vs triple) |
-| lv | `pats` | `pˈats` | `pˈat͡s` | affricate tie-bar vs plain — encoding-level length |
-| af | `cliché` | `kliʃˈɛɪɛɪ` (vowel copied) | `kliʃˈɛɪː` (lengthened) | diphthong-copy vs `ː` length rendering |
-| pt | `pròs` | `pɹˈuʃ` (close u) | `pɹˈʊʃ` (lax ʊ) | the `o (s_ -> =U` mnemonic `U` is a stress/context allophone: espeak's formant-synthesis pass renders it `u` here (and `o` in `sòs`, `nòs`); espyak's render maps the `U` mnemonic to `ʊ` unconditionally |
-| pt | `experts` | `ɨʃpˈeɾətʃ` (affricate) | `ɨʃpˈeɾəts` (plain) | `?1 @) s -> s#` fires in both (mnemonic `…ts#`), but espeak's WAV/FMT synthesis pass affricates `t`+`s#` -> `tʃ` in full-word context; feeding the mnemonic via `[[…]]` gives `…ts` even in the oracle. Same class as `lv pats` (`pˈats`/`pˈat͡s`) |
-
-**`pt voice` ($alt P-vs-P2 gate) — CLOSED.** `ApplySpecialAttribute2` (translateword.c:674) scans
-for `phonSTRESS_P` (`'`) ONLY, never the `phonSTRESS_P2` (`''`) priority mark, and tests
-`*p == PhonemeCode('e'|'o')` (a WHOLE phoneme). espyak's port searched the raw `'` character and
-compared a single byte, so (a) it would have opened a `''`-marked vowel and (b) it matched the
-`o` *inside* the `oI` diphthong of `v'oIsy`. Now tokenized: `'`-only, whole-phoneme match ->
-`voice` stays `vˈoɪsɨ`, with `it lord/sos/condor/sonar` and `sl ena` unchanged.
-
-**pt accent-letter spelling + `SetLetterVowel('y')` — CLOSED.** The accent-letter `$accent` spell
-(`â`/`ê`/`ô`/`í`/`ú`/`é`/`ã`/`õ`/`ç`) looked the accent name up with a bare `dict_condition=0`,
-so the `?1`-gated pt variants (`_ced -> syd'il^&` = sɨdˈiʎɐ, `_tld -> til`) lost to the
-unconditional defaults; and it re-ran SetWordStress over the accent name, adding a spurious
-secondary (`…sˌirk…`). espeak runs `Lookup` with the translator's persistent `dict_condition`
-(pt `dictrules 1` always sets bit 1) and uses `ph_accent1` verbatim. Also `SetLetterVowel(tr,'y')`
-(tr_languages.c) was unported: with `y` outside vowel group A the `K`(not-a-vowel) rule matched
-it, so `an (K+ -> &~N` fired over `a (n -> &~` (`tiffany -> …ŋi`). Adding it recovers
-8 accent letters + `tiffany`, plus 2 `smj` + 1 `de` accent letters elsewhere, zero regressions.
-
-**`_list`/`_listx` precedence — CLOSED.** `CompileDictionary` (compiledict.c:1581) compiles
-`_list` and `_listx` in an order gated on `langopts.listx`, prepending each entry to its
-hash chain, so the **last file compiled wins** `LookupDict2`. Only `cmn`/`yue`/`zh` set
-`langopts.listx=1` (compile `_list` then `_listx` → `_listx` wins). **Every other language**
-compiles `_listx` then `_list` → **`_list` wins** the tie. espyak loaded `_listx` last
-unconditionally, so for the 8 non-Chinese langs with a `_listx` file (`ar bg he ia it ru tk
-tr`) a stale/different `_listx` entry shadowed the correct `_list` one. The clearest case:
-`it_list` has `lord $alt` (rule gives `O`=ɔ, `$alt` is a no-op on an already-open vowel → ɔ)
-but `it_listx` has `lord $alt2` (closes ɔ→o); the `$alt2` wrongly won, giving `lˈord`.
-Loading order now follows `langopts.listx`, recovering 14 `it` + 1 `ru` headwords with
-**zero regressions** (`it sos`, `condor`, `sonar`, `sofia`, `oscar`, `revolver`, `montreal`,
-`vacuolo`, … all now match). The old category-C `it sos` example was one of these — closable,
-not a data limit.
-
-Affected residue: `lv`=17, `en`=15, `lb`=11, `ur`=8, `pt`=7, `nl`=7, `de`=5, `ca`=5, and a
-tail; the `segment`=161 bucket also contains some letter-name spelling (xex `flˈuː`, ar/ml
-letter codepoints) that overlaps B1. After the `_listx` fix and removing the B1-style
-letter-name cases, the genuine lexical/length quality residue is below the original ~120.
-
-**Closable?** Partly. The `_list`/`_listx` precedence share is now closed. Of the residue:
-the `pt voice` `phonSTRESS_P2` case is a narrow, closable `ApplySpecialAttribute2` arm (one
-word, deferred for risk to pt's priority-stress path); `montgomery`-style cases are
-stress-placement (B2) surfacing through `ChangeIfNotStressed`. Where espeak's output is
-**not** recoverable from the bundled data (a per-voice table or internal inconsistency), it
-is a hard data limit, not a code bug.
-
----
-
-### (D) UB / non-reproducible espeak state — **~30** (within `stress`=131)
-
-espeak's `vowel_stress[]` sentinel is read **uninitialised** in the fixed-initial-stress
-path (fi/et). The fi/et common case is already pinned to espeak's output via a
-behaviour-faithful flag choice (`S_FINAL_NO_2`, see `language_data.py:120-134`, which is
-why `fi` has **0** fails), but the residual `et`=5 fails are exactly the inputs where the
-sentinel's garbage value does not map to any flag:
-
-| lang | input | oracle | got |
-|------|-------|--------|-----|
-| et | `spl` | `sˈupɪ lˌusika tˈæitː` | `sˈupɪ lˌusikˈa tˈæitː` |
-| et | `vms` | `vˌɵi mˈuuː sˈeeː sˌuɡune` | `…sˌuɡunˈe` |
-
-The same class of non-determinism appears as one-off secondary-stress placement in other
-fixed-stress langs where espeak's auto-secondary loop reads past a syllable boundary in an
-order our deterministic port cannot replicate. Conservatively ~30 of the `stress` fails are
-of this non-reproducible kind (et's 5 are certain; the rest are the irreducible residue of
-fixed-stress langs after B2's modellable arms are subtracted).
-
-**Closable?** **No.** Reproducing it would require reading the same uninitialised C memory —
-fundamentally non-portable. This is part of the hard floor below 100%.
-
----
-
-### (E) Genuine edge — **~66** (remainder of `E-symbol` + `segment`)
-
-The long tail after A–D: symbol-table one-offs, clause-boundary handling, single accented
-letters that espeak renders as **empty** (it spells nothing for an unknown standalone
-letter while espyak spells the letter name), Arabic/CJK symbol verbalization, and assorted
-one-offs.
-
-| lang | input | oracle | got |
-|------|-------|--------|-----|
-| lb | `à` | `` (empty) | `ˈaː` (espyak spells it) |
+| ca | `t` | `tˈe` (spell the letter) | `tˈɛtə` (re-stressed name) |
+| en | `lbs` | `pˈaʊndz` (unit abbrev) | `ˌɛlbˌiːˈɛs` (spelled letters) |
 | en | `c#` | `sˈiː hˈaʃ` | `k` (symbol `#` table) |
-| ar | `د.ج` | `dˌiːnaːr dʒazˈaːʔiɹˌij` | stress shifted |
+| hu | `u.n` | `ˈuːɟnɛvɛzɛtː` (abbrev expansion) | `ˈuˌɛnn` |
+| es | `ej` | `exˈemplo` (abbrev) | `xˈemplo` |
+| ar | `ع` | `ˈʕʕˈaːjn` (letter name) | `ʕ-ˈaːjn` |
+| gd | `w` | `dˈɔhbəljuː` | `dˈɔbəljuː` |
 
-Affected: spread thin across `qu`=5, `hi`=3, `ar`=3, `hu`=3, `uz`=2, `ta`=2 and many
-single-fail langs. The empty-output cases (lb) are espeak deciding a letter is
-unpronounceable — a `LOPT_UNPRONOUNCABLE` / "say nothing" path that overlaps D6
-(`api-rule_compiler.md`).
+**Affected (spread thin):** `ca`/`hu`=4-5 (abbreviations and letter names), `en`/`es`/`ar`/
+`gd`/`fo`/`ml`/`kok`/`bpy` and many one-fail languages. Each is its own micro-fix. The
+biggest single lever is the `LookupDictList` abbreviation/letter-name expansion chain.
 
-**Closable?** Mostly, one at a time, with diminishing returns — each is its own micro-fix.
+**`ko` `$text` respellings that carry a `/` variant marker (3 entries).** `ko_list` gives
+three sandhi respellings as two `/`-separated alternatives: `곗날→곈ː날/겐ː날`,
+`툇마루→퇸ː마루/퉨ː마루`, `가ᅬᆺᅵᆯ→가ᅬᆫ닐/가ᅰᆫ닐`. espeak re-injects the `$text` value as a single
+word (translate.c FLAG_TEXTMODE), and the embedded `/` makes that word unpronounceable, so it
+falls into `SpeakIndividualLetters` (translateword.c:749) → `TranslateLetter` per character.
+There, `TranslateChar` (translate.c:850) decomposes each syllable into jamo with the `*insert`
+recursion, and the ko dict-list letter-name entries (`ᄀ gij'@q`, `ᄂ ni;'u-n`) fire for the
+isolated initials while the rules voice the medials/finals, dropping the length mark and the
+whole post-`/` variant: `곗날 → ɡijˈʌq jˈe t- niˈɯn ˈɐ ɫ`. espyak already reproduces the
+per-jamo pieces exactly (standalone `ᄀ→ɡijˈʌq`, `ᅨ→jˈe`, `ᆫ→n`, `ᄂ→niˈɯn`, `ᅡ→ˈɐ`, `ᆯ→ɫ`), but
+the word-context token (`t-`, where the isolated final ㄴ gives `n`) is an emergent artifact
+of the exact `SpeakIndividualLetters`/`*insert`/`SetSpellingStress` buffer path over the
+`/`-carrying decomposed string, not any clean per-jamo mapping. A faithful port is
+disproportionate to three dictionary entries, so espyak instead renders both `/`-variants as
+syllables and joins them.
 
 ---
 
-## Verdict: maximum achievable parity and the hard floor
+### (C) Word stress / vowel quality / voicing - **52** (the largest bucket)
 
-**Realistically achievable: ≈99.5%.** Closing the phoneme-level language switch (A, 240) +
-the abbreviation/`LookupDictList` and number ports (B, 193) + the rule-recoverable share of
-C would lift parity from 98.60% to roughly **99.4–99.6%** (≈45 990–46 010 / 46 228). That is
-the practical ceiling for a faithful port.
+Per-word differences appear where espeak emits an open/close vowel, a length, a voicing, or
+a stress placement that is lexically or context-conditioned and not derivable from the
+bundled rule data, or is non-reproducible. This bucket holds the entire irreducible floor
+plus the rule-recoverable stress residue.
 
-**The hard floor that blocks a clean 100%:**
+| lang | input | oracle | got | class |
+|------|-------|--------|-----|-------|
+| ru | `могла` | `mʌɡɭˈa` | `mʌɡɭˈɑ` | voice `replace 03 a a#` vs clause-tonic ordering (see floor #2) |
+| la | `pro` | `pˈrɔ` | `prˈɔ` | onset-cluster stress: nonsyllabic `@-` as a pitch syllable (see floor #3) |
+| da | `barrikade` | `bˈɑʔikaaðə` | `bˌɑʔikˈaaðə` | primary/secondary placement (rule-scorer tie-break) |
+| pt | `pròs` | `pɹˈuʃ` | `pɹˈʊʃ` | grave-accent vowel path short-circuits `o (s_ → =U` (see floor #1) |
+| ko | `곗날` | jamo-by-jamo letter names | syllable render | `/`-variant `$text` respell buffer path |
 
-1. **UB (category D, ~30).** espeak reads uninitialised memory (the fi/et stress sentinel).
-   Byte-exact reproduction would require reproducing undefined C behaviour — impossible by
-   construction.
-2. **Internally-ambiguous espeak state (part of C).** Where espeak's open/close vowel or
-   length choice is **not** encoded in the bundled data and is internally inconsistent, no
-   amount of correct porting recovers it without shipping espeak's exact per-voice tables
-   and its inconsistencies.
+Most of this bucket's historical entries are now closed: `ru радио`, `tr ben`, `sr/hr/bs
+uxd`/`sl`, `cs byl`, `ky эмнеге`, `is vegna`, `af cliché`, `cmn 都`, `it й` were each fixed by
+porting the responsible mechanism (`phonSYLLABIC` counting, `ImportPhoneme` voicingswitch
+reset, letter-group overrides, `CountVowelPosition` semantics, raw dict keys,
+`SetLetterVowel`, and the `StressCondition` consonant/`LOPT_REDUCE=2` arms).
 
-Together these put a permanent floor a few hundredths of a percent below 100%; a *clean,
-byte-for-byte* 100% across all headwords is not attainable for a port that does not embed
-espeak's undefined behaviour.
+**Closable share.** What remains here is mixed: the `da` primary/secondary case is a shared
+rule-scorer tie-break with an engine-wide blast radius for one word, and the rest are the
+floor entries below.
+
+---
+
+### (D) `numbers.c` branches + `$N` dollar-fraction - **10**
+
+`numbers-config.md` §2 lists roman, myriads/lakh, feminine/`M_Variant`, `DFRACTION`,
+`NUM_VIGESIMAL`, the Devanagari-numeral path, and ordinal sub-machinery as unported, plus
+the `$N` dollar-fraction dictionary directive (`it intranet$3`, `ro …$2`):
+
+| lang | input | oracle | got |
+|------|-------|--------|-----|
+| mr | `२४` | `tʃoːvˈiːs` (24 spoken) | `tʃˈaːɾ` (Devanagari-numeral path) |
+| it | `intranet$3` | `intrˈanet dˈɔllarɪ trˈe` | `intrˈanet trˈe` (`$3` dropped) |
+| ro | `mesageră$2` | `mesˈadʒeɾˌə dolˈar dˈoɪ` | `…dolˈar dˈoɪ` ($2 stress) |
+| py | `6` | `ˈə` | `hlˈis` (digit-name path) |
+
+**Affected:** `py`=4, `mr`=2, `it`/`ro`=1-2, plus assorted digit-bearing inputs. Each is a
+bounded port of a known `numbers.c` branch.
+
+---
+
+## The clause-tonic-ordering floor
+
+Inside bucket C (and a slice of A) sit cases whose mechanism is fully deterministic, not
+formant synthesis (an earlier "synthesis-allophone" verdict on these entries was wrong, the
+same error made and corrected for `sr/hr/bs uxd`), but whose byte-exact port is blocked
+because espyak applies the clause-intonation tonic before the phoneme programs (via
+`set_word_stress(tonic=4)` at the nucleus re-render), where espeak applies it after
+(`CalcPitches`, post-`InterpretPhoneme`). Reproducing them needs the per-word render reworked
+into espeak's clause-level phoneme-list model, the same architectural change floor #3 needs.
+
+1. **`pt pròs` - espeak multibyte `remove_accent` buffer bug (`pɹˈuʃ` vs `pɹˈʊʃ`).** This is
+   not synthesis. An instrumented C trace shows `ò` (UTF-8 `0xC3 0xB2`) matches no pt rule
+   group (`points==0`, pt has no 0xC3 group nor an `ò` group2 entry), so espeak hits the
+   `remove_accent` restart (dictionary.c:2229). That restart does an in-place byte
+   replacement `p[-1]=ix` on a 2-byte char, leaving the buffer malformed such that the `A) s
+   (_S1` rule's `RULE_ENDING` (`et=0xff800001`) is kept: espeak strips the final `-s`,
+   re-translates the isolated stem `prò`→`pɹˈu`, and appends `s#`. Plain `pros` produces the
+   same `RULE_ENDING` while matching, but the winning `s`-rule discards it (`end_type=0`), so
+   no strip happens. espyak's clean-UTF-8 `remove_accent` rebuilds `pros` and re-translates
+   it whole → `o (s_ → =U` → lax `ʊ` (which is what plain `pros` gives, arguably more
+   correct). Reproducing the espeak output means replicating a malformed-multibyte-buffer
+   artifact that would affect any Latin word with a non-native accented vowel plus a final
+   `s` across all remove_accent languages, so it is deferred with C-evidence (one
+   nonsense-word headword, engine-wide risk to reproduce an espeak bug).
+2. **`ru` `a`/`ɑ` (`могла`/`смогла`/`побыла`).** This is not a synthesis allophone. The
+   mechanism is the voice file `lang/zle/ru` directive `replace 03 a a#`: in
+   `SubstitutePhonemes` (phonemelist.c:85-104), a word-final `a` in a non-primary syllable
+   (flag `0x2`: `(stresslevel & 0x7) > 3` skips stressed ones) is replaced by phoneme `a#`,
+   which renders IPA `a` and, unlike phoneme `a`, has no `thisPh(isMaxStress) →
+   ChangePhoneme(A)` branch, so it never becomes `A`/`ɑ`. For `$u2` `могла`, espeak's
+   `SetWordStress(tonic=-1)` leaves the final vowel secondary (`unstressed_wd2`=3), the
+   replace fires (3 ≯ 3) → `a#`, and only the later `CalcPitches` promotes the stress mark
+   to primary `ˈ`, after the programs, so `a#` is locked. espyak's clause-nucleus re-renders
+   the isolated word with `set_word_stress(tonic=4)`, promoting the final vowel to primary
+   (4) before the programs; the replace's `>3` guard then skips it and the `a` program fires
+   `ChangePhoneme(A)` → `ɑ`. This was verified with an instrumented espeak-ng 1.52
+   (`StressCondition`/`InterpretPhoneme`/`SubstitutePhonemes` prints): the oracle
+   `ph_list2` carries phoneme `a`, sl=3, and it is `SubstitutePhonemes` that swaps it to
+   `a#`. espyak already parses this directive (`VoiceConfig.replaces`) but never applies it.
+   The path is reachable, but a byte-exact fix for the isolated (nucleus) case is blocked by
+   the clause-tonic ordering above.
+3. **Two-level stress: nonsyllabic vowels as pitch syllables** (`la pro`/`prae`/`trans`
+   → `pˈrɔ` not `prˈɔ`; `ar ع` → `ˈʕʕˈaːjn`; and the clause-level `de ich habe es`,
+   `fr je le` nucleus relocation). espeak runs `SetWordStress` (which excludes a nonsyllabic
+   `@-` from the stress count, dictionary.c GetVowelStress `!phNONSYLLABIC`) and then a
+   separate intonation pass (`count_pitch_vowels`, intonation.c) that counts every `phVOWEL`,
+   including nonsyllabic `@-`, as a pitch syllable (`SFLAG_SYLLABLE`, translate.c:618) and
+   places the clause tonic there. So the tonic can land on a reduced onset schwa that carries
+   no stress and renders as a bare `ˈ` before the following consonant (`p'@-*O` → `pˈrɔ`).
+   espyak's nucleus works on the rendered IPA marks of a per-word render, which has already
+   collapsed the `@-`. Reproducing this needs the per-word render reworked into espeak's
+   clause-level phoneme-list model, exposing pre-intonation per-syllable stress levels, an
+   engine-wide architectural change disproportionate to the handful of affected words.
+4. **`ro reacţiona` prefix-stress** (`rˌeaktsjˈona` vs `rˌeaktsjonˈa`): the shared de/nl/af
+   `confirm_prefix` branch places the primary one syllable earlier than espyak's stem
+   re-translation does. Reproducing it needs espeak's exact prefix-confirm loop.
+5. **`nl` `nadelige`/`nalatige` oracle `$2`-collapse** (`naːˈə`): a genuine espeak bug,
+   confirmed by instrumenting the oracle. The `$2` word matches the `@) ige [@]` suffix rule
+   and then espeak removes the final `-e` and recursively re-translates the stem
+   (`Translate 'nadelig'` / `Translate 'nalatig'`). Standalone `nadelig` → `naːdˈeːləx`
+   (full, correct), but the recursive re-translation inside `nadelige` truncates the stem:
+   the oracle's `ph_list2` is only `n aː ə` (`d eː l` dropped) → `naːˈə`. This is an oracle
+   self-inconsistency: espyak's default engine emits the correct full `naːdˈeːləɣə`.
+   Reproducing the truncation would require porting espeak's buggy
+   `RemoveEnding`/suffix-recursion control flow and gating it to `force_compat`, so it is
+   deferred as narrow, with a high risk of truncating other nl `-ige` words.
+6. **Base-engine deleted-phoneme / segmentation cases** (for example `is gegnum` `hn#`
+   mnemonic leak, `ko` Hangul jamo spelling): espeak's segmentation deletes or reorders
+   phonemes via synthesis-time state that espyak's render does not model.
+7. **Clause-level regressive voicing runs after the phoneme programs, not before.**
+   espeak calls `SetRegressiveVoicing` on the whole clause list (phonemelist.c:214-216)
+   before `InterpretPhoneme` executes the phoneme programs. espyak renders word by word, so
+   the clause pass (`_apply_cross_word_voicing`) necessarily runs on lists whose programs
+   have already fired, and it only rewrites a phoneme where appending the next word changes
+   the result. Where a program has already substituted the word-final phoneme, the later
+   voicing pass no longer sees the phoneme espeak saw: `pl gnieść wgrał` → oracle
+   `ɡɲʲˈɛʑdʑ vɡrˈaw`, espyak `ɡɲʲˈɛɕtɕ vɡrˈaw` (the word-final `Z;`/`dz;` have already been
+   rendered voiceless by their own programs, so the cross-word `v` finds nothing to switch).
+   Fixing this needs the per-word render reworked into espeak's clause-level phoneme-list
+   model, the same architectural change item 3 above is blocked on.
+
+These put a permanent floor a few hundredths of a percent below a clean byte-for-byte 100%.
+
+---
 
 ## Sub-dialect VARIANT system (voices)
 
 `espyak/voice.py` ports espeak's voice/variant mechanism (`LoadVoice`, `voices.c`): a
-sub-dialect (`pt-br`, `en-us`, `es-419`, `ca-va`, ...) is a small voice/lang file under
-`espyak/data/lang/<family>/<code>` that LAYERS over a SHARED base language. The base
+sub-dialect (`pt-br`, `en-us`, `es-419`, `ca-va`, …) is a small voice/lang file under
+`espyak/data/lang/<family>/<code>` that layers over a shared base language. The base
 translator config comes from the voice's first `language` line (`strtok`'d on `-`: `pt-br`
 → `pt`, `en-us` → `en`); the rules/dict/_list base name is that same value unless a
-`dictionary <name>` keyword overrides it (nb: `language nb` + `dictionary no` → dict `no`).
-The variant then layers: the **phoneme table** (`phonemes <t>`), the **dict conditionals**
+`dictionary <name>` keyword overrides it (`nb`: `language nb` + `dictionary no` → dict
+`no`). The variant then layers the phoneme table (`phonemes <t>`), the dict conditionals
 (`dictrules N` → `dict_condition` bits selecting `?N` entries in the shared dict), and
-**post-translation phoneme `replace`s** (`replace <flags> <old> <new>`, applied on the
-final phoneme list with word-end / unstressed / word-start gating, `phonemelist.c:86`).
+post-translation phoneme `replace`s (`replace <flags> <old> <new>`, applied on the final
+phoneme list with word-end / unstressed / word-start gating, `phonemelist.c:86`).
 
-All 24 declared variants load; major dialects match the oracle at base-language parity
-(sample, cap≈800–1500): en-us 99.6% (`replace 03 I i`), en-gb 99.7%, pt-br 97.6%
-(`dia`→`dʒˈiæ`), es-419 97.4% (seseo θ→s), ca-va/ba/nw 99.3–99.5%, fr-be/ch/fr 99.1%
-(= base fr), en-029/en-gb-*/en-us-nyc/en-shaw 99.1–99.6%, ru-cl/lv 96–99%, fa-latn 99.9%.
-Residual misses are the SAME base-language abbreviation/loanword classes counted above, not
-variant-layer bugs.
+`test/parity_audit.py --variants --cap 2000` runs each variant's base-language headwords
+through `G2P(variant)` and `espeak-ng -v <variant>` so the dialect's `dictrules`/`replace`/
+phoneme-table layer is checked, not just the base dict:
 
-**Deferred** (load but not at parity — a base-language limit, not the voice layer):
-`cmn-latn-pinyin` (Latin-pinyin input needs base-cmn tokenization espyak lacks; Hanzi input
-works), `chr-US-Qaaa-x-west` (base `chr` Cherokee-syllabary G2P emits nothing for real
-syllabary text — identical in the oracle), and `vi-vn-x-{central,south}` (~92%, base-vi
-secondary-stress tail).
+```
+OVERALL 31389 / 31486 = 99.69%   →   97 mismatches   across 22 variants
+```
+
+Per-variant (cap 2000): pt-BR **99.7%**, fr-BE/fr-CH **99.8%**, en-US/en-US-nyc **99.8%**,
+en-GB-x-rp/scotland/gbclan/gbcwmd **99.5-99.8%**, en-029 **99.6%**, en-Shaw **99.8%**,
+ca-va/ca-nw **99.7%**, ca-ba **99.2%**, cmn-Latn-pinyin **99.9%**, yue-Latn-jyutping
+**100%**, vi-VN-x-central/south **100%**, fa-Latn **100%**, ru-LV **99.0%**, es-419
+**98.4%**, ru-cl **96.2%**.
+
+**The dialect remainder is base-shared.** The lowest variants are exactly where the base
+language is lowest, and the same headwords fail in the base audit: `ru-cl`/`ru-LV` reproduce
+`ru` (96.2%, the `a`/`ɑ` reduction plus word-initial schwa above), `es-419` reproduces `es`
+(98.4%, the abbreviation/letter cases), `ca-ba`/`ca-nw` reproduce `ca`. These are not
+variant-layer bugs; they are the base-language fails of buckets A-C surfacing through the
+voice. No variant has a fail that the base language does not.
 
 ## Prioritized path (most gain first)
 
-1. **Phoneme-level language switch refactor** (A, **240**, ≈0.52 pp, ~85% of it is `shn`).
-   Shared phoneme buffer + in-band `phonSWITCH` so source-language post-processing crosses
-   the switch; espeak's full Myanmar/codepoint `TranslateLetter` segmentation. Highest
-   leverage by far — one architectural change, one third of all remaining fails.
-2. **Abbreviation / `LookupDictList`** (B1, ≈92) — recovers the small-dict langs (`fo`,
-   `smj`) and dotted abbreviations across the board.
-3. **Unported stress-rule arms** (B2, ≈85, minus the D residue) — `ro`/SCr/`pap`/`vi`
-   secondary-stress placement.
-4. **numbers.c branches + `$N` fraction** (B3, 16) and the **C** rule-recoverable vowel
-   quality — lower yield, longer tail.
+1. **Phoneme-level language switch** (A, 29) - the shared-buffer refactor so the source
+   post-processor crosses the switch; recovers the `it` Cyrillic-letter block and `nog`.
+2. **`LookupDictList` letter-name / abbreviation expansion** (B, 45) - the largest spread,
+   one bounded C port covering dotted abbreviations and spelled-letter chains across ~25
+   languages.
+3. **Unported stress / `phonSYLLABIC` / regressive-voicing arms** (the closable slice of C)
+   - `la` onset-cluster stress, `ky` leading secondary, `sr/hr/bs` voicing + syllabic-l.
+4. **`numbers.c` branches + `$N` fraction** (D, 10) - Devanagari numerals, `$N` dollar
+   fraction.
 
-Stop before chasing D and the internally-ambiguous slice of C: those are the hard floor,
-not a backlog.
+The clause-tonic-ordering floor (the `pt` grave-accent vowel path, the `ru` `replace 03 a a#`
+directive, the `nl` `$2`-collapse bug, the Hangul/segmentation deletions) is deterministic
+and G2P-reachable, not formant synthesis, but each byte-exact fix is either blocked by the
+clause-tonic-before-programs ordering (`ru`, floor #2/#3) or is a narrow, high-regression-risk
+port (`pt` accent path; `nl` buggy suffix recursion under `force_compat`). Chase these only
+after the buckets above, and only with the clause-level phoneme-list rework in hand.
+
+---
+[← Divergences](divergences.md) · [Home](../README.md)

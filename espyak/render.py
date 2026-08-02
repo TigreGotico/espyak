@@ -100,14 +100,29 @@ def encode_phoneme_string(s, table):
             continue
         if c == "|":
             if s[i:i + 2] == "||":
-                pending_newword = True  # "||" is a word break in the phoneme string
+                # "||" is a word break in the phoneme string. But the bare phonPAUSE `_`
+                # immediately before the break swallows the word-boundary space: espeak's
+                # [[hai_||Ent]] renders `haiˈɛnt` while [[hai||Ent]] renders `hai ˈɛnt`
+                # (compound joins spelled `_||` in a dict entry — de highend hˌaiˈɛnt, it
+                # bestseller bˈɛst̪sˈeller — vs a plain `||` join, nordrhein nˈɔɾt raɪn). Only
+                # the bare `_` suppresses: a longer pause such as `_:` (phonPAUSE_SHORT) keeps
+                # the space (ru `три и один`: [[…_:||…]] -> `… …`, still spaced).
+                if not (entries and entries[-1].ph.mnemonic == "_"):
+                    pending_newword = True
                 i += 2
             else:
                 i += 1  # single "|" is a morpheme/tie barrier — not a phoneme
             continue
         # find the longest matching mnemonic starting at i
+        # `||` is a hard word break (espeak stores it as a separate phonEND_WORD byte), so a
+        # phoneme mnemonic must never straddle it. Cap the match window at the next `||` so a
+        # pause phoneme spelled with a trailing barrier (`_|`) can't swallow the first `|` of a
+        # `||` — that left a lone `|` (morpheme barrier) and dropped the word break, collapsing
+        # the space espeak keeps after a pl/cs decimal-separator word (przecinek/čárka).
+        wb = s.find("||", i)
+        win = (wb - i) if wb > i else (n - i)
         m = None
-        for L in range(min(maxlen, n - i), 0, -1):
+        for L in range(min(maxlen, win), 0, -1):
             cand = s[i : i + L]
             if _virama_hash and len(cand) > 1 and cand.endswith("#"):
                 # The virama '#' is a NULL phoneme: split it off ONLY when it ends a
@@ -141,6 +156,13 @@ def encode_phoneme_string(s, table):
             continue
         ph = table.phonemes[m]
         i += len(m)
+        if m == ":" and entries and entries[-1].ph.type == phPAUSE:
+            # phonLENGTHEN (`:`) applies SFLAG_LENGTHEN to the PRECEDING list phoneme
+            # (translate.c:590). A `_` pause is that phoneme when a length mark trails a `_||`
+            # compound join (de highend hai_||::Ent), and a lengthened pause renders nothing —
+            # espeak's [[hai_||::Ent]] and [[hai_::Ent]] both yield `haiˈɛnt`. Drop it so the
+            # `::` doesn't surface as a stray ː (-> hˌaiˈɛnt, not hˌaiːˈɛnt).
+            continue
         if m == "-" and pending_newword:
             # phonSYLLABIC immediately after a || word break (translate.c:585): it marks the
             # phoneme that PRECEDED the break syllabic and resets that phoneme's stress to the
@@ -156,12 +178,35 @@ def encode_phoneme_string(s, table):
             pending_stress = None
             continue
         if (ph.type == phVIRTUAL and ph.ipa is None and m == "-"
-                and entries and entries[-1].ph.type == phVOWEL):
+                and entries and entries[-1].ph.type != phVOWEL
+                and pending_stress is not None and pending_stress >= STRESS_IS_SECONDARY):
+            # A STRESSED syllabic consonant (a stress mark '/, immediately before a
+            # consonant that the `-` then marks syllabic, e.g. ar `ع = [A-a:jn]` fed through
+            # SetWordStress as `'A-a:jn`). espeak's phonemelist.c reinterprets a stressed
+            # syllabic consonant as TWO segments carrying the tonic: the consonant geminates
+            # and the first copy takes the primary/secondary mark (ˈʕʕ). The pending stress is
+            # NOT consumed here — it also carries on to the following vowel, so the vowel keeps
+            # its own tonic (ar ع -> `ˈʕʕˈaːjn`, both syllables stressed). An UNSTRESSED
+            # syllabic consonant (no pending stress, e.g. ar `s̪-ˈuːrah`, `s̪-ifr`) falls
+            # through to the literal-`-` branch below and is left byte-exact.
+            prev = entries[-1]
+            prev.synthflags |= SFLAG_SYLLABLE
+            prev.stresslevel = pending_stress
+            geminate = PhonemeListEntry(prev.ph)
+            entries.append(geminate)
+            continue
+        if (ph.type == phVIRTUAL and ph.ipa is None and m == "-"
+                and (not entries or entries[-1].ph.type == phVOWEL)):
             # the `-` syllabic-consonant marker (phsource/phonemes:135) makes the PREVIOUS
-            # phoneme syllabic. After a vowel that is meaningless, so MakePhonemeList drops it
-            # and it produces no IPA (fo number connective `u-o` -> uo). After a consonant the
-            # marker is kept (ar `s̪-ˈifr`), as is the length mark `:` -> ː (a virtual with ipa).
-            entries[-1].synthflags |= SFLAG_SYLLABLE
+            # phoneme syllabic. GetTranslatedPhonemeString (dictionary.c:657) only writes it as a
+            # flag appended to a PRECEDING non-vowel phoneme; it is never a standalone token. After
+            # a vowel that is meaningless, so MakePhonemeList drops it and it produces no IPA (fo
+            # number connective `u-o` -> uo). With NO preceding phoneme (a leading `-`, e.g. the
+            # malformed da_list `final -ese` entry) there is nothing to mark, so espeak emits
+            # nothing (final -> esˈe, not -esˈe). After a consonant the marker is kept (ar
+            # `s̪-ˈifr`), as is the length mark `:` -> ː (a virtual with ipa).
+            if entries:
+                entries[-1].synthflags |= SFLAG_SYLLABLE
             continue
         if ph.type == phSTRESS and not m.isdigit():
             # punctuation stress markers ('/,/%/=) attach to the next vowel; digit-named

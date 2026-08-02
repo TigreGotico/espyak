@@ -165,7 +165,8 @@ def main(argv):
             if e is None:
                 err += 1
                 continue
-            signal.alarm(10)
+            signal.alarm(30)  # generous: absorbs a one-time switch-sub-translator cold load
+                              # (~13s for the first ru/en language-switch word), still catches hangs
             try:
                 m = g.phonemize(w)
             except BaseException:  # TimeoutError or any engine error: count, don't abort the run

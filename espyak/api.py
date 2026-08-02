@@ -11,7 +11,7 @@ from espyak.rule_compiler import RuleSet
 from espyak.dictionary import (
     Translator, translate_rules, set_word_stress, change_word_stress, MnemIndex,
     DictList, LookupContext, remove_ending, _apply_replacements, _unpronounceable,
-    _is_vowel_letter,
+    _is_vowel_letter, _REMOVE_ACCENT,
 )
 from espyak import constants as K
 from espyak import voice as _voice_mod
@@ -21,6 +21,22 @@ import unicodedata
 # before an uppercase letter is NOT a CamelCase word break. "?A" = prefix before any vowel.
 _UCASE_GA = ("bp", "bhf", "dt", "gc", "hA", "mb", "nd", "ng", "ts", "tA", "nA")
 _IRISH_VOWELS = set("aeiouáéíóúàèìòùAEIOUÁÉÍÓÚÀÈÌÒÙ")
+
+# Clause punctuation consumed by espeak's clause reader (readclause.c) before a token is
+# looked up. Stripped from both ends of a word token so `yes.` is translated as `yes`
+# instead of falling through to the letter rules, which would spell the symbol out.
+# `:` is included: attached to a word it terminates the clause (`Warning:` -> wˈɔːnɪŋ),
+# even though ALONE it has a spoken name (colon) — a lone symbol is left untouched below.
+_CLAUSE_PUNCT = ".,;:!?…\"'“”‘’«»()[]{}"
+# ':' handled separately (trailing-only drop): a leading ':' is spoken (en :30 -> colon thirty).
+# The ASCII apostrophe is NOT stripped here: it can be part of the word (eo `l'` is a dict
+# entry meaning "la", fr `l'eau`, en `don't`), and espeak's own word-boundary-apostrophe rule
+# (translate.c:1361, the dedicated branch below) already decides when it is a separator.
+_CLAUSE_PUNCT_NO_COLON = ".,;!?…\"“”‘’«»()[]{}"
+# The subset that stays silent even STANDING ALONE: pure clause structure. `!` and `:`
+# are deliberately absent — English names them (exclamation, colon) while Dutch does not,
+# so those are left to the per-language dictionary rather than hardcoded here.
+_SILENT_ALONE = ".,;?…\"'“”‘’«»()[]{}"
 
 
 def _ga_caps_prefix(tok, j):
@@ -228,15 +244,33 @@ def _double_long_consonants(plist, double_rfx_stop=False):
             # it isn't caught by _DOUBLE_TYPES.
             e.ph = prev
             continue
-        if prev.type in _DOUBLE_TYPES or (
-                prev.type == phVOWEL and (
-                    # a MONOPHTHONG with an explicit ipa string (mto i/a/o/e, af a) is lengthened
-                    # by repeating it (i: -> ii); one rendered via its mnemonic (ipa None: mto u,
-                    # af i) and a CLOSING diphthong (aɪ) take ː instead
-                    (prev.starttype == prev.endtype and prev.ipa is not None)
-                    # a CENTRING diphthong (endtype #@: e@ -> iə) also repeats (e@: -> iəiə)
-                    or (prev.starttype != prev.endtype and prev.endtype == "#@"))):
-            e.ph = prev  # replace the length marker with a copy of the consonant/diphthong
+        if prev.type in _DOUBLE_TYPES:
+            # phonemelist.c:371-378: a lengthened fricative/nasal/liquid is doubled by inserting a
+            # copy BEFORE it — but ONLY when `j > 0`, i.e. it is not the first phoneme after the
+            # clause boundary ph_list3[0] ("can't insert a phoneme at position plist3[0]"). A
+            # clause-initial such consonant keeps its length mark and renders with ː. In espyak's
+            # per-word plist this guard is observable only for a GLIDE (a palatal/labial semivowel:
+            # phLIQUID with a vocalic starttype #i/#u and no explicit ipa — hi j, rendered via its
+            # formant program): a clause-initial geminate glide takes ː (hi य़ुघ्दविराम j:u -> jːu,
+            # not jju) while it still doubles mid-clause. A true fricative/nasal/liquid (ar ʕ, m, l,
+            # s) doubles even clause-initially — espeak's clause list places a linking segment
+            # before it, so its own `j > 0` holds — so those are left to double as before.
+            _glide = (prev.type == phLIQUID and prev.ipa is None
+                      and getattr(prev, "starttype", None) in ("#i", "#u"))
+            if _glide and not any(not plist[k].deleted for k in range(i - 1)):
+                continue
+            e.ph = prev  # replace the length marker with a copy of the consonant
+        elif prev.type == phVOWEL and prev.ipa is not None:
+            # A vowel with an explicit ipa string is lengthened by REPEATING it, not by
+            # appending ː. espeak writes the length phoneme with the vowel's own plist
+            # (dictionary.c:656) and in IPA mode WritePhMnemonic re-runs the vowel's program
+            # (InterpretPhoneme, synthdata.c:756 sets `ph = plist->ph`), so the vowel's ipa
+            # string is emitted a second time. This holds for every vowel category that carries
+            # an ipa string — a monophthong (mto/af a: -> ii), a centring diphthong (af e@: ->
+            # iəiə), and a CLOSING diphthong (af eI ɛɪ: -> ɛɪɛɪ; cliché, charmaine). A vowel with
+            # NO ipa string (rendered via its mnemonic: af i, mto u, the closing diphthong aI
+            # which defines no ipa) falls through and takes ː from phonLENGTHEN's own mnemonic.
+            e.ph = prev  # replace the length marker with a copy of the vowel
 
 
 def _decompose_hangul(word):
@@ -308,10 +342,19 @@ class G2P:
             # voice-file `dictrules` are authoritative; union with any hardcoded config value.
             merged = sorted(set(self._config.get("dictrules", ())) | set(self._voice_dictrules))
             self._config = {**self._config, "dictrules": merged}
+        self._interp.reduce_max_stress = bool(self._config.get("reduce_max_stress"))
+        self._plist_by_output = {}
         self._rules = RuleSet.compile_file(data_paths.rules_path(dict_name))
         self._sort_rules_by_phoneme_code()
         self._tr = Translator(phsource=self._phsource, config=self._config)
         self._tr.rules = self._rules
+        # expose force_compat to the rule matcher: the remove_accent restart (dictionary.c:2229)
+        # keeps an s-suffix RULE_ENDING that the clean re-translation discards; translate_rules
+        # flags that byte-exact espeak bug on this translator for the render pass to reproduce.
+        self._tr.force_compat = force_compat
+        # Unpronouncable2 (translateword.c:1187) reruns the letter rules under FLAG_UNPRON_TEST,
+        # which needs the phoneme mnemonic index for count_vowels; expose it on the translator.
+        self._tr.mnem = self._mnem
         # _listx is the supplementary lexical-stress / vocalized dictionary (ar/ru/it/bg/
         # tr/he/...). CompileDictionary (compiledict.c:1581) compiles _list and _listx in an
         # order gated on langopts.listx, and each entry is PREPENDED to its hash chain (the
@@ -325,7 +368,10 @@ class G2P:
             _list_files = [data_paths.list_path(dict_name), data_paths.listx_path(dict_name)]
         else:
             _list_files = [data_paths.listx_path(dict_name), data_paths.list_path(dict_name)]
-        self._dict = DictList.load(*_list_files, data_paths.extra_path(dict_name))
+        # compile_dictlist order (compiledict.c:1581-1589): roots, (listx/list), emoji, extra.
+        # _emoji holds $textmode names for symbols and emoji (£ -> "pound", ° -> "degrees").
+        self._dict = DictList.load(*_list_files, data_paths.emoji_path(dict_name),
+                                   data_paths.extra_path(dict_name))
         self._dict.case_sensitive_letters = bool(self._config.get("case_sensitive_letters"))
         # the matcher's $p_alt / $list DollarRule needs a part-word dict lookup (LookupFlags)
         self._tr.dict = self._dict
@@ -337,7 +383,11 @@ class G2P:
         # must sort by those, NOT the mnemonic ASCII: tn code(b)<code(B) keeps b->B winning,
         # while ga code(@)<code(v) makes mh->v win over r)m->@m. (A mnemonic sort gets ga
         # right but tn wrong, since 'B'<'b' in ASCII but code(b)<code(B).)
-        code = {m: i for i, m in enumerate(self.phoneme_table.phonemes)}
+        # The codes are espeak's REAL CompilePhoneme codes (PhonemeSource.codes), not a
+        # table-insertion-order proxy: da `?o`(124) > `?V`(109) are single glottalised-vowel
+        # phonemes whose real ordering makes `bl) o (k+`->?V sort before `L03) o (L01a+`->?o,
+        # so ?o wins the >= tie (blokade -> blʔokˈaaðə). An insertion-order proxy inverts them.
+        code = self._phsource.codes.get(self._ph_table_name, {})
         tok = self._mnem.tokenize
 
         # group_seq leads the key: it's constant within a single .group block (so this is identical
@@ -378,7 +428,7 @@ class G2P:
         )
 
     def translate_word(self, word, tonic=-1, caps_stress=0, all_upper=None, first_upper=None,
-                       at_end=True):
+                       at_end=True, following=(), clause_ctx=False):
         """Translate a single lowercase word to its mnemonic phoneme string.
 
         Pipeline: dictionary `_list` lookup -> (fallback) letter-to-sound rules ->
@@ -398,8 +448,13 @@ class G2P:
             if all_upper is None else all_upper,
             at_end=at_end,
             dict_condition=self._tr.dict_condition,
+            # LookupDictList passes the remaining source so a `(w1 w2 ...)` multi-word entry can
+            # match against the following words (has been -> hˈazbiːn as one unit).
+            following=following,
+            clause_ctx=clause_ctx,
         )
         self._tr.expect_verb = 0
+        self._tr._compat_accent_s = False  # set by translate_rules when the remove_accent+final-s bug fires
         self._suffix_nvowels = 0  # set by the suffix path; excluded from auto-secondary
         self._suffix_t_ph = ""    # a SUFX_T suffix: stress runs on the stem, suffix appended after
         self._suffix_dict_flags = 0  # a flags-only stem entry's flags adopted by the suffix path
@@ -500,8 +555,16 @@ class G2P:
             # fighting the nucleus (ro cărora $u1 -> kˌəɾoɾˈa, not kˈəɾoɾˌa).
             base = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
                                    control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
-            return self._apply_alt_attribute(
+            promoted = self._apply_alt_attribute(
                 change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags) + suf
+            if self._config.get("uN_nucleus_overlay"):
+                # ru (zle/ru voice `replace 03 a a#`): a stress-conditioned voice-replace/program
+                # runs on the natural-stress render, so overlay the promoted marks onto THAT (могла
+                # -> mʌɡɭˈa). Every other language keeps the promoted phonemes directly — re-running
+                # programs at natural stress would wrongly reduce a nucleus that is genuinely
+                # promoted before the program (en-029 `among` final ŋ must not become n).
+                return self._promote_u_via_overlay(base + suf, promoted, flags)
+            return promoted
         if suf and (flags & 0x8) and tonic >= 4:
             # a plain $u word (no explicit $N, no $u+) carrying a SUFX_T suffix as the clause
             # nucleus: espeak's SUFX_T SetWordStress runs on the stem with tonic=-1 (so the $u stem
@@ -513,9 +576,21 @@ class G2P:
                                    control=ctrl) + suf
             return self._apply_alt_attribute(
                 change_word_stress(self._tr, base, self._mnem, 4, pick_last=True), flags)
-        return self._apply_alt_attribute(
-            set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
-                            control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0)), flags) + suf
+        stressed = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=tonic,
+                                   control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+        if (flags & 0x8) and tonic >= 4 and self._config.get("unstress_u_nucleus"):
+            # A plain $u word (no explicit $N, no $u+, no suffix) promoted to the clause tonic in a
+            # language whose $u-nucleus vowel is reduced by a stress-conditioned program that runs
+            # BEFORE the intonation promotes it (sd ٿي: the i: program `IF isUnstressed THEN
+            # ChangePhoneme(i)` shortens the long vowel -> tʰˈi). Render the programs on the natural
+            # stress and overlay the promoted primary (see _promote_u_via_overlay). Most languages
+            # instead promote such a word to full stress BEFORE the program runs, so their stressed
+            # nucleus vowel keeps its full form (bg на -> nˈa, not nˈɐ); those never set this flag.
+            natural = set_word_stress(self._tr, ph, self._mnem, dict_flags=flags, tonic=-1,
+                                      control=ctrl, suffix_vowels=getattr(self, "_suffix_nvowels", 0))
+            return self._promote_u_via_overlay(
+                natural + suf, self._apply_alt_attribute(stressed, flags) + suf, flags)
+        return self._apply_alt_attribute(stressed, flags) + suf
 
     def _apply_alt_attribute(self, ph, flags):
         """ApplySpecialAttribute2 (translateword.c, LOPT_ALT&2: it/pt/sl). A $alt/$alt2 word
@@ -555,6 +630,29 @@ class G2P:
                     return out
                 break
         return ph
+
+    def _promote_u_via_overlay(self, natural, promoted, flags):
+        """A $u (unstressed function/short word) promoted to the clause tonic: return the mnemonic
+        carrying the word's NATURAL (un-tonic) stress so the stress-conditioned phoneme programs in
+        _render_phonemes run against THAT, and stash the promoted marks in ``_u_out_str`` to overlay
+        the clause-accent primary afterward.
+
+        This mirrors espeak's ordering: SetWordStress places the word's natural stress, the
+        phoneme programs (and voice `replace` directives) run on that level, and only the intonation
+        pass promotes the nucleus syllable's mark to primary. A program gated on stress therefore
+        sees the natural level, not the tonic — sd `i:` (IF isUnstressed -> short i) laxes to `i`,
+        and the zle/ru voice `replace 03 a a#` fires on a non-primary word-final `a` (могла ->
+        mʌɡɭˈa, not mʌɡɭˈɑ). For content words tonic=-1 and tonic=4 place identical marks, so those
+        never reach here; only $u words diverge, keeping the regression surface to $u nuclei.
+
+        A $alt/$alt2 word in a lopt_alt language (it/pt/sl) has its post-primary vowel already
+        shifted in ``promoted`` (ApplySpecialAttribute2 keys off the primary mark, absent in the
+        natural form); render it from ``promoted`` directly since the overlay transfers only stress
+        levels, not the vowel shift."""
+        if self._config.get("lopt_alt") and (flags & (K.FLAG_ALT_TRANS | K.FLAG_ALT2_TRANS)):
+            return promoted
+        self._u_out_str = promoted
+        return natural
 
     def _translate_core(self, word, ctx, word_flags=0, inherit_flags=0):
         """Dictionary lookup, else rules with prefix/suffix removal+retranslation.
@@ -610,6 +708,19 @@ class G2P:
         if dict_ph:
             hangul = self._config.get("decompose_hangul")
             nfc_ph = unicodedata.normalize("NFC", dict_ph) if hangul else dict_ph
+            if flags & K.FLAG_TEXTMODE and hangul and "/" in dict_ph:
+                # A $text value carrying a '/' variant marker (ko 곗날 -> 곈ː날/겐ː날). espeak
+                # re-injects the value as ONE whitespace-delimited word (translate.c:150-193, split
+                # on isspace only — '/' is not whitespace), then TranslateWord3 translates it: the
+                # embedded '/' matches the en `/ slaS $max3` dict entry mid-word, which flags the
+                # word FLAG_SPELLWORD. TranslateClause then re-speaks the ORIGINAL source word letter
+                # by letter (translate.c:1608-1617) — NOT the replacement — so the spelled string is
+                # the original 곗날, decomposed to jamo: each consonant-initial jamo by its dict name
+                # (ᄀ -> gij'@q), each vowel/final jamo by its rule sound, with the final ㅅ giving the
+                # unreleased t- that the isolated final ㄴ of the replacement would not. Spell the
+                # ORIGINAL decomposed word by name (SpeakIndividualLetters/TranslateLetter).
+                self._spelled = True
+                return self._spell_letters_named(_decompose_hangul(word)), 0
             if flags & K.FLAG_TEXTMODE and " " in nfc_ph.strip():
                 # $text whose value is MULTIPLE words (xex j -> "íki flu"): espeak puts the text
                 # back in the source buffer and re-tokenises it, so each word is translated and
@@ -618,7 +729,7 @@ class G2P:
                 subs = []
                 for sub in nfc_ph.split():
                     sctx = LookupContext(dict_condition=self._tr.dict_condition)
-                    sph, _ = self._translate_core(sub, sctx)
+                    sph, _ = self._translate_core(sub[:1].lower() + sub[1:], sctx)
                     if sph.strip():
                         subs.append(sph)
                 if subs:
@@ -629,7 +740,13 @@ class G2P:
                 # replacement (dictionary.c:2881), so the replacement gets a FRESH dict lookup
                 # before the rules — a respelling that is itself a dict headword uses that entry's
                 # pronunciation/stress (de matthias->mathias = matˈiːɑːs, jonathan->jonatan = $1).
-                word = nfc_ph
+                # espeak reinjects the replacement into the source and re-translates it as a fresh
+                # word: TranslateWord folds a LEADING capital to lower case (FLAG_FIRST_UPPER), so a
+                # Capitalised expansion (es aprox->Aproximadamente, ej->Ejemplo) loses its initial
+                # cap before the rules. A MEDIAL capital is NOT folded — it breaks rule matching and
+                # the word yields nothing (mt $textmode cm->tSentim'etri, eċċ->etSetra render ''),
+                # so only the first character is lowered, never the whole string.
+                word = nfc_ph[:1].lower() + nfc_ph[1:]
                 if not (self._config.get("neutral_tone_unstress")
                         and nfc_ph[-1:] == "5"):
                     rctx = LookupContext(dict_condition=self._tr.dict_condition)
@@ -704,7 +821,7 @@ class G2P:
         self._tr._spell_word = False
         ph, end_type, end_ph = translate_rules(
             self._tr, word, self._mnem, word_flags=word_flags, want_endings=True,
-            dict_flags=flags)
+            dict_flags=flags, pre_substituted=True)
         if (not ph.strip() and word and word.isascii() and any(c.isalpha() for c in word)
                 and self._config.get("letter_bits_offset")
                 and not (flags & K.FLAG_TEXTMODE and getattr(self, "_textmode_empty", False))):
@@ -743,26 +860,43 @@ class G2P:
                 ph2, end2, end_ph2 = translate_rules(
                     self._tr, word, self._mnem,
                     word_flags=word_flags | K.FLAG_NO_PREFIX, want_endings=True,
-                    dict_flags=flags)
+                    dict_flags=flags, pre_substituted=True)
                 if end2 and not (end2 & K.SUFX_P):
                     stem2, _ = remove_ending(self._tr, word, end2)
                     _sp, sp_end_type, _se = translate_rules(
                         self._tr, stem2.strip(), self._mnem,
-                        word_flags=word_flags, want_endings=True, dict_flags=flags)
+                        word_flags=word_flags, want_endings=True, dict_flags=flags,
+                        pre_substituted=True)
                     if not (sp_end_type & K.SUFX_P):
                         # prefix no longer recognised on the suffix-stripped stem: keep the suffix,
                         # drop the prefix, and fall through to the standard suffix branches below
                         # (SUFX_Q keeps the in-context stem — ro reci -> rˈetʃʲ, not rˈekʲ).
                         end_type, end_ph, ph = end2, end_ph2, ph2
+                    else:
+                        # the prefix survives on the suffix-stripped stem, but the stem's
+                        # retranslation may recognise a DIFFERENT (shorter) prefix than the whole
+                        # word did. espeak reassigns end_type to that stem translation
+                        # (translateword.c:350) and continues the strip loop from it, so the
+                        # (shorter) stem prefix is removed from the FULL word: de umgehen matched
+                        # `umge`P4, but stem `umgeh` re-matches only `um`P2 (`umge`'s `@` syllable
+                        # post-context fails on the vowelless `h`), so `um` is stripped and `gehen`
+                        # translated -> ʊmɡˈeːˌən, not the over-stripped ʊmɡˈəhˌeːn.
+                        end_type, end_ph, ph = sp_end_type, _se, _sp
             if end_type & K.SUFX_P:
                 # still a prefix: remove it, translate the stem, prepend the prefix phonemes
                 prefix_len = end_type & 0x3f
                 rest = word[prefix_len:]
                 rctx = LookupContext(dict_condition=self._tr.dict_condition, prefix_removed=True)
                 rest_ph, _ = self._translate_core(rest, rctx, inherit_flags=flags)
-                if self._config.get("lopt_prefixes") and ",," not in rest_ph:
+                if (self._config.get("lopt_prefixes") and ",," not in rest_ph
+                        and (flags or "'" in end_ph)):
                     # LOPT_PREFIXES (af/da/de/nl): "keep a secondary stress on the stem"
-                    # (translateword.c:553). espeak runs SetWordStress(stem, tonic=3) so the
+                    # (translateword.c:551-570), gated on prefix_flags || prefix_stress: it runs
+                    # only when the word carried dictionary flags before the stem lookup or the
+                    # prefix phonemes hold a primary/priority stress mark (phonSTRESS_P/P2). A
+                    # plain unstressed rule prefix (nl be-/ge-/ver-) skips it, so the stem keeps
+                    # its own primary regardless of clause position (bestand -> b@st'Ant).
+                    # espeak runs SetWordStress(stem, tonic=3) so the
                     # stem's main vowel becomes SECONDARY, then reduces all but the first
                     # primary mark in the prefix; the final word-stress pass places the primary.
                     # Applied only at the INNERMOST prefix level: a stem that already carries a
@@ -770,6 +904,23 @@ class G2P:
                     rest_ph = set_word_stress(self._tr, rest_ph, self._mnem,
                                               dict_flags=flags, tonic=3)
                     end_ph = _reduce_extra_primaries(end_ph)
+                elif (not self._config.get("lopt_prefixes") and not (end_type & K.SUFX_T)
+                      and (flags or "'" in end_ph) and "%" not in end_ph):
+                    # C else-branch (translateword.c:573-576), gated on the same
+                    # prefix_flags||prefix_stress as the lopt case but for a NON-LOPT language
+                    # without SUFX_T: "stress position affects the whole word, including the
+                    # prefix" — espeak assembles prefix+stem into one phoneme buffer and runs a
+                    # single SetWordStress over it. A dict stress-position flag ($N) therefore
+                    # counts syllables from the WORD start, not the suffix-stripped stem
+                    # (ro reacţiona $3 -> rˌeaktsjˈona: primary on the 3rd vowel o, not the
+                    # stem acţiona's 3rd = final a). The `|` barrier keeps the prefix-final and
+                    # stem-initial vowels from re-tokenising into one diphthong phoneme
+                    # (re+a stays e|a = two vowels, matching espeak's distinct phoneme codes).
+                    # A prefix that already carries an explicit unstressed mark `%` (en `%In`,
+                    # indirect) is excluded above: espeak's SetWordStress preserves that mark and
+                    # the plain `end_ph + rest_ph` path already matches (ˌɪn would be spurious).
+                    return set_word_stress(self._tr, end_ph + "|" + rest_ph, self._mnem,
+                                           dict_flags=flags, tonic=-1), flags
                 return end_ph + rest_ph, flags
         if end_type and (end_type & K.SUFX_Q):
             # "lookup stem in *_list without the suffix" (it `_S1q`): if the stem is a
@@ -894,6 +1045,12 @@ class G2P:
         SpeakIndividualLetters; otherwise None (no abbreviation — leave the word as-is).
         """
         n = len(word)
+        if n == 2 and word[0].isalpha() and word[1] == ".":
+            # A single-letter token followed by a dot (es `d.`, `d. c`): espeak's clause reader
+            # spaces the dot (`d .`), so CheckDottedAbbrev returns count==1 and — because the base
+            # token is one letter (word_length==1, translateword.c:191) — spell_word fires. The
+            # multi-letter run below never reaches count>1 here, so handle the lone letter directly.
+            return [word[0]]
         if n < 3 or "." not in word:
             return None
         letters = []
@@ -1125,9 +1282,33 @@ class G2P:
             stem_flags = dict_flags if dict_flags else (sdict_flags or 0)
             if not dict_flags and sdict_flags:
                 self._suffix_dict_flags = sdict_flags
+            swf = end_flags | K.FLAG_SUFFIX_REMOVED
+            if self.force_compat and (end_type & K.SUFX_M):
+                # espeak SUFX_M nested recursion, BUG REPLICATION (force_compat only,
+                # translateword.c:496-505). A multi-suffix ending (nl `@) ige (_S1m`) does not
+                # simply append its schwa: espeak re-translates the stem WITH want-endings so a
+                # further suffix can be stripped, and that re-translation runs the rules with
+                # FLAG_SUFFIX_REMOVED. Under that flag a word-initial PREFIX rule can win the
+                # match: the stems nadelig/nalatig open with the removable `na` prefix
+                # (`_) na (C@@P2 -> nˈaː`), which now matches as a two-letter SUFX_P ending, so
+                # TranslateRules returns EMPTY body phonemes with `nˈaː` carried in end_phonemes
+                # and SUFX_P set. Because SUFX_P is set, espeak's loop performs no further
+                # RemoveEnding and never re-appends the stem body (d eː l / l aː t): AppendPhonemes
+                # yields only that `na`-prefix fragment plus the outer suffix schwa
+                # (nadelige/nalatige -> naːˈə). Words whose stem does NOT open with a prefix rule
+                # (matige, gunstige, zodanige) re-translate in full and are untouched — the
+                # truncation emerges from the prefix/suffix interaction, it is not word-specific.
+                # The default engine skips this branch and keeps the full word; see
+                # docs/divergences.md (`nl-ige-suffix-recursion`).
+                s_ph, s_end, s_endph = translate_rules(
+                    self._tr, stem, self._mnem, word_flags=swf,
+                    dict_flags=stem_flags, want_endings=True)
+                if (s_end & K.SUFX_P) and not s_ph.strip():
+                    # AppendPhonemes('', end_phonemes + previous-suffix): the stem body is dropped.
+                    return s_endph + end_ph
             stem_ph, _, _ = translate_rules(
                 self._tr, stem, self._mnem,
-                word_flags=end_flags | K.FLAG_SUFFIX_REMOVED, dict_flags=stem_flags)
+                word_flags=swf, dict_flags=stem_flags)
         # SUFX_T (the `_S..t` ro suffixes): espeak determines the word's stress over the STEM
         # ALONE, holding the suffix phonemes in `end_phonemes`, and appends them only AFTER the
         # stress pass (translateword.c:525-529 skip the AppendPhonemes, :583-587 append later).
@@ -1140,15 +1321,12 @@ class G2P:
                 and not self._config.get("suffix_keeps_stress"):
             self._suffix_t_ph = end_ph
             return stem_ph
-        # record the suffix's vowel count so set_word_stress runs the auto-secondary on the
-        # stem only (espeak stresses the stem, then appends the suffix unstressed). Only when
-        # there is a real stem — some endings span the whole word (stem empty, e.g. en
-        # "house"), where the "suffix" vowels ARE the word and must keep their stress.
-        # `suffix_keeps_stress` langs (eu) instead stress the whole stem+suffix word, so the
-        # suffix vowels are NOT excluded (translateword.c stresses `phonemes` with the suffix in it).
-        if stem_ph.strip("\"'") and not self._config.get("suffix_keeps_stress"):
-            self._suffix_nvowels = sum(1 for _m, p in self._mnem.tokenize(end_ph)
-                                       if p.type == phVOWEL and "nonsyllabic" not in p.flags)
+        # A non-SUFX_T suffix is appended to the stem and the WHOLE word is stressed:
+        # translateword.c:525-528 AppendPhonemes(phonemes, end_phonemes) then clears
+        # end_phonemes, so add_suffix_phonemes stays 0 and SetWordStress (:578) runs the
+        # auto-secondary pass over stem+suffix together. A full vowel in the suffix therefore
+        # keeps its secondary stress (holly+wood -> hˈɒliwˌʊd, bollywood -> bˈɒliwˌʊd). Only the
+        # SUFX_T path above (ro unele -> ˈunele) holds the suffix out of the stress pass.
         return stem_ph + end_ph
 
     def _split_caps_word(self, tok, words, caps_letters, first_sub):
@@ -1190,12 +1368,61 @@ class G2P:
                 start = j + len(peel)
         words.append((tok[start:], first_sub and sub_first))
 
-    def phonemize(self, text, ipa=True, tie=None, separator=None, alphabet=None):
-        """Translate text to phonemes (word-by-word; full clause handling is P5).
+    def _render_unit(self, word, tonic, ipa, tie, separator, caps_stress, following,
+                     skip, at_end):
+        """Render one clause word-unit (the normal, non-'&'/non-'\x02' path) at the given
+        ``tonic``, including espeak's foreign-word phonSWITCH fallback. Sets
+        ``self._switch_consumed`` (words the switched language's multi-word entry consumed).
 
-        The last word carries the clause tonic stress (STRESS_IS_PRIMARY); this matches
-        espeak's single-clause behavior and is what makes an isolated monosyllable like
-        "the" render stressed (ðˈə). Per-word tonic placement across a real clause is P5.
+        Factored out of ``phonemize`` so a unit can be rendered twice: once NATURALLY
+        (tonic=-1) while assembling the clause, then again for the ONE unit chosen as the
+        intonation nucleus (see the nucleus-promotion pass in ``phonemize``)."""
+        self._switch_consumed = 0
+        rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
+                                     caps_stress=caps_stress,
+                                     all_upper=word.isupper() and any(c.isalpha() for c in word),
+                                     first_upper=word[:1].isupper(), at_end=at_end,
+                                     following=(following if skip else ()),
+                                     clause_ctx=bool(skip),
+                                     switch_following=following)
+        if (not rendered and self.lang != "en" and word.isascii()
+                and any(c.isalpha() for c in word)
+                and not getattr(self, "_textmode_empty", False)):
+            # phonSWITCH (translate.c): a word unpronounceable in the current (non-Latin)
+            # script is re-translated by the Latin default voice (English) and bracketed
+            # with the language switch — bg/fa/ka: foot -> (en)fˈʊt(bg). A Latin-script
+            # language never yields an empty translation for an alphabetic word, so the
+            # empty result self-identifies the foreign word. As with the in-band _^_ switch,
+            # espeak re-translates in place with the English voice, so its multi-word dict
+            # entries consume the following source words as one run.
+            en = self._en_fallback()
+            en_first = word[:1].isupper()
+            en_all = word.isupper() and any(c.isalpha() for c in word)
+            sk = en._dict.multiword_skip(
+                word.lower(), list(following), dict_condition=en._tr.dict_condition,
+                first_upper=en_first, all_upper=en_all)
+            en_ph = en._render_word(word.lower(), tonic, ipa, tie, separator,
+                                    first_upper=en_first, all_upper=en_all,
+                                    following=(list(following) if sk else ()),
+                                    clause_ctx=bool(sk))
+            if en_ph:
+                rendered = "(en)" + en_ph + "(" + self.lang + ")"
+                self._switch_consumed = sk
+        return rendered
+
+    def phonemize(self, text, ipa=True, tie=None, separator=None, alphabet=None):
+        """Translate text to phonemes with espeak's clause-intonation nucleus placement.
+
+        Each word-unit is first rendered with its NATURAL (lexical) stress. The clause
+        intonation nucleus — espeak's CalcPitches/count_pitch_vowels: the LAST syllable at
+        the highest stress level in the clause — is then located at the word granularity:
+        the nucleus is the LAST unit whose natural render carries the maximum stress
+        mark (primary ˈ > secondary ˌ > none). Trailing unstressed ($u) function words after a
+        higher-stressed word are therefore POST-NUCLEAR and keep their reduced natural form
+        (more or -> mˈɔːɹ ɔː; give it to me -> ɡˈɪv ɪt tə mˌiː), while a clause whose maximum
+        is only secondary/none promotes that nucleus unit to the clause tonic (the -> ðˈə,
+        where is the -> wˈeəɹ ɪz ðə). An isolated word is its own nucleus, so single-word
+        renders are unchanged.
 
         *alphabet* selects the output notation, transcoded from IPA via scriptconv:
         ``"ipa"`` (default), ``"kirshenbaum"`` (espeak's native ASCII-IPA),
@@ -1260,6 +1487,76 @@ class G2P:
         # join with U+0001 so it survives the whitespace split below; a plain '_' is just a space.
         text = text.replace("_-", "\x01").replace("_", " ")
         text = text.translate(_trans)
+        # espeak's clause reader breaks a word at a digit<->anything boundary (translate.c:1194,
+        # 1377) and at a letter<->symbol/punctuation boundary (1182/1218), then spells the isolated
+        # char by its character name (en c# -> sˈiː hˈaʃ, c:d -> sˈiː kˈəʊlən dˈiː; sv usa:s ->
+        # ˌʉɛsˈɑː ˈɛs with the ':' dropped) — but NOT between two such chars, so an adjacent run
+        # stays one word spoken glued by the letter peel (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz, ## -> hˈaʃhaʃ).
+        # Isolate maximal runs. Symbol-category chars (Sc/Sk/Sm/So, plus '%') split unconditionally;
+        # "other" punctuation (category P) splits too, EXCEPT a ':' next to a digit, which stays in
+        # the token for the number path (the time/range rules '12:30', '2.-a' need it in-word). The
+        # marks handled in dedicated branches (- . , ' / _ & and the language's middle-dot-style
+        # punct_within_word) are never peeled here.
+        _pww = "-.,'/_&\x01" + self._config.get("punct_within_word", "")
+        def _isol(_k):
+            _c = text[_k]
+            if _c.isspace() or _c in _pww:
+                return False
+            _cat0 = unicodedata.category(_c)[0]
+            if _cat0 == "S" or _c == "%":
+                return True
+            if _cat0 == "P":
+                # Clause-structure punctuation (. , ; ! ? … and quote/bracket pairs) is consumed
+                # by the reader, not spoken as a word — leave it attached so the _CLAUSE_PUNCT
+                # strip drops it (yes! -> jˈɛs, not …ˈɛkskləmˌeɪʃən). Only SPOKEN symbols/marks
+                # (# hash, @ at, & and, *) are isolated here. ':' is neither — it has its own
+                # between-letters rule below (a:b spelled / usa:s split / Warning: dropped).
+                if _c in _CLAUSE_PUNCT and _c != ":":
+                    return False
+                if _c == ":":
+                    # A ':' BETWEEN two letters terminates the word: espeak's clause reader
+                    # inserts a space at any letter<->non-letter boundary that is not
+                    # punct_within_word (translate.c:1182 `!IsAlpha(c) && !IsSpace(c) &&
+                    # punct_within_word==0` after an alpha `prev_out`), so `usa:s` becomes the
+                    # words `usa` `:` `s` and the trailing `s` is spoken as its own letter name
+                    # (sv ˌʉɛsˈɑː ˈɛs; hu ÁFAa:f -> ˈaːfɑɑ ˈɛff). The isolated ':' is NOT a
+                    # length mark that lengthens across the split — `da:g` -> dˈa ɡˈeː keeps the
+                    # `a` SHORT — it simply drops (its own token translates to nothing) unless
+                    # the language SPELLS it "colon" (en/lv, colon_spelled), which peels it even
+                    # at a word edge. Elsewhere the peel is gated on a FOLLOWING letter: a
+                    # word-FINAL ':' (smj dOdnO:) has no letter to spell separately, so it stays
+                    # in-word as an inert length mark (dropping it would strip the clause-final
+                    # long-vowel letter name of its length -> …oː, not …oɔ). A ':' next to a
+                    # digit stays in-word for the time/range number path (12:30, 2.-a).
+                    _p = text[_k - 1] if _k else ""
+                    _n = text[_k + 1] if _k + 1 < len(text) else ""
+                    if (_p.isascii() and _p.isdigit()) or (_n.isascii() and _n.isdigit()):
+                        return False
+                    # A ':' is only isolated BETWEEN two letters (a:b, usa:s). A clause-final
+                    # ':' (Warning:, before a space or end) is clause punctuation consumed by
+                    # the reader — dropped by the _CLAUSE_PUNCT strip, never spelled, even in a
+                    # colon-spelling language (en Warning: -> wˈɔːnɪŋ, not …kˈəʊlən). A
+                    # standalone ':' still reaches the dictionary, which names it (en colon).
+                    if not (_p.isalpha() and _n.isalpha()):
+                        return False
+                    # smj (caps_are_letters): a ':' after an UPPERCASE letter is that
+                    # letter's long-vowel NAME (A: -> ɑː), kept in-word for the caps
+                    # letter-name peel (_split_caps_word), not a word-splitting ':'
+                    # (bA:lldaj -> bˈeː ˈɑːl ltˈɑj, the geminate straddles A:).
+                    if (not self._config.get("colon_spelled")
+                            and self._config.get("caps_are_letters") and _p.isupper()):
+                        return False
+                return True
+            return False
+        if any(_isol(_k) for _k in range(len(text))):
+            _out, _prev_sym = [], False
+            for _k in range(len(text)):
+                _sym = _isol(_k)
+                if _sym != _prev_sym:
+                    _out.append(" ")
+                _out.append(text[_k])
+                _prev_sym = _sym
+            text = "".join(_out)
         # Build the (token, nospace_join) list: whitespace is an ordinary break; a '\x01' (the
         # former '_-') breaks AND glues the following word to the previous with no space.
         raw_toks = []
@@ -1276,9 +1573,49 @@ class G2P:
             # internal-hyphen branches fire). fo `barna-` keeps its word-final `rn`->`dn` rule
             # (badnˈa, not bˈarna); `test-` == `test` in every language.
             if not nospace_join:
-                raw_tok = raw_tok.lstrip("-")
+                # keep a single leading '-' that is a MINUS sign directly before a digit
+                # (translate.c: `-5` -> "minus five"); a double `--` is a pause, not a minus,
+                # so it is still stripped (`--5` -> "five").
+                if not (raw_tok[:1] == "-" and raw_tok[1:2].isdigit()):
+                    raw_tok = raw_tok.lstrip("-")
             raw_tok = raw_tok.rstrip("-")
             if not raw_tok:
+                continue
+            # Clause punctuation attached to a word is a CLAUSE TERMINATOR, not part of the
+            # word: espeak's clause reader (readclause.c) consumes `. , ; : ! ?` and the
+            # bracket/quote pairs before the token ever reaches dictionary lookup, so `yes.`
+            # is looked up as `yes`. espyak split on whitespace only, so the punctuation stayed
+            # glued on, missed the dictionary, and fell through to the LETTER RULES — which
+            # spell the symbol out. Every sentence therefore ended in a spoken punctuation
+            # name ("yes." -> jˈɛs+dɒt, "Warning:" -> wˈɔːnɪŋ+kˌəʊlən, nl "." -> pˈɵnt),
+            # which is especially bad for screen-reader use where most utterances end in one.
+            #
+            # A punctuation character STANDING ALONE is a separate case, handled below.
+            # ':' is dropped only as a TRAILING clause terminator (Warning:, 12: -> the ':'
+            # ends the clause); a LEADING ':' is spoken/handled by the number-and-colon path
+            # (:30 -> kˈəʊlən θˈɜːti in en), so it is not lstripped.
+            _stripped = raw_tok.strip(_CLAUSE_PUNCT_NO_COLON).rstrip(":")
+            # A quote apostrophe around a word ('hello') is clause punctuation, but a word-final
+            # or word-internal one can belong to the word (eo `l'` is the dict entry for "la",
+            # `dank'`; en `don't`), so `'` is NOT in _CLAUSE_PUNCT_NO_COLON. espeak decides this
+            # per language via LOPT_APOSTROPHE / char_plus_apostrophe — the dedicated
+            # `strip_boundary_apostrophe` branch below implements that, so only peel a LEADING
+            # quote here (never the trailing one, which that branch owns).
+            while len(_stripped) > 1 and _stripped[0] == "'" and _stripped[1].isalpha():
+                _stripped = _stripped[1:]
+            # A TRAILING apostrophe is a closing quote too ('hello' -> hello), unless the whole
+            # token with it is a dictionary headword — eo `l'` is the _list entry for "la", so
+            # peeling it there would lose the word (and yield the fr-style l'-elision instead).
+            while (len(_stripped) > 1 and _stripped[-1] == "'" and _stripped[-2].isalpha()
+                   and not self._dict.lookup_flags(_stripped.lower())):
+                _stripped = _stripped[:-1]
+            if _stripped:
+                raw_tok = _stripped
+            elif all(c in _SILENT_ALONE for c in raw_tok):
+                # `.` `,` `;` `?` and the quote/bracket pairs are pure clause structure:
+                # espeak renders them as nothing even when they stand alone. `!` and `:` are
+                # NOT here — en names them (exclamation, colon) while nl stays silent, so
+                # they fall through to the dictionary, which already encodes that per language.
                 continue
             # A word-boundary apostrophe is not part of the word: espeak's clause reader turns a
             # word-final/initial ' (and any ' not between two letters) into a space before the word
@@ -1334,25 +1671,31 @@ class G2P:
                     continue
                 self._split_caps_word(tok, words, caps_letters, first_sub=(pi > 0 or join))
         out = []
-        for i, (word, nospace) in enumerate(words):
-            # tonic word carries the clause stress; tone languages (vi) reduce it to
-            # secondary since the tone, not stress, carries syllable prominence.
-            tonic = self._config.get("tonic_stress", 4) if i == len(words) - 1 else -1
-            if (tonic >= 0 and self._config.get("u_tonic") is not None
-                    and (self._dict.lookup_flags(word) & 0x8)):
-                # vi: a $u function word as the clause nucleus stays SECONDARY (cho -> tʃˌɔ), unlike a
-                # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
-                tonic = self._config.get("u_tonic")
-            _wflags = self._dict.lookup_flags(word.split("\x02")[0])
-            if (tonic >= 0 and len(words) > 1 and self._config.get("u_post_nuclear")
-                    and (_wflags & 0x8) and not (_wflags & K.FLAG_STRESS_END)):
-                # smj: a TRAILING plain-$u function word in a multi-word render is post-nuclear —
-                # the clause accent already landed on a preceding (spelled letter-name / camelCase)
-                # word, so the $u word keeps its NATURAL stress, not the clause primary
-                # (A:ga -> ˈɑː kɑ, A:dagi -> ˈɑː tˌɑɡɪː, BeGa -> pˈiɛ kɑ). A $u word that is the
-                # ONLY word is still promoted to the nucleus (ga -> kˈɑ). A $u+ word (FLAG_STRESS_END,
-                # da/sij/ma) KEEPS its stress, so it still takes the clause primary (dijA:da -> tˈɑ).
-                tonic = -1
+        # word_slots records (index-in-`out`, source-token) for each rendered real word, so the
+        # cross-word sandhi passes below (en linking/intrusive r, nl stop degemination) can see the
+        # previous word's phonemes and spelling and the next word's onset — state espeak keeps in
+        # its clause-level phoneme list but the per-word render here otherwise loses.
+        word_slots = []
+        # rendered form -> the phoneme list it came from, for the clause-level regressive
+        # voicing pass (cleared per clause so a stale list can never be re-rendered).
+        self._plist_by_output = {}
+        # Each rendered real unit, recorded so the intonation nucleus can be located after the
+        # whole clause is assembled and that ONE unit re-rendered with the clause tonic.
+        units = []
+        i = 0
+        n = len(words)
+        while i < n:
+            word, nospace = words[i]
+            # LookupDictList multi-word entries: a `(w1 w2 ...)` dict entry keyed on this word whose
+            # follow-words match the source is one pronunciation unit spanning several tokens (has
+            # been -> hˈazbiːn). Probe how many following words it consumes so the clause tonic lands
+            # on the whole unit and the loop skips the consumed tokens.
+            following = [w.lower() for (w, _ns) in words[i + 1:]]
+            skip = self._dict.multiword_skip(
+                word.lower(), following, dict_condition=self._tr.dict_condition,
+                first_upper=word[:1].isupper(),
+                all_upper=word.isupper() and any(c.isalpha() for c in word))
+            unit_last = (i + skip == n - 1)
             if out and not nospace:
                 # a preceding empty token (a Burmese break mark: asat ်, dot ့) leaves a trailing
                 # separator already; don't add a second one (espeak emits no double space). The
@@ -1371,53 +1714,115 @@ class G2P:
                         break
                     if ch.lower() in "aeiouy":
                         nv += 1
+            # $atend gating is clause-position sensitive for EVERY language: a $atend-flagged
+            # dictionary entry (en `has haz $atend`, `a eI $atend`, smj `O` letter name) only wins
+            # when the word is the LAST unit in the clause. A non-final word gets at_end=False so its
+            # $atend entry is rejected and it falls to the reduced/rule form (mid-clause `has` ->
+            # hɐz not hˈaz, `a` -> ɐ not ˈeɪ). A single-word clause is unit_last, so isolated-word
+            # renders are unchanged (still at_end=True). $atend keys off clause position, NOT the
+            # nucleus, so it stays fixed while the nucleus is chosen below.
+            at_end = unit_last
+            # Render NATURALLY (tonic=-1); the clause nucleus is promoted afterwards. `kind`
+            # records how to re-render the nucleus unit (the smj '&'/'\x02' spelled-coda forms
+            # need their own recompose).
+            self._switch_consumed = 0
             if word[:1] == "&":
                 # smj '&' word ("og"): render the dict letter-name, then append any peeled coda
                 # consonant as its own glyph (FLAG_NOSPACE join): '&m' -> ˈɔːɡm.
-                rendered = self._render_word("&", tonic, ipa, tie, separator) + word[1:]
-                out.append(rendered)
-                continue
-            if "\x02" in word:
+                kind, kparams = "amp", word[1:]
+                rendered = self._render_word("&", -1, ipa, tie, separator) + word[1:]
+            elif "\x02" in word:
                 # smj long-vowel letter name with a peeled geminate coda (A:\x02l): spell the
                 # letter name (A: -> ˈɑː), then append the coda consonant as its glyph -> ˈɑːl.
                 lname, coda = word.split("\x02", 1)
-                rendered = self._render_word(lname.lower(), tonic, ipa, tie, separator) + coda
-                out.append(rendered)
-                continue
-            # atend_clause_final (smj): a $atend-gated letter name (O -> o:, i -> i:) only applies
-            # when the word is the LAST in the clause; a non-final caps-letter token rule-translates
-            # instead (dO:t -> d | O | t, the mid-clause O -> oɔ not the o: letter name). Default
-            # languages keep the historical isolated-word at_end=True (one word per phonemize call).
-            at_end = (not self._config.get("atend_clause_final")) or (i == len(words) - 1)
-            rendered = self._render_word(word.lower(), tonic, ipa, tie, separator,
-                                         caps_stress=caps_stress,
-                                         all_upper=word.isupper() and any(c.isalpha() for c in word),
-                                         first_upper=word[:1].isupper(), at_end=at_end)
-            if (not rendered and self.lang != "en" and word.isascii()
-                    and any(c.isalpha() for c in word)
-                    and not getattr(self, "_textmode_empty", False)):
-                # phonSWITCH (translate.c): a word unpronounceable in the current (non-Latin)
-                # script is re-translated by the Latin default voice (English) and bracketed
-                # with the language switch — bg/fa/ka: foot -> (en)fˈʊt(bg). A Latin-script
-                # language never yields an empty translation for an alphabetic word, so the
-                # empty result self-identifies the foreign word.
-                en_ph = self._en_fallback()._render_word(word.lower(), tonic, ipa, tie, separator)
-                if en_ph:
-                    rendered = "(en)" + en_ph + "(" + self.lang + ")"
-            if (not rendered and word == "း" and self.force_compat
-                    and self._config.get("compat_spell_orphan_visarga")):
-                # shn: a visarga း orphaned by the asat split renders empty here (it is its own
-                # token, no surrounding syllable for the rules to attach it to), but espeak's
-                # TranslateLetter still spells its codepoint "Myanmar letter 1038" in place. Use the
-                # same in-band codepoint speller as the mid-word case. The preceding empty break
-                # token (asat) already left a trailing space in `out`; drop it so the spelled run
-                # joins with a single separator (espeak emits no double space).
-                rendered = self._spell_codepoint_inband(ord("း"), ipa, tie, separator)
-                while out and out[-1] in (" ", ""):
-                    out.pop()
-                if out:
-                    out.append(" ")  # exactly one separator before the spelled visarga
+                kind, kparams = "x02", (lname.lower(), coda)
+                rendered = self._render_word(lname.lower(), -1, ipa, tie, separator) + coda
+            else:
+                kind, kparams = "normal", None
+                rendered = self._render_unit(word, -1, ipa, tie, separator, caps_stress,
+                                             following, skip, at_end)
+                if (not rendered and word == "း" and self.force_compat
+                        and self._config.get("compat_spell_orphan_visarga")):
+                    # shn: a visarga း orphaned by the asat split renders empty here (it is its own
+                    # token, no surrounding syllable for the rules to attach it to), but espeak's
+                    # TranslateLetter still spells its codepoint "Myanmar letter 1038" in place. Use
+                    # the same in-band codepoint speller as the mid-word case. The preceding empty
+                    # break token (asat) already left a trailing space in `out`; drop it so the
+                    # spelled run joins with a single separator (espeak emits no double space).
+                    rendered = self._spell_codepoint_inband(ord("း"), ipa, tie, separator)
+                    while out and out[-1] in (" ", ""):
+                        out.pop()
+                    if out:
+                        out.append(" ")  # exactly one separator before the spelled visarga
+            out_idx = len(out)
+            if rendered and ipa and any(c.isalpha() for c in word):
+                word_slots.append((out_idx, word.lower()))
             out.append(rendered)
+            # natural stress level of this unit (from its rendered marks): primary ˈ=4 >
+            # secondary ˌ=3 > none=0. The nucleus (below) is the LAST unit at the clause maximum
+            # EFFECTIVE level: a $strend/$strend2 word (FLAG_STRESS_END/END2, espeak's
+            # SFLAG_PROMOTE_STRESS — "full stress if at clause end", phonemelist.c:167) is a nucleus
+            # candidate even when its own render is reduced (en `there De@ $u $strend2`, `where
+            # ,we@ $strend2`), so its effective level is 4.
+            Lren = 4 if "ˈ" in rendered else (3 if "ˌ" in rendered else 0)
+            _ucaps = dict(first_upper=word[:1].isupper(),
+                          all_upper=word.isupper() and any(c.isalpha() for c in word))
+            _uflags = self._dict.lookup_flags(word.split("\x02")[0].lstrip("&"), **_ucaps)
+            promotable = bool(_uflags & (K.FLAG_STRESS_END | K.FLAG_STRESS_END2))
+            units.append(dict(idx=out_idx, word=word, kind=kind, kparams=kparams,
+                              caps_stress=caps_stress, following=following, skip=skip,
+                              at_end=at_end, Lren=Lren, Leff=(4 if promotable else Lren),
+                              is_u=bool(_uflags & 0x8)))
+            # a language-switch multi-word run (self._switch_consumed) and an outer-language
+            # multi-word entry (skip) are mutually exclusive; advance past whichever fired.
+            i += 1 + max(skip, getattr(self, "_switch_consumed", 0))
+        # Intonation nucleus (espeak CalcPitches/count_pitch_vowels): the clause tonic falls on the
+        # LAST unit at the maximum natural stress level; trailing lower-stressed units are post-
+        # nuclear and keep their reduced natural form. When the maximum is already primary (ˈ) the
+        # nucleus render is identical to its natural render (a content word's lexical primary is not
+        # relocated), so no re-render is needed; only a clause whose maximum is secondary/none needs
+        # its nucleus promoted to the clause tonic (the -> ðˈə, where is the -> wˈeəɹ ɪz ðə).
+        if units:
+            maxL = max(u["Leff"] for u in units)
+            nucleus = max(k for k, u in enumerate(units) if u["Leff"] == maxL)
+            u = units[nucleus]
+            ntonic = self._config.get("tonic_stress", 4)
+            if u["is_u"] and self._config.get("u_tonic") is not None:
+                # vi: a $u function word as the clause nucleus stays SECONDARY (cho -> tʃˌɔ), unlike a
+                # content word which takes the PRIMARY clause tonic (ba -> bˈaː).
+                ntonic = self._config.get("u_tonic")
+            # a content nucleus already shows its lexical primary in its natural render (identical to
+            # the clause tonic — no relocation); only a nucleus rendered WITHOUT primary (a promoted
+            # $strend word, or an all-reduced clause's last word) needs re-rendering with the tonic.
+            # a $unstressend spelled abbreviation (hu kb/KFT) shows a primary in its natural
+            # render, but the clause tonic MOVES it to the last letter (FLAG_UNSTRESS_END,
+            # translate_word tonic>=4 path) — re-render it with the tonic even though Lren==4.
+            _uw = u["word"]
+            _needs_tonic = u["Lren"] < 4 or (
+                u["kind"] not in ("amp", "x02")
+                and (self._dict.lookup_flags(
+                    _uw, first_upper=_uw[:1].isupper(),
+                    all_upper=_uw.isupper() and any(c.isalpha() for c in _uw))
+                     & K.FLAG_UNSTRESS_END))
+            if ntonic >= 0 and _needs_tonic:
+                if u["kind"] == "amp":
+                    rendered = self._render_word("&", ntonic, ipa, tie, separator) + u["kparams"]
+                elif u["kind"] == "x02":
+                    lname, coda = u["kparams"]
+                    rendered = self._render_word(lname, ntonic, ipa, tie, separator) + coda
+                else:
+                    rendered = self._render_unit(u["word"], ntonic, ipa, tie, separator,
+                                                 u["caps_stress"], u["following"], u["skip"],
+                                                 u["at_end"])
+                out[u["idx"]] = rendered
+        # cross-word sandhi over the assembled clause (espeak's clause-level phoneme list):
+        # en linking/intrusive r, nl homorganic-stop degemination.
+        if ipa and self._config.get("regression"):
+            self._apply_cross_word_voicing(out, word_slots)
+        if ipa and self._config.get("linking_r"):
+            self._apply_linking_r(out, word_slots)
+        if ipa and self._config.get("degeminate_stops"):
+            self._apply_degemination(out, word_slots)
         # a word-final break token (e.g. a Burmese asat ်) renders empty but leaves a trailing
         # separator space; espeak emits none, so trim it.
         result = "".join(out).rstrip(" ")
@@ -1476,6 +1881,144 @@ class G2P:
             # spaces, separators) through unchanged.
             result = _sc_convert(result, "ipa", _post_convert)
         return result
+
+    # IPA vowel onset/coda characters (first element of every en vowel/diphthong).
+    _R_VOWELS = set("aɑeɛiɪoɔuʊəɐæʌɒɜøœyʏ")
+
+    def _slot_pairs(self, out, word_slots):
+        """Yield (prev_idx, prev_src, cur_idx, cur_src) for word slots that are DIRECTLY adjacent
+        in the clause — separated by exactly one space, with no intervening symbol/word token
+        (so `a=b` never links `a` to `b`, since the `=`-word sits between them)."""
+        for (pi, ps), (ci, cs) in zip(word_slots, word_slots[1:]):
+            if ci == pi + 2 and out[pi + 1] == " ":
+                yield pi, ps, ci, cs
+
+    def _starts_with_vowel(self, ph):
+        s = ph.lstrip("ˈˌ")
+        return bool(s) and s[0] in self._R_VOWELS
+
+    def _apply_cross_word_voicing(self, out, word_slots):
+        """Regressive voicing assimilation ACROSS a word boundary.
+
+        espeak runs SetRegressiveVoicing ONCE over the whole clause phoneme list
+        (phonemelist.c:214-216, after the words have been concatenated), so a word-final
+        obstruent sees the FOLLOWING word's initial consonant: pl `plik zapisany` ->
+        plˈiɡ zˌapisˈanɨ, cs/sk `byt dobry` -> bˈid dˈobri, sr/hr/bs `rat bio` -> rˈad bˌɪo.
+        espyak renders word by word, so its per-word pass misses exactly that context.
+
+        Nothing here is language-specific: the same LOPT_REGRESSIVE_VOICING bits that
+        SetRegressiveVoicing already honours decide whether voicing crosses the boundary.
+        Bit 0x04 resets the accumulator at a word start (bg 0x107) and a value with no low
+        nibble performs no assimilation at all (de/nl/mt 0x100, final devoicing only), so
+        those languages are unaffected by construction rather than by an exception list.
+
+        Only the DIFFERENCE the neighbouring word makes is applied: the pass is run twice
+        over the previous word — alone and with the next word appended — and a phoneme is
+        rewritten only where the two runs disagree, so nothing word-internal can shift.
+        """
+        reg = self._config.get("regression", 0)
+        table = self.phoneme_table
+        for pi, _ps, ci, _cs in self._slot_pairs(out, word_slots):
+            prev = self._plist_by_output.get(out[pi])
+            cur = self._plist_by_output.get(out[ci])
+            if prev is None or cur is None or prev[0] is cur[0]:
+                continue
+            pl, ipa, tie, separator = prev
+            cl = cur[0]
+            orig_p = [e.ph for e in pl]
+            orig_c = [e.ph for e in cl]
+            set_regressive_voicing(pl, table, reg)
+            alone = [e.ph for e in pl]
+            for e, ph in zip(pl, orig_p):
+                e.ph = ph
+            set_regressive_voicing(pl + cl, table, reg)
+            changed = False
+            for k, e in enumerate(pl):
+                if e.ph is alone[k]:
+                    e.ph = orig_p[k]          # no cross-word effect here: keep as rendered
+                else:
+                    changed = True
+            for e, ph in zip(cl, orig_c):     # the next word is only context; never rewritten
+                e.ph = ph
+            if not changed:
+                continue
+            new = render_phoneme_list(pl, table, ipa=ipa, tie=tie, separator=separator)
+            self._plist_by_output[new] = prev
+            out[pi] = new
+
+    def _apply_linking_r(self, out, word_slots):
+        """en linking/intrusive r (phonemelist pd_INSERTPHONEME): a word ending in a non-rhotic
+        vowel that historically carried r (ə, ɑː, and the centring diphthongs that end in ə) —
+        intrusive — or one SPELLED with a final 'r' rendered without it (for, car, her) — linking —
+        restores a ɹ when the FOLLOWING word begins with a vowel (tilde ex -> tˈɪldəɹ ˈɛks,
+        for it -> fɔːɹ ˈɪt). Before a consonant or at clause end no ɹ appears (tilde box, car)."""
+        # A $pause word (FLAG_PREPAUSE — and, or, but, nor) gets a short pause inserted BEFORE it,
+        # which ends the previous word's phoneme run at a pause (not a vowel) and blocks linking/
+        # intrusive ɹ across it. espeak inserts that pause only when the $pause word is NOT the first
+        # or second word and NOT the last word of the clause, and no pause was inserted in the last
+        # few words (translate.c:469: !FIRST_WORD && prev not FIRST_WORD && !LAST_WORD &&
+        # prepause_timeout==0). So `sofa or chair` (or is word 2) links (sˈəʊfəɹ), but `the sofa and
+        # the chair` (and is word 3) does not (sˈəʊfə); `a comma or a colon` blocks comma->or yet
+        # still links or->a. Word position here is the slot index among rendered alphabetic words.
+        _last_slot = len(word_slots) - 1
+        _prepause_timeout = 0
+        for j in range(1, len(word_slots)):
+            _prepause_timeout = max(0, _prepause_timeout - 1)
+            pi, ps = word_slots[j - 1]
+            ci, _cs = word_slots[j]
+            if (self._dict.lookup_flags(_cs) & K.FLAG_PREPAUSE and j >= 2
+                    and j != _last_slot and _prepause_timeout == 0):
+                _prepause_timeout = 3
+                continue  # pause before this $pause word blocks the incoming linking ɹ
+            # only DIRECTLY adjacent words link (exactly one space between, no intervening token)
+            if not (ci == pi + 2 and out[pi + 1] == " "):
+                continue
+            prev = out[pi]
+            if not prev or prev[-1] == "ɹ" or prev[-1] == "r":
+                continue
+            # the definite article never takes r before a vowel — it uses its own ðɪ alternate,
+            # which espyak doesn't yet render, so at least don't fabricate ð-ə-ɹ.
+            if ps == "the":
+                continue
+            last_v = prev[-2] if prev[-1] == "ː" else prev[-1]
+            # intrusive r after a schwa-family vowel (ə, ɪə, eə, ʊə all end in ə) or ɑː (spa, car);
+            # after ɔː/ɜː the r is only the historical LINKING r, so it needs an orthographic 'r'
+            # near the end (for, more, her — but NOT law, saw, awe). A trailing silent 'e' is
+            # ignored (more -> "mor", here -> "her").
+            if last_v in ("ə", "ɑ"):
+                fire = True
+            elif last_v in ("ɔ", "ɜ"):
+                fire = ps.rstrip("e").endswith("r")
+            else:
+                fire = False
+            if fire and self._starts_with_vowel(out[ci]):
+                out[pi] = prev + "ɹ"
+
+    def _apply_degemination(self, out, word_slots):
+        """nl homorganic-stop degemination (ph_dutch t/d/p/b ChangePhoneme(!)): a word-final
+        coronal (t/d) or labial (p/b) stop assimilates to a null pause before a following
+        word-initial homorganic stop (kost twintig -> kˈɔs tʋˈɪntəx, wat dat -> ʋɑ tɑt). A word
+        whose dictionary entry inserts a break before it ($brk, FLAG_PAUSE1 — e.g. `te`) keeps the
+        preceding stop, since the break splits the two stops (wat te doen -> ʋɑt tə dˈun)."""
+        cor, lab = ("t", "d"), ("p", "b")
+        last_idx = word_slots[-1][0] if word_slots else -1
+        for pi, _ps, ci, cs in self._slot_pairs(out, word_slots):
+            prev, cur = out[pi], out[ci]
+            if not prev or not cur:
+                continue
+            # a $brk (FLAG_PAUSE1) word breaks the two stops apart — but only mid-clause; when it is
+            # the clause-final word the stops still assimilate (wat te doen keeps `wat` t, wat te drops it).
+            if (self._dict.lookup_flags(cs) & K.FLAG_PAUSE1) and ci != last_idx:
+                continue
+            onset_pos = len(cur) - len(cur.lstrip("ˈˌ"))
+            onset = cur[onset_pos] if onset_pos < len(cur) else ""
+            plast = prev[-1]
+            for grp, devoiced in ((cor, "t"), (lab, "p")):
+                if plast in grp and onset in grp:
+                    out[pi] = prev[:-1]
+                    if onset == grp[1]:  # voiced onset (d/b) devoices after the dropped stop
+                        out[ci] = cur[:onset_pos] + devoiced + cur[onset_pos + 1:]
+                    break
 
     # cmn switch-segment vowel set + the unstressed-reduction map espeak's cmn render applies to the
     # English phonemes of an (en)…(cmn) word switch. A non-final word de-stresses and its vowels
@@ -1548,55 +2091,263 @@ class G2P:
         return cls._EN_FALLBACK
 
     def _stress_number_words(self, ph, tonic=4):
-        """espeak stresses number words. Some languages' _list fragments already encode stress
-        (en f'aIv, es T'inko, de 'fynf) AND deliberately leave connectors unstressed (en _and,
-        _point); others omit stress entirely (fr sE~k, fa pandZ -> need sˈɛ̃k / pˈandʒ). Only when
-        the WHOLE number result is stress-free do we add word stress to each ||-separated word — so
-        a language whose data encodes stress (including its unstressed point/and) is never touched.
+        """Stress a whole number phrase as espeak does: ONE stress domain, not per word.
 
-        A language whose fragments carry only the `%` marker (espeak's repositionable secondary,
-        fo `f%UJ:ra`) and no primary still needs a tonic: SetWordStress promotes one `%` to primary.
-        So apply word stress when only `%` marks are present. A fragment that already carries a
-        resolved primary `'`, an explicit secondary `,` (vi tone-number x,o1N keeps its `,`), or a
-        no-stress connector `=` is left untouched.
+        espeak's TranslateNumber builds the entire number (`3,14` -> trois·virgule·quatorze) into a
+        SINGLE phoneme buffer whose word breaks are `phonEND_WORD` bytes, then runs SetWordStress
+        over the whole thing ONCE with the word's tonic (translateword.c:578). `phonEND_WORD` is
+        neither phSTRESS nor phVOWEL, so GetVowelStress copies it through without resetting the
+        syllable count: every fragment's primary `'` is seen together and the language's stress
+        machinery then reconciles them across the whole span. That reconciliation is exactly the
+        phrase-level demotion the per-word approach missed:
+
+        * `S_FIRST_PRIMARY` (nl, de compounds): keep the FIRST primary, drop the rest to secondary
+          (nl `3,14` -> drˈi kˌɔmaː ˌeːn vˌir).
+        * `NUM_SINGLE_STRESS` reduction already applied inside each 3-digit group by numbers.py,
+          plus the whole-span reconciliation: languages with no S_FIRST_PRIMARY (fr, es) keep only
+          the tonic primary and diminish the earlier words — fr `3,14` -> tʁwa viʁɡyl katˈɔʁz (the
+          non-final words fall to unmarked), es `3,14` -> tɾˈes komˌa katˈoɾθe (the decimal-sep
+          word drops to secondary while the number words keep their primaries).
+
+        `||` (and any inner `|` morpheme barrier) tokenize to inert `_BARRIER` tokens that
+        get_vowel_stress skips — the same tokens translate_word feeds through for a multi-part
+        `_list` value — so running set_word_stress on the joined string reproduces espeak's
+        single-buffer behaviour byte-for-byte (de/it/ru/ro numbers, which keep every fragment's
+        primary because their flags force no reduction, are unchanged).
 
         `tonic` is the clause-stress level for this number word (the caller's per-word tonic): the
-        clause nucleus (>=4) promotes a `%` to primary; a non-nucleus number (-1, e.g. the digit
-        run in `co2` where the word `co` is the nucleus) takes no primary, so its `%` stays
-        unstressed (kˈɔː tʋɛɟː, not kˈɔː tʋˈɛɟː)."""
-        if any(c in "',=" for c in ph):
-            return ph
-        return "||".join(
-            set_word_stress(self._tr, w, self._mnem, tonic=tonic) if w else w
-            for w in ph.split("||"))
+        clause nucleus (>=4) places one primary; a non-nucleus number (-1) takes none.
+
+        `num_stress_flags` (nl S_FIRST_PRIMARY) augments the language's stress_flags for the number
+        phrase only — espeak applies these flags in every SetWordStress, but espyak scopes them to
+        the number here to avoid disturbing $-forced lexical stress in ordinary words."""
+        # A `_!` phrase-break pause (inserted by numbers.py after a "long" magnitude group) splits
+        # the number into separate intonation phrases: espeak runs SetWordStress once per clause-word,
+        # so each phrase keeps its OWN first primary (nl 12345 -> tʋˈaːlf dˌœyzɛnt drˈihˌɔndərt… —
+        # twaalf AND drie primary, not just twaalf). Stress each phrase segment independently and
+        # rejoin on the pause so the break survives to the render/degemination pass. (Split on the
+        # distinct `_!` marker, NOT a bare `_`, which is a fragment-internal pause such as nl komma
+        # `_kˈɔmaː` — splitting there would wrongly give the decimal-separator word its own primary.)
+        #
+        # Split on the marker numbers.py writes for a magnitude-group break — `||_!`, a word
+        # break immediately followed by the pause — NOT on a bare `_!`. A `_!` inside a `_list`
+        # fragment is an ordinary phonPAUSE_NOLINK phoneme of that one word (every ja numeral
+        # ends in one: `_1 it_si_!`), and espeak still runs SetWordStress across it, so the
+        # assembled ja number is ONE stress domain (11 -> dzɯᵝˈitsi, one primary on the
+        # penultimate mora, not a primary per numeral).
+        segments = ph.split("||_!") if "||_!" in ph else [ph]
+        out_segs = []
+        last = len(segments) - 1
+        extra = self._config.get("num_stress_flags", 0)
+        saved = self._tr.stress_flags
+        if extra:
+            self._tr.stress_flags = saved | extra
+        try:
+            for si, seg in enumerate(segments):
+                if not seg:
+                    out_segs.append(seg)
+                    continue
+                # only the final phrase carries the clause tonic; earlier phrases stand on their
+                # own lexical stress (tonic passed through so a non-nucleus number takes none).
+                seg_tonic = tonic if si == last else (4 if tonic >= 0 else tonic)
+                out_segs.append(set_word_stress(self._tr, seg, self._mnem, tonic=seg_tonic))
+        finally:
+            self._tr.stress_flags = saved
+        return "||_!".join(out_segs)
+
+    def _render_numeric_punct(self, word, tonic, ipa, tie, separator,
+                              all_upper=False, first_upper=False):
+        """Render a token mixing digits with time/range/sign punctuation (':' and '-').
+
+        espeak's clause reader isolates each ':'/'-' as its own space-delimited token, so a
+        digit-first group goes to the number translator while the punctuation mark is matched
+        by the letter-to-sound rules — whose pre/post context reads the neighbouring digits
+        ('D_) : (_DD_' omits a time colon, 'D_) - (_D' is a dash, '__) - (_D' a minus). Each
+        language supplies its own phonemes (en drops the time colon, de says "Uhr", nl "nul",
+        ...), so nothing here is hard-coded. Reproduce that split: render every number/word
+        group as its own word and every punctuation mark through the rules with context.
+        """
+        segs, puncts = [], []
+        cur = ""
+        for ch in word:
+            if ch in ":-":
+                segs.append(cur)
+                cur = ""
+                puncts.append(ch)
+            else:
+                cur += ch
+        segs.append(cur)
+
+        def _spc(s):
+            # espeak breaks a word at a digit<->non-digit boundary; mirror it so a rule's
+            # RULE_SPACE '_' context still matches ('12:30pm' -> the colon sees '30 pm', so
+            # its '(_DD_' post-context — two digits then a boundary — holds and the colon drops).
+            out = []
+            for i, c in enumerate(s):
+                if i and (c.isdigit() != s[i - 1].isdigit()):
+                    out.append(" ")
+                out.append(c)
+            return "".join(out)
+
+        def _render_group(seg, speak_leading_zero):
+            if not seg:
+                return ""
+            if seg.isascii() and seg.isdigit():
+                return self._render_word(seg, 4, ipa, tie, separator,
+                                         speak_leading_zeros=speak_leading_zero)
+            # a letter or mixed group ('pm', 'a', ...): translate as its own word
+            return self._render_word(seg, 4, ipa, tie, separator,
+                                     all_upper=all_upper, first_upper=first_upper)
+
+        def _render_mark(ch, left, right, at_start):
+            # a trailing mark with nothing pronounceable after it is dropped, as espeak's number
+            # translator swallows a suffix colon/hyphen ('12:' -> "twelve", '3-' -> "three").
+            if not right:
+                return ""
+            # two adjacent marks ('3--4') are a pause in espeak, not a sign — the mark whose left
+            # neighbour is empty yet is NOT at clause start sits against a preceding mark, so drop it.
+            if not left and not at_start:
+                return ""
+            # at clause start the mark's left is empty; espeak's buffer still has the leading
+            # clause-pad spaces there, so the minus rule '__) - (_D' (two RULE_SPACE) can match.
+            # Our \x00 sentinel fails RULE_SPACE, so supply an explicit space as the boundary.
+            lc = _spc(left) if left else " "
+            ph, _, _ = translate_rules(self._tr, ch, self._mnem,
+                                       left_ctx=lc, right_ctx=_spc(right))
+            if not ph.strip():
+                return ""
+            # the mark is not the clause nucleus (tonic=-1): a spoken punctuation name keeps its
+            # own lexical stress ("colon" -> kˈəʊlən, "dash" -> dˈaʃ, "minus" -> mˈaɪnəs) while a
+            # de time connector's repositionable-secondary '%u:r' stays unstressed (uːɾ, not ˈuːɾ).
+            ph = set_word_stress(self._tr, ph, self._mnem, dict_flags=0, tonic=-1)
+            return self._render_phonemes(ph, ipa, tie, separator)
+
+        pieces = []
+        for i, seg in enumerate(segs):
+            # numbers.c:1587 keeps the leading zero silent for what "looks like a time 02:30":
+            # exactly two digits, a colon, and a following group of exactly two digits. Anything
+            # else with a leading zero speaks its zeros ('09:5' -> "nul negen ... vijf").
+            speak_lz = not (len(seg) == 2 and i < len(puncts) and puncts[i] == ":"
+                            and i + 1 < len(segs) and len(segs[i + 1]) == 2
+                            and segs[i + 1].isdigit())
+            pieces.append(_render_group(seg, speak_lz))
+            if i < len(puncts):
+                pieces.append(_render_mark(puncts[i], segs[i], segs[i + 1], at_start=(i == 0)))
+        return " ".join(p for p in pieces if p)
+
+    def _compat_final_s_suffix(self, word):
+        """Phonemes espeak appends for the stripped word-final ``-s`` in the remove_accent
+        force_compat bug (pt pròs). Translate the accent-removed whole word through the rules
+        and return the trailing consonant phonemes after its last vowel — the language's
+        word-final ``-s`` realisation (pt ``s#`` -> ʃ) that the malformed buffer re-appends."""
+        base = (_REMOVE_ACCENT[ord(word[-2]) - 0xC0]
+                if 0xC0 <= ord(word[-2]) < 0xC0 + len(_REMOVE_ACCENT) else 0)
+        flat = word[:-2] + (chr(base) if base else word[-2]) + word[-1]
+        raw, _, _ = translate_rules(self._tr, flat, self._mnem, want_endings=False,
+                                    pre_substituted=True)
+        toks = list(self._mnem.tokenize(raw))
+        last_v = -1
+        for i, (_m, _p) in enumerate(toks):
+            if _p.type == phVOWEL:
+                last_v = i
+        return "".join(m for m, _p in toks[last_v + 1:])
 
     def _render_word(self, word, tonic, ipa, tie, separator, caps_stress=0, all_upper=False,
-                     first_upper=False, at_end=True):
+                     first_upper=False, at_end=True, following=(), clause_ctx=False,
+                     switch_following=(), speak_leading_zeros=True):
         from espyak.numbers import ORDINAL_SUFFIXES, translate_number, translate_ordinal
+        # words consumed by a language-switch multi-word entry (see the `_^_` branch below); reset
+        # every call so the phonemize loop reads a fresh count for this word.
+        self._switch_consumed = 0
+        # numbers.c:1585 speaks a token's leading zeros; the caller clears this for the leading
+        # group of a `0H:MM` time, which espeak reads without its zero ("02:30" -> "two thirty").
+        self._speak_leading_zeros = speak_leading_zeros
         # A switched sub-translator (G2P._SWITCH_CACHE) is reused across words AND across the
         # outer languages that switch into it; the number/letter-spell paths below reach
         # _render_phonemes WITHOUT going through translate_word, so reset the dict-entry flag
         # here too — else a stale `_from_dict` (left True by a spelled foreign letter) suppresses
         # the next word's reductions and the shared ru returns '' for книга. (it а then книга.)
         self._from_dict = False
+        # ru number tokens are exempt from the regressive-voicing pass (see language_data
+        # "number_skip_voicing"): the citation fragments keep their word-final obstruents across
+        # the join. Set on the number-render branches below, gated on the language flag.
+        self._skip_voicing = False
         self._u_out_str = None  # set by translate_word for reduced-$u clause-accent words
         num_flags = self._config.get("numbers", K.NUM_HUNDRED_AND)
         dsep = "," if (num_flags & K.NUM_DECIMAL_COMMA) else "."
+        _pww_r = "-.,'/_&\x01" + self._config.get("punct_within_word", "")
+        if len(word) > 1 and all(
+                unicodedata.category(c)[0] == "S" or c == "%"
+                or (unicodedata.category(c)[0] == "P" and c not in _pww_r)
+                for c in word):
+            # an adjacent symbol/punctuation run is ONE word whose chars the letter peel speaks
+            # glued, with no word break between the names (€€ -> jˈʊəɹəʊzjˈʊəɹəʊz, ## -> hˈaʃhaʃ).
+            return "".join(self._render_word(c, tonic, ipa, tie, separator) for c in word)
         # NB: str.isdigit() is True for superscripts/other Unicode digits ('²') that int() rejects,
         # so require ASCII before routing to the (int-based) number path — '²' falls through to
         # normal translation instead of crashing.
         def _dig(s):
             return s.isascii() and s.isdigit()
+        # espeak's replace_chars (SubstituteChar, translate.c:784) runs in the clause reader
+        # BEFORE word tokenisation, so a `.replace` that maps a digit to a letter (py `2 u`,
+        # `7 i`) has already turned it into a letter before any digit-split or number path could
+        # see it: `la2` -> `lau` (one word), `kla2t` -> `klaut`, `2X` -> `ux`. A digit with no
+        # replacement (py `6`) stays a digit and still splits/looks up normally. Only apply when
+        # the token actually contains a digit so letter-only tables (da ä->æ) are untouched here.
+        if any(c.isdigit() for c in word):
+            _rep = _apply_replacements(getattr(self._rules, "replacements", None), word)
+            if _rep != word:
+                word = _rep
         if not word.isascii():
             # native-script decimal digits (fa ۱, ar ٠, Devanagari ०, ...) -> ASCII so they route to
-            # the number path (۱ -> jek). unicodedata.decimal rejects superscripts/subscripts ('²'),
-            # so those still fall through to normal translation as intended.
+            # the number path (۱ -> jek). A subscript digit ₀-₉ (U+2080..U+2089) is a "derived
+            # letter" espeak converts to its base 0-9 in the letter-spell path (translateword.c
+            # IsSuperscript / numbers.c derived_letters), so an isolated one is spoken as that
+            # digit's name (ca co₂ -> the token splits to `co` + `₂`, and ₂ -> "2" -> ðˈos). Map
+            # the subscripts here so they reach the number path; unicodedata.decimal rejects them
+            # (and superscripts, left untouched to match espeak's normal-text reading).
             word = "".join(
-                str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None else c
+                str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None
+                else (str(ord(c) - 0x2080) if 0x2080 <= ord(c) <= 0x2089 else c)
                 for c in word)
+        _gsep = "." if dsep == "," else ","
+        if (_gsep in word and word[:1] != _gsep and word[-1:] != _gsep
+                and word.replace(_gsep, "").isdigit() and word.replace(_gsep, "").isascii()):
+            # thousands grouping (translate.c:1517): the non-decimal separator binds only when
+            # followed by an exactly-3-digit group; a non-binding separator splits the token into
+            # separate numbers. en `1,000` -> one thousand, `3,14` -> "three fourteen",
+            # `1,23,456` -> "one" + 23456; nl `1.000` -> duizend, `3.14` -> "drie veertien".
+            _groups = word.split(_gsep)
+            _parts = [_groups[0]]
+            for _gseg in _groups[1:]:
+                if len(_gseg) == 3:
+                    _parts[-1] += _gseg
+                else:
+                    _parts.append(_gseg)
+            if len(_parts) == 1:
+                word = _parts[0]
+            else:
+                return " ".join(p for p in (self._render_word(p, tonic, ipa, tie, separator)
+                                            for p in _parts) if p)
+        # digit-adjacent time/range/sign punctuation ('12:30', '3-4', '-5'): espeak's clause
+        # reader isolates the ':'/'-' as its own token surrounded by spaces, so the digit-context
+        # rules ('D_) : (_DD_', 'D_) - (_D', '__) - (_D') fire across the word boundary. Reproduce
+        # that here — render each number group and each isolated punctuation mark separately, giving
+        # the punctuation rules their neighbouring-digit context (see _render_numeric_punct).
+        if any(c.isdigit() for c in word) and (":" in word or "-" in word):
+            r = self._render_numeric_punct(word, tonic, ipa, tie, separator,
+                                           all_upper=all_upper, first_upper=first_upper)
+            if r is not None:
+                return r
         if (len(word) > 2 and word[-2:] in ORDINAL_SUFFIXES and _dig(word[:-2])):
             ph = translate_ordinal(self._dict, word[:-2], word[-2:], flags=num_flags)
             if ph:
+                # number fragments come from the `_list` dictionary (LookupNum -> LookupDictList
+                # sets SFLAG_DICTIONARY), so stress-condition reductions are suppressed on them
+                # (StressCondition control&1) — cy `pedwar deg dau` keeps `deg`'s eː when it is
+                # only secondary-stressed in the compound (ðˌeːɡ, not the reduced ðˌɛɡ).
+                self._from_dict = True
+                self._skip_voicing = self._config.get("number_skip_voicing", False)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if _dig(word) and 1 <= len(word) <= 4:
             # espeak looks the WHOLE word up in the dictionary (LookupDictList, translateword.c:168)
@@ -1614,9 +2365,17 @@ class G2P:
         if word and (_dig(word) or (_dig(word.replace(dsep, "", 1))
                                     and dsep in word and not word.startswith(dsep)
                                     and not word.endswith(dsep))):
-            ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep)
+            ph = translate_number(self._dict, word, flags=num_flags, decimal_sep=dsep,
+                                  flags2=self._config.get("numbers2", 0),
+                                  break_numbers=self._config.get("break_numbers",
+                                                                 K.BREAK_THOUSANDS),
+                                  leading_zeros=self._speak_leading_zeros)
             if ph:
                 ph = self._stress_number_words(ph, tonic=tonic)
+                # number fragments come from the `_list` dictionary (SFLAG_DICTIONARY), so their
+                # vowels are exempt from stress-condition reductions the same way a dict headword is.
+                self._from_dict = True
+                self._skip_voicing = self._config.get("number_skip_voicing", False)
                 return self._render_phonemes(ph, ipa, tie, separator)
         if any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
             # a mixed digit/letter token that is neither a pure number nor an ordinal (handled above)
@@ -1673,8 +2432,31 @@ class G2P:
                         p, tonic if i == _nucleus else -1, ipa, tie, separator,
                         all_upper=_up, first_upper=_up))
                 return " ".join(x for x in _r if x)
+        # Roman numerals (TranslateRoman, numbers.c:756 / translateword.c:227): tried after the
+        # dictionary lookup fails but before the letter-to-sound rules, for an all-lower or
+        # all-upper (never Capitalised) token in a language that enables it.
+        roman = self._translate_roman(word, num_flags, all_upper, first_upper,
+                                      ipa, tie, separator, tonic)
+        if roman is not None:
+            return roman
         ph = self.translate_word(word, tonic=tonic, caps_stress=caps_stress, all_upper=all_upper,
-                                 first_upper=first_upper, at_end=at_end)
+                                 first_upper=first_upper, at_end=at_end, following=following,
+                                 clause_ctx=clause_ctx)
+        if self.force_compat and getattr(self._tr, "_compat_accent_s", False) \
+                and len(word) >= 3 and word[-1:].lower() == "s":
+            # espeak force_compat remove_accent bug (pt pròs -> pɹˈuʃ): translate_rules flagged that
+            # the word-final accented vowel reached the remove_accent restart before a lone `-s`. The
+            # malformed buffer keeps the `A) s (_S1` RULE_ENDING, so the -s is stripped, the accented
+            # STEM is translated in ISOLATION (word-final vowel raising applies: prò -> pɹˈu), and the
+            # word-final -s (pt s#) is appended. Render the stem as its own word at the SAME tonic,
+            # then append the -s the accent-removed word produces after its last vowel. The default
+            # engine never sets this flag and keeps the correct pɹˈʊʃ. See docs/divergences.md.
+            self._tr._compat_accent_s = False
+            stem_ipa = self._render_word(word[:-1], tonic, ipa, tie, separator,
+                                         caps_stress=caps_stress, all_upper=all_upper,
+                                         first_upper=first_upper, at_end=at_end)
+            suffix_raw = self._compat_final_s_suffix(word)
+            return stem_ipa + self._render_phonemes(suffix_raw, ipa, tie, separator)
         if getattr(self, "_spell_prerendered", False):
             # name-first spell-word (_spell_letters_named) already produced final IPA with its own
             # (lang)…(orig) switches spliced in; return it verbatim (do not re-encode as phonemes).
@@ -1688,7 +2470,20 @@ class G2P:
             switch_word = _payload[1] if len(_payload) > 1 else word
             tg = self._switch_g2p(target)
             if tg is not None:
-                inner = tg._render_word(switch_word, tonic, ipa, tie, separator)
+                # espeak re-translates in place on the shared clause buffer after a phonSWITCH
+                # (translate.c SetTranslator2), so the SWITCHED language sees the following source
+                # words and its own multi-word dict entries consume them as ONE run: sv `has been`
+                # switches to en, whose `(has been)` entry yields hˈazbiːn across both words. Ask the
+                # switched dict how many following words it swallows and translate the whole run
+                # through it; the loop skips the consumed words via self._switch_consumed.
+                sk = tg._dict.multiword_skip(
+                    switch_word.lower(), list(switch_following),
+                    dict_condition=tg._tr.dict_condition,
+                    first_upper=first_upper, all_upper=all_upper)
+                self._switch_consumed = sk
+                inner = tg._render_word(switch_word, tonic, ipa, tie, separator,
+                                        following=(list(switch_following) if sk else ()),
+                                        clause_ctx=bool(sk))
                 if (ipa and target == "en"
                         and self._config.get("switch_segment_tone5") and " " in inner):
                     inner = self._cmn_switch_segment_tone5(inner)
@@ -1705,6 +2500,81 @@ class G2P:
             named = self._name_and_render_foreign_letter(word, tonic, ipa, tie, separator)
             if named is not None:
                 return named
+        return self._render_phonemes(ph, ipa, tie, separator)
+
+    def _translate_roman(self, word, num_flags, all_upper, first_upper, ipa, tie, separator, tonic):
+        """Port of TranslateRoman (numbers.c:756) + its gating (translateword.c:227).
+
+        Returns the fully-rendered IPA for a Roman-numeral token, or None to fall through to
+        ordinary translation. `word` is already lowercased; the original case comes from the
+        `all_upper`/`first_upper` flags."""
+        from espyak.numbers import parse_roman, roman_number_phonemes
+        # gating flag: NUM_ROMAN enables, or NUM_ROMAN_CAPITALS enables only all-caps tokens.
+        if not ((num_flags & K.NUM_ROMAN)
+                or ((num_flags & K.NUM_ROMAN_CAPITALS) and all_upper)):
+            return None
+        # translateword.c:227 `(wflags & FLAG_UPPERS) != FLAG_FIRST_UPPER`: only an all-lower or
+        # all-upper word is a Roman candidate, never a Capitalised one (Ix, Xiv).
+        if first_upper and not all_upper:
+            return None
+        # numbers.c:782: NUM_ROMAN_CAPITALS rejects a token that is not all upper case, even when
+        # NUM_ROMAN is also set (it/da: lowercase `ix`/`iv` spell, only `IX`/`IV` read as numbers).
+        if (num_flags & K.NUM_ROMAN_CAPITALS) and not all_upper:
+            return None
+        # single-letter rule (numbers.c:785): one letter is not a Roman number unless it is a
+        # dotted ordinal (NUM_ROMAN_CAPITALS|NUM_ROMAN_ORDINAL|NUM_ORDINAL_DOT + FLAG_HAS_DOT).
+        # espyak splits the trailing dot into its own token before reaching here, so the dot flag
+        # is unavailable — a lone letter always falls through (matches espeak spelling I/V/X/…).
+        if len(word) < 2:
+            return None
+        lw = word.lower()
+        ctx = LookupContext(first_upper=first_upper, all_upper=all_upper,
+                            dict_condition=self._tr.dict_condition)
+        # TranslateRoman runs only when the dictionary lookup did not find the word
+        # (translateword.c:227 `!found`). A dict entry WITH phonemes is spoken as itself; a
+        # flags-only $abbrev entry (en `xl`, `xxx`) makes espeak spell the word regardless — in
+        # both cases the Roman path is skipped and ordinary translation handles it.
+        dph, dfl = self._dict.lookup(lw, ctx)
+        if dph:
+            return None
+        if dfl is not None and (dfl & K.FLAG_ABBREV):
+            return None
+        acc = parse_roman(lw)
+        if acc is None:
+            return None
+        if acc < self._config.get("min_roman", 2) or acc > self._config.get("max_roman", 49):
+            return None
+        # hu speaks a Roman number only as an ordinal, and only when it is marked ordinal (a dot
+        # or the hyphen+'e' form, numbers.c:849) — a plain hu token spells instead. espyak has no
+        # dot/hyphen flag here, so hu Roman always falls through (residual: hu dotted ordinals).
+        if (num_flags & K.NUM_ROMAN_ORDINAL) and self.lang == "hu":
+            return None
+        ordinal = bool(num_flags & K.NUM_ROMAN_ORDINAL)
+        flags2 = self._config.get("numbers2", 0)
+        ph_ord2 = ph_ord2x = ""
+        suffix = self._config.get("roman_suffix", "")
+        if suffix:
+            ph_ord2 = self._dict.lookup("_#" + suffix, ctx)[0] or ""
+            ph_ord2x = self._dict.lookup("_x#" + suffix, ctx)[0] or ""
+        number = roman_number_phonemes(
+            self._dict, acc, ctx, num_flags, flags2, ordinal, ph_ord2, ph_ord2x,
+            break_numbers=self._config.get("break_numbers", K.BREAK_THOUSANDS))
+        if not number:
+            return None
+        # the `_roman` word ("roman"/"römisch"/"romain") precedes the number, or follows it with
+        # NUM_ROMAN_AFTER (numbers.c:830-867). Absent in most languages (empty -> nothing added).
+        ph_roman = self._dict.lookup("_roman", ctx)[0] or ""
+        if ph_roman:
+            ph_roman = ph_roman.rstrip("_")
+            if num_flags & K.NUM_ROMAN_AFTER:
+                ph = number + "||" + ph_roman
+            else:
+                ph = ph_roman + "||" + number
+        else:
+            ph = number
+        ph = self._stress_number_words(ph, tonic=tonic)
+        self._from_dict = True
+        self._skip_voicing = self._config.get("number_skip_voicing", False)
         return self._render_phonemes(ph, ipa, tie, separator)
 
     def _name_and_render_foreign_letter(self, word, tonic, ipa, tie, separator):
@@ -1945,7 +2815,7 @@ class G2P:
             for e in plist:
                 e.dict_no_reduce = True
         reg = self._config.get("regression", 0)
-        if reg:
+        if reg and not getattr(self, "_skip_voicing", False):
             set_regressive_voicing(plist, self.phoneme_table, reg)
         self._interp._translation_given = getattr(self, "_from_dict", False)
         self._interp.run(plist)  # P1b: context-dependent phoneme programs
@@ -1990,17 +2860,20 @@ class G2P:
                     e.stresslevel = 3
         result = render_phoneme_list(plist, self.phoneme_table,
                                      ipa=ipa, tie=tie, separator=separator)
+        # Keep the finished phoneme list reachable by its rendered form so the clause-level
+        # regressive-voicing pass can re-run SetRegressiveVoicing across a word boundary
+        # (espeak runs it once over the WHOLE clause list, phonemelist.c:214-216).
+        if self._config.get("regression") and not self._config.get("no_cross_word_voicing"):
+            self._plist_by_output[result] = (plist, ipa, tie, separator)
         if getattr(self, "_neutral_tone", False):
             # cmn neutral tone is unstressed: drop the one tonic mark espeak omits.
             result = result.replace("ˈ" if ipa else "'", "", 1)
-        if ipa and (self._config.get("stress_flags", 0) & K.S_FIRST_PRIMARY):
-            # ca S_FIRST_PRIMARY: within ONE multi-word dict entry (a || expansion rendered here as a
-            # single token) only the first primary survives; later parts reduce to secondary (ccoo ->
-            # cumisiˈonz uβɾˌeɾəs). Applied per-token so separately-rendered tokens — digit splits
-            # (co2 -> kˈɔ ðˈos) and '/' splits (a/e -> ə βˈarə ˈɛ) — each keep their own primary.
-            first = result.find("ˈ")
-            if first >= 0:
-                result = result[:first + 1] + result[first + 1:].replace("ˈ", "ˌ")
+        # ca/nl S_FIRST_PRIMARY (dictionary.c:1321-1328) reduces primaries after the first to
+        # secondary INSIDE SetWordStress, over one stress domain — a `||` multi-word dict value
+        # (ccoo -> cumisiˈonz uβɾˌeɾəs) is one such domain and is already collapsed there. It must
+        # NOT cross a spelled-prefix boundary: an unpronounceable word's SetSpellingStress prefix
+        # and its rule-translated remainder are stressed in SEPARATE domains, so both keep a primary
+        # (ca Mgfca -> ˈeməkfkˈa). A post-render global reduction would wrongly merge those domains.
         return result
 
     _SWITCH_CACHE = {}

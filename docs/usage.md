@@ -7,7 +7,7 @@ pip install -e .        # from a clone; the espeak-ng data is bundled under espy
 # or:  uv pip install -e .
 ```
 
-Python ≥ 3.9, no runtime dependencies.
+Python 3.9 or later is required, with no runtime dependencies.
 
 ## The `G2P` class
 
@@ -17,10 +17,14 @@ from espyak import G2P
 g2p = G2P(lang="en")
 ```
 
-- **`lang`** — an espeak-ng language/voice code (`"en"`, `"es"`, `"ru"`, `"hi"`, `"ar"`, …).
-  See `espyak/data/dictsource/*_rules` for the full list (117 languages).
+- **`lang`** - an espeak-ng language/voice code (`"en"`, `"es"`, `"ru"`, `"hi"`, `"ar"`, …).
+  See `espyak/data/dictsource/*_rules` for the full list of 117 languages. A sub-dialect
+  **variant** code also works (`"pt-br"`, `"en-us"`, `"es-419"`, `"fr-be"`, …, case-
+  insensitive): espeak-ng models it as a voice file that layers a phoneme table, dictionary
+  conditionals, and phoneme `replace`s over a shared base language. The [README](../README.md#dialects-and-sub-dialect-variants)
+  lists the 22 variants.
 
-Construct one `G2P` per language and reuse it — construction parses that language's rule
+Construct one `G2P` per language and reuse it. Construction parses that language's rule
 data, so it is not free.
 
 ### `phonemize(text, ipa=True, tie=None, separator=None)`
@@ -36,7 +40,7 @@ g2p.phonemize("read it", separator="_")    # 'ɹ_ˈiː_d ˈɪ_t'
 
 | argument    | default | meaning |
 | ----------- | ------- | ------- |
-| `text`      | —       | input text (numbers are expanded to words) |
+| `text`      | -       | input text (numbers are expanded to words) |
 | `ipa`       | `True`  | `True` → Unicode IPA (`--ipa`); `False` → Kirshenbaum ASCII (`-x`) |
 | `tie`       | `None`  | tie character inserted between the letters of a multi-char phoneme name |
 | `separator` | `None`  | character inserted between phonemes (mutually exclusive with `tie`) |
@@ -44,7 +48,8 @@ g2p.phonemize("read it", separator="_")    # 'ɹ_ˈiː_d ˈɪ_t'
 ### `render(phoneme_string, ipa=True, tie=None, separator=None)`
 
 Render a raw espeak phoneme-mnemonic string (the content of `[[…]]`) without running the
-letter-to-sound rules — the inverse of the matcher, useful for testing the output path.
+letter-to-sound rules. This is the inverse of the matcher and is useful for testing the
+output path.
 
 ```python
 G2P("en").render("h@l'oU")                 # 'həlˈəʊ'
@@ -84,14 +89,17 @@ espeak-ng -q --ipa -v es "díganme"   # dˈiɣanme
 espyak           -v es "díganme"     # dˈiɣanme
 ```
 
-If you find a mismatch, it is a bug — please open an issue with the language, the input
-word, and both outputs.
+A mismatch is a bug. Please open an issue with the language, the input word, and both
+outputs.
 
 ## Examples
 
 Runnable scripts live in [`../examples/`](../examples/):
 
-- `basic.py` — the core API.
-- `multilingual.py` — the same idea across many scripts/languages.
-- `formats.py` — IPA vs Kirshenbaum vs separators/ties.
-- `compare_oracle.py` — diff `espyak` against the `espeak-ng` binary (if installed).
+- `basic.py` - the core API.
+- `multilingual.py` - the same idea across many scripts/languages.
+- `formats.py` - IPA vs Kirshenbaum vs separators/ties.
+- `compare_oracle.py` - diff `espyak` against the `espeak-ng` binary (if installed).
+
+---
+[Home](../README.md) · [Architecture →](architecture.md)

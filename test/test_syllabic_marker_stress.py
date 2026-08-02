@@ -1,0 +1,113 @@
+"""The phonSYLLABIC marker `-` (phsource `phoneme -`) counts as a syllable slot.
+
+espeak's GetVowelStress (dictionary.c:876-879) counts the `-` virtual phoneme as an
+extra syllable and its output loop (dictionary.c:1391, `*p == phonSYLLABIC`) places that
+syllable's stress before the consonant it follows. Two consequences must both hold:
+
+* A bare `-` after a vowel (ar/fa spelled letter names) inserts a phantom slot that shifts
+  the following real vowels' stress one place to the right — which is how espeak lands the
+  secondary (ar ى -> mˌaqs̪, fa ة -> ...aʔnˌis).
+* A `-` after a consonant (a genuine syllabic consonant, de -tʃn̩) keeps `v` aligned with
+  the vowel_stress array, so nothing downstream desyncs.
+"""
+import pytest
+
+from espyak.api import G2P
+
+# byte-exact against espeak-ng 1.52; verified with `espeak-ng -q --ipa -v <lang>` on stdin.
+CASES = [
+    # bare `-` after a vowel: the phantom slot shifts the secondary one syllable right
+    ("ar", "ى", "ʔˈalif mˌaqs̪-ˈuːrah"),
+    ("fa", "ة", "tˈɑjetaʔnˌis"),
+    # genuine syllabic consonant (`-` after a consonant): no desync, stays byte-exact
+    ("de", "bratschen", "bɾˈaːtʃn̩"),
+    ("eo", "Km", "kˈilomˈet-ɾoɪ"),
+    ("sw", "n", "ˈen"),
+    # onset cluster without a bare `-` is unaffected (guards against over-counting @-)
+    ("la", "probo", "prˈɔbɔ"),
+]
+
+
+# A bare `-` after a vowel inserts a phantom vowel_stress slot that the SetWordStress output
+# loop never reads (the preceding vowel already advanced `v`), orphaning any stress marked on
+# a later syllable at that shifted index. espeak keeps the orphan and its clause nucleus falls
+# back to the last OUTPUT-reachable max-stress syllable, so the tonic must be placed in the
+# output-reachable range, not the raw vowel_count range. da barrikade (rules -> `bA-?ik'&:D@-`,
+# the `A-` = vowel A + phonSYLLABIC `-`): the explicit primary on `&:` is orphaned past the
+# reachable range, so the tonic lands on the first syllable (bˈɑ), not left unstressed.
+VOWEL_DASH_TONIC = [
+    ("da", "barrikade", "bˈɑʔikaaðə"),
+]
+
+
+@pytest.mark.parametrize("lang,word,expected", VOWEL_DASH_TONIC)
+def test_vowel_dash_tonic_orphan(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert G2P(lang).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
+
+
+# A number connective can plant the phonSYLLABIC `-` immediately after a vowel that is NOT the
+# clause nucleus. Faroese "-6" tens (seks-og-tríati = units `_6` s%Egs + `_0and` u-o + tens
+# `_3X` tr%e:dIvU) assemble to `s%Egsu-otr%e:dIvU`: the trochaic auto-secondary loop gives the
+# connective vowel `u` a secondary, but espeak's phoneme-list build resets every phonSYLLABIC's
+# preceding vowel to the following (unstressed) level, so the nucleus (the last syllable) keeps
+# the primary and `u` stays plain — sɛɡsuo…, never sɛɡsˌuo…. Every fo tens ending in 6 exercises
+# this, and "B36" checks it survives a leading spelled letter.
+NUMBER_CONNECTIVE_DASH = [
+    ("fo", "36", "sɛɡsuotɹˌeːdɪʋˈʊ"),
+    ("fo", "26", "sɛɡsuotʃˌɜœːwˈʊ"),
+    ("fo", "46", "sɛɡsuofjˌ2ːɹɪdˈɪ"),
+    ("fo", "56", "sɛɡsuohɔltɹˈʊɟss"),
+    ("fo", "66", "sɛɡsuotɹˈʊɟss"),
+    ("fo", "76", "sɛɡsuohɔlfjˈɛzz"),
+    ("fo", "86", "sɛɡsuofˈʊzz"),
+    ("fo", "96", "sɛɡsuohɔlfˈɛms"),
+    ("fo", "B36", "beː sɛɡsuotɹˌeːdɪʋˈʊ"),
+]
+
+
+@pytest.mark.parametrize("lang,word,expected", NUMBER_CONNECTIVE_DASH)
+def test_number_connective_dash_no_spurious_secondary(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert G2P(lang).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
+
+
+@pytest.mark.parametrize("lang,word,expected", CASES)
+def test_syllabic_marker_stress(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
+
+
+# A STRESSED syllabic consonant: a stress mark placed by SetWordStress immediately before a
+# consonant that the `-` then marks syllabic. espeak reinterprets it (phonemelist.c) as TWO
+# segments carrying the tonic — the consonant GEMINATES and the first copy takes the mark. ar
+# `ع = [A-a:jn] $atend` feeds SetWordStress as `'A-a:jn`; the primary lands on the syllabic ʕ,
+# so it doubles to `ˈʕʕ` while the following vowel keeps its own tonic -> `ˈʕʕˈaːjn`. This is
+# the sole distinction from the UNSTRESSED syllabic consonant (`s̪-uːrah`, `s̪-ifr`): when NO
+# stress precedes the `-`, the consonant is left single with a literal `-` (below). Both surfaces
+# are byte-exact against espeak-ng; the gemination MUST NOT bleed onto the unstressed case.
+STRESSED_SYLLABIC_CONSONANT = [
+    ("ar", "ع", "ˈʕʕˈaːjn"),
+]
+
+# The unstressed syllabic consonant guard: same `-`-after-consonant shape but no preceding
+# stress mark, so no gemination and the literal `-` survives. If the stressed-consonant branch
+# ever over-triggers, these regress (s̪s̪, dropped `-`, or a stray tonic on the consonant).
+UNSTRESSED_SYLLABIC_CONSONANT = [
+    ("ar", "ى", "ʔˈalif mˌaqs̪-ˈuːrah"),
+    ("ar", "صفر", "s̪ˈifr"),
+]
+
+
+@pytest.mark.parametrize("lang,word,expected", STRESSED_SYLLABIC_CONSONANT)
+def test_stressed_syllabic_consonant_geminates(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")
+
+
+@pytest.mark.parametrize("lang,word,expected", UNSTRESSED_SYLLABIC_CONSONANT)
+def test_unstressed_syllabic_consonant_not_geminated(oracle, lang, word, expected):
+    assert G2P(lang, force_compat=True).phonemize(word) == expected
+    assert expected == oracle(word, lang, "ipa")

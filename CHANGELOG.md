@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.0.3a2](https://github.com/TigreGotico/espyak/tree/0.0.3a2) (2026-07-30)
+
+[Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.3a1...0.0.3a2)
+
+**Closed issues:**
+
+- Divergences from espeak-ng found while working on \#8/\#9/\#10 [\#11](https://github.com/TigreGotico/espyak/issues/11)
+
+**Merged pull requests:**
+
+- docs: rewrite README in Simplified Technical English [\#12](https://github.com/TigreGotico/espyak/pull/12) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.3a1](https://github.com/TigreGotico/espyak/tree/0.0.3a1) (2026-07-20)
+
+[Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.2a1...0.0.3a1)
+
+**Merged pull requests:**
+
+- fix: ship dictsource and all data files in the wheel [\#6](https://github.com/TigreGotico/espyak/pull/6) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.2a1](https://github.com/TigreGotico/espyak/tree/0.0.2a1) (2026-06-19)
 
 [Full Changelog](https://github.com/TigreGotico/espyak/compare/9cd1d10a813d675e1da33deeeccdfcbc0864e432...0.0.2a1)

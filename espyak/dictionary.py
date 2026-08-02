@@ -11,9 +11,10 @@ last-best-wins tie-break are reproduced. Phonemes are accumulated as mnemonic st
 
 Reference: espeak-ng 1.52.0 dictionary.c (MatchRule:1484, TranslateRules:2080).
 """
+import re
 import unicodedata
 from espyak import constants as K
-from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, Phoneme
+from espyak.phoneme_tab import phVOWEL, phSTRESS, phLIQUID, phSTOP, phNASAL, phINVALID, phPAUSE, Phoneme
 
 # A no-tie barrier ('|' in phoneme strings): keep it as a passthrough token through
 # set_word_stress so the downstream phoneme parser doesn't greedily merge the phonemes it
@@ -34,6 +35,20 @@ for _d in "0123456789":
 
 def _nfc(s):
     return unicodedata.normalize("NFC", s)
+
+
+def _nfc_compose(s):
+    """NFC form of `s`, but ONLY when NFC genuinely composes (does not lengthen).
+
+    espeak hashes raw dict bytes, so the dict lookup falls back to an NFC form only to
+    bridge an NFD source list matched by an NFC word (ko conjoining jamo -> syllable) — a
+    composition that shortens or keeps length. A Devanagari nukta letter (U+095C etc.) is a
+    Unicode full-composition-exclusion: NFC(U+095C) DEcomposes to ड+़ (LONGER). Bridging that
+    would let a `.replace`-composed word (U+095C) re-match a decomposed dict key that espeak
+    itself misses (falling through to the rules). So an exclusion-driven decomposition never
+    bridges: return the string unchanged there, so the fallback get() is a harmless repeat."""
+    n = unicodedata.normalize("NFC", s)
+    return n if len(n) <= len(s) else s
 
 REPLACED_E = ord("E")
 
@@ -121,6 +136,7 @@ class Translator:
         self.expect_verb = 0
         self.word_vowel_count = 0
         self.word_stressed_count = 0
+        self._dict_ref = None
         self.phsource = phsource
         if config is None:
             config = {
@@ -148,6 +164,19 @@ class Translator:
             self.dict_condition |= (1 << _n)
         self._setup_letters(config)
 
+    @property
+    def dict(self):
+        return self._dict_ref
+
+    @dict.setter
+    def dict(self, dictlist):
+        # Stamp the translator's dict_condition onto the DictList so lookups that build their
+        # own LookupContext without the translator in hand (number translation, numbers.py)
+        # still select the voice's `?N`-gated entries (pt dictrules 1 -> ?1_14 "catorze").
+        self._dict_ref = dictlist
+        if dictlist is not None:
+            dictlist.dict_condition = self.dict_condition
+
     def _setup_letters(self, config):
         for group, letters in config.get("letter_bits", _DEFAULT_LETTER_BITS).items():
             bits = 1 << group
@@ -168,6 +197,14 @@ class Translator:
         for ch in config.get("set_letter_vowel", ""):
             if ord(ch) < 256:
                 self.letter_bits[ord(ch)] = (self.letter_bits[ord(ch)] & 0x40) | 0x81
+        # ResetLetterBits(tr, mask) (tr_languages.c:126): clear the masked group bits from EVERY
+        # letter before the language re-populates them (is clears groups 3,4 with 0x18, then sets
+        # its own F=kpst / H=jvr). Runs after the defaults, before the per-language SetLetterBits.
+        reset_mask = config.get("reset_letter_bits", 0)
+        if reset_mask:
+            inv = ~reset_mask & 0xFF
+            for code in range(256):
+                self.letter_bits[code] &= inv
         # SetLetterBits(group, letters): OR letters into a specific group
         for group, letters in config.get("set_letter_bits", []):
             for ch in letters:
@@ -192,6 +229,12 @@ class Translator:
             vset = frozenset(vov)
             self.letter_groups[K.LETTERGP_A] = vset
             self.letter_groups[K.LETTERGP_VOWEL2] = vset
+        # wchar group override (tr_languages.c `tr->letter_groups[N] = ...`): a fixed membership
+        # for a built-in group A)/B)/C)/H)/F)/G), consulted by IsLetter BEFORE letter_bits. is sets
+        # group B (LETTERGP_B) to the voiceless consonants so `B) n -> hn#` fires only after a
+        # voiceless letter (afn -> …hn#) and NOT after voiced g (vegna -> ʋˈɛɡna, no leak).
+        for group, chars in config.get("letter_groups_override", {}).items():
+            self.letter_groups[group] = frozenset(chars)
 
     def is_letter(self, letter, group):
         # port of IsLetter (dictionary.c:770)
@@ -255,10 +298,14 @@ class DictList:
 
     def __init__(self):
         self.words = {}     # lowercase word -> list[DictEntry] in file order
+        self._raw_keys = set()  # raw (non-NFC) lowercase keys, for cross-form collision guard
         self.cased_keys = set()  # original-case keys (espeak's letter lookup is case-sensitive)
         self.text_mode = False
         # fo: single-letter NAME lookups respect the source key's case (see DictEntry.key_upper).
         self.case_sensitive_letters = False
+        # the owning Translator stamps its dict_condition here (Translator.dict setter) so
+        # context-less lookups (number translation) still select `?N`-gated entries.
+        self.dict_condition = 0
 
     def has_exact(self, key):
         """True if `key` existed verbatim (case-sensitive). espeak's LookupLetter is
@@ -292,17 +339,30 @@ class DictList:
             return
         flag_codes = []
         rest_words = ""
-        # a condition can precede the word, e.g. "?!3 _0and  @n" — separated from the word
-        # by ANY whitespace (the _list files mix spaces and TABs, e.g. "?2\teste\t...$u+\t'estSy").
+        # a condition can precede the word: "?N" or "?!N" (N up to two digits). compile_line
+        # (compiledict.c:435) consumes ONLY `?`, an optional `!`, and up to two digits, then the
+        # word follows — so the condition need NOT be whitespace-separated from the word. Both
+        # "?!3 _0and  @n" (spaced) and "?1_14" (glued, pt teens/tens) are the same shape: the
+        # word is whatever remains after the fixed-width condition token. Reading the whole
+        # whitespace token as the condition (and scraping its digits) mis-parsed "?1_14" as
+        # condition 114 and dropped `_14`, so the pt cardinals 13/14/16-19/2X/4X/6X/7X/9X and
+        # the en `?3_.p` abbreviation never loaded.
         leading_cond = []
         while line and line[0] == "?":
-            parts = line.split(None, 1)
-            ctok = parts[0]
-            line = parts[1] if len(parts) > 1 else ""
-            neg = len(ctok) > 1 and ctok[1] == "!"
-            num = "".join(ch for ch in ctok if ch.isdigit())
-            if num:
-                leading_cond.append(int(num) + (132 if neg else 100))
+            p = 1
+            neg = p < len(line) and line[p] == "!"
+            if neg:
+                p += 1
+            ndig = 0
+            num = 0
+            while ndig < 2 and p < len(line) and line[p].isdigit():
+                num = num * 10 + int(line[p])
+                p += 1
+                ndig += 1
+            if ndig == 0:
+                break  # a bare leading `?` is not a condition (leave it for the word/phonemes)
+            leading_cond.append(num + (132 if neg else 100))
+            line = line[p:].lstrip()
         if not line:
             return
         flag_codes.extend(leading_cond)
@@ -311,7 +371,12 @@ class DictList:
             close = line.find(")")
             if close < 0:
                 return
-            inside = line[1:close].split()
+            # compiledict.c LINE_PARSER_END_OF_WORD: inside a "(...)" multi-word entry a hyphen
+            # is a word separator (it sets BITNUM_FLAG_HYPHENATED and rewrites '-' to ' '), so
+            # `(has-been)`/`(lean-to)` compile to key "has"/"lean" + follow "been"/"to", exactly
+            # like the space-separated `(has been)`. A hyphen after a DIGIT is kept (numeric-hyphen,
+            # hu `(1-e)` $text): those stay a single-token key, matching the C special case.
+            inside = re.sub(r"(?<!\d)-", " ", line[1:close]).split()
             word = inside[0] if inside else ""
             rest_words = " ".join(inside[1:])
             tokens = line[close + 1:].split()
@@ -365,17 +430,43 @@ class DictList:
             flag_codes.append(_MNEM_FLAGS["$onlys"])
         if self.text_mode:
             flag_codes.append(_MNEM_FLAGS["$text"])  # within a $textmode section -> FLAG_TEXTMODE
+        # compile_line (compiledict.c:601-617): every key is lowercased; a key whose letters are
+        # ALL uppercase (en LBS, ca/Greek T, fo L) gets an implicit $allcaps, so it only matches
+        # an all-caps source word. A first-capital key (pt Braille, ?2 Gmail) carries NO case
+        # flag — it is simply the lowercase entry.
+        if (word and word[0] != "_" and word.isalpha() and word.isupper()
+                and _MNEM_FLAGS["$allcaps"] not in flag_codes):
+            flag_codes = flag_codes + [_MNEM_FLAGS["$allcaps"]]
         entry = DictEntry(phonemes, flag_codes, multiword, rest_words,
                           key_upper=word[:1].isupper())
         # NFC-normalize keys so NFD source lists (e.g. ko_list conjoining jamo) match an
-        # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries. EXCEPTION: polytonic
-        # Greek (U+1F00–U+1FFF) is canonically equivalent under NFC to the monotonic letters
-        # (ή U+1F75 ≡ U+03AE), which would merge ancient-Greek polytonic entries (oxia) with the
-        # modern-Greek monotonic ones (tonos); keep those keys raw so they stay distinct.
+        # NFC-normalized lookup; idempotent for the usual NFC/ASCII entries. EXCEPTION: keys that
+        # NFC would merge with a distinct espeak entry (polytonic Greek, CJK compatibility
+        # ideographs) stay matchable under their raw key — see the raw-key indexing below.
         _lw = word.lower()
-        _key = _lw if (_lw and 0x1F00 <= ord(_lw[0]) <= 0x1FFF) else _nfc(_lw)
-        self.words.setdefault(_key, []).append(entry)
-        self.cased_keys.add(_key if (word and 0x1F00 <= ord(word[0]) <= 0x1FFF) else _nfc(word))
+        _is_greek = bool(_lw) and 0x1F00 <= ord(_lw[0]) <= 0x1FFF
+        _nfckey = _lw if _is_greek else _nfc(_lw)
+        # Index under the RAW source key, plus the NFC key when it differs. espeak hashes
+        # the raw dict bytes, so a decomposed source key (Devanagari base+nukta, e.g. kok
+        # ड़ = ड+़ -> r.) must stay matchable by a decomposed lookup rather than being
+        # collapsed onto — and shadowed in the same bucket by — a distinct precomposed
+        # entry (U+095C -> r-). The NFC key is still indexed so an NFD source list (ko
+        # conjoining jamo) keeps matching an NFC-normalised lookup. CRITICAL: nukta
+        # precomposed letters (U+095C etc.) are Unicode full-composition-exclusions, so
+        # NFC(U+095C) DEcomposes to ड+़ — indexing that entry under its NFC key would drop
+        # its r- pronunciation into the decomposed r. bucket and shadow it (reversed()
+        # picks the last-added). A composition-exclusion is exactly the case where the NFC
+        # form is LONGER than the raw key (1 precomposed char -> base+mark); a genuine
+        # composition (ko conjoining jamo -> syllable) is not longer. So the NFC key is only
+        # added when it is not longer than the raw key AND does not already name another
+        # entry's raw key — i.e. it introduces no cross-form collision.
+        self.words.setdefault(_lw, []).append(entry)
+        if _nfckey != _lw and len(_nfckey) <= len(_lw) and _nfckey not in self._raw_keys:
+            self.words.setdefault(_nfckey, []).append(entry)
+        self._raw_keys.add(_lw)
+        self.cased_keys.add(word)
+        if not _is_greek:
+            self.cased_keys.add(_nfc(word))
 
     def lookup(self, word, ctx):
         """Return (phonemes_or_None, flags1) or (None, None) if not found.
@@ -385,23 +476,14 @@ class DictList:
         phonemes of "" with flags1!=None means flags-only (use rules).
         """
         self._last_accent = False
-        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+        entries = self.words.get(word.lower()) or self.words.get(_nfc_compose(word.lower()))
         if not entries and len(word) == 2 and word[1] == ":":
             # smj writes long-vowel letter names with a redundant length colon (A: is the long-A
             # letter name ɑː); the dict keys it under the bare letter (A -> A:). A CamelCase split
             # yields the bare "A:" token, which otherwise misses the dict and reads as a short vowel.
-            entries = self.words.get(word[0].lower()) or self.words.get(_nfc(word[0].lower()))
+            entries = self.words.get(word[0].lower()) or self.words.get(_nfc_compose(word[0].lower()))
         if not entries:
             return None, None
-        if self.case_sensitive_letters and len(word) == 1 and word.isalpha():
-            # fo names `l`/`m`/`n` without gemination but `L`/`M`/`N` (uppercase, mid-acronym
-            # form) with it (l -> ɛl, L -> ɛll). espeak buckets the two cases separately; espyak
-            # keys everything lowercase, so the uppercase variant otherwise wins the lowercase
-            # `l` lookup. Restrict to the entries whose source key matched the query's case.
-            want_upper = bool(ctx.first_upper)
-            cased = [e for e in entries if e.key_upper == want_upper]
-            if cased and len(cased) != len(entries):
-                entries = cased
         for entry in reversed(entries):
             ok, flags1, flags2, stress = self._eval(entry, ctx)
             if not ok:
@@ -415,14 +497,39 @@ class DictList:
             return entry.phonemes, flags1
         return None, None
 
-    def lookup_flags(self, word, dict_condition=0):
-        """Flags-only lookup (port of LookupFlags): return flags1 for `word`, with FLAG_FOUND set
-        if any entry matched (0 if absent). No phoneme translation, so the matcher's DollarRule can
-        call it without recursing back into translation."""
-        entries = self.words.get(word.lower()) or self.words.get(_nfc(word.lower()))
+    def multiword_skip(self, word, following, dict_condition=0,
+                       first_upper=False, all_upper=False):
+        """Return how many FOLLOWING words a matching multi-word entry for `word` consumes.
+
+        Mirrors LookupDict2's selection (last-in-file entry wins) but reports only the skipword
+        count: 0 when the winning entry is an ordinary single word (or nothing matches), N when a
+        `(w1 w2 ... wN+1)` entry fires. The caller uses this to advance past the consumed words and
+        to place the clause tonic on the whole multi-word unit. The case flags MUST match those the
+        actual render-time lookup uses, or the two disagree — e.g. all-caps `HAS BEEN` selects the
+        $allcaps single-word `has` entry, not `(has-been)`, so no words may be skipped."""
+        if not following:
+            return 0
+        entries = self.words.get(word.lower()) or self.words.get(_nfc_compose(word.lower()))
         if not entries:
             return 0
-        ctx = LookupContext(dict_condition=dict_condition)
+        ctx = LookupContext(dict_condition=dict_condition, following=following, clause_ctx=True,
+                            first_upper=first_upper, all_upper=all_upper)
+        for entry in reversed(entries):
+            ok, _f1, _f2, _s = self._eval(entry, ctx)
+            if ok:
+                return len(entry.rest.split()) if entry.multiword else 0
+        return 0
+
+    def lookup_flags(self, word, dict_condition=0, first_upper=False, all_upper=False):
+        """Flags-only lookup (port of LookupFlags): return flags1 for `word`, with FLAG_FOUND set
+        if any entry matched (0 if absent). No phoneme translation, so the matcher's DollarRule can
+        call it without recursing back into translation. `first_upper`/`all_upper` gate $capital/
+        $allcaps entries (hu KFT $unstressend is all-caps-only)."""
+        entries = self.words.get(word.lower()) or self.words.get(_nfc_compose(word.lower()))
+        if not entries:
+            return 0
+        ctx = LookupContext(dict_condition=dict_condition, first_upper=first_upper,
+                            all_upper=all_upper)
         for entry in reversed(entries):
             ok, flags1, flags2, stress = self._eval(entry, ctx)
             if ok:
@@ -453,7 +560,16 @@ class DictList:
             else:
                 flags1 |= (1 << flag)
         if entry.multiword:
-            return False, 0, 0, None  # following words can't match an isolated word
+            # LookupDict2 flag>80 (skipwords) path: the entry only matches if the words that FOLLOW
+            # in the source match the stored follow-string. C does `strncmp(word2, "<rest> ", n)`
+            # against the raw source after the first word; here the follow words are pre-tokenised in
+            # ctx.following (lowercased), so a whole-word prefix compare is exact. With no following
+            # context (isolated-word lookup / lookup_flags) ctx.following is empty and a multi-word
+            # entry can never fire — preserving the historical isolated-word behaviour.
+            rest = entry.rest.split()
+            foll = ctx.following
+            if len(foll) < len(rest) or any(foll[k] != rest[k] for k in range(len(rest))):
+                return False, 0, 0, None
         # condition checks (LookupDict2 tail)
         if (flags2 & K.FLAG_STEM) and not ctx.suffix_removed:
             return False, 0, 0, None
@@ -463,7 +579,11 @@ class DictList:
         # matches `word`/`words` but not the `en`-stripped stem of `worden`.
         if (flags2 & K.FLAG_ONLY) and (ctx.suffix_removed or ctx.prefix_removed):
             return False, 0, 0, None
-        if (flags2 & K.FLAG_ONLY_S) and ctx.suffix_removed and not ctx.suffix_is_s:
+        if (flags2 & K.FLAG_ONLY_S) and (
+                ctx.prefix_removed or (ctx.suffix_removed and not ctx.suffix_is_s)):
+            # LookupDict2:2571 rejects BOTH $only and $onlys once a prefix was removed, not
+            # just $only. en `put ,pUt $onlys` must not match the `out`-prefix-stripped stem of
+            # `output` (-> ˈaʊtpʊt, the whole out+put stressed once, not ˈaʊtpˌʊt).
             return False, 0, 0, None
         if (flags2 & K.FLAG_CAPITAL) and not ctx.first_upper:
             return False, 0, 0, None
@@ -471,8 +591,17 @@ class DictList:
             return False, 0, 0, None
         if (flags1 & K.FLAG_NEEDS_DOT) and not ctx.has_dot:
             return False, 0, 0, None
-        if (flags2 & K.FLAG_ATEND) and not ctx.at_end:
-            return False, 0, 0, None
+        if flags2 & K.FLAG_ATEND:
+            if ctx.clause_ctx:
+                # $atend = "use this pronunciation at end of clause" (LookupDict2: word_end <
+                # clause_end). A multi-word entry's span ends after its follow-words, so it is at
+                # clause end only when it consumes ALL remaining words; a single-word entry only
+                # when nothing follows. This stops `(it has) $atend` from firing mid-clause.
+                rest_n = len(entry.rest.split()) if entry.multiword else 0
+                if len(ctx.following) != rest_n:
+                    return False, 0, 0, None
+            elif not ctx.at_end:
+                return False, 0, 0, None
         if (flags2 & K.FLAG_ATSTART) and not ctx.first_word:
             return False, 0, 0, None
         if (flags2 & K.FLAG_SENTENCE) and not ctx.sentence:
@@ -492,7 +621,7 @@ class LookupContext:
     def __init__(self, first_upper=False, all_upper=False, has_dot=False,
                  first_word=True, at_end=True, sentence=True, dict_condition=0,
                  expect_verb=0, expect_noun=0, expect_past=0, suffix_removed=False,
-                 prefix_removed=False, suffix_is_s=False):
+                 prefix_removed=False, suffix_is_s=False, following=(), clause_ctx=False):
         self.first_upper = first_upper
         self.all_upper = all_upper
         self.has_dot = has_dot
@@ -506,6 +635,13 @@ class LookupContext:
         self.suffix_removed = suffix_removed   # a suffix was removed (FLAG_SUFX)
         self.prefix_removed = prefix_removed   # a prefix was removed (SUFX_P)
         self.suffix_is_s = suffix_is_s         # the removed suffix was 's' (FLAG_SUFX_S)
+        # the words that FOLLOW this word in the clause (lowercased tokens), used to match a
+        # multi-word `(w1 w2 ...)` dict entry against the source (LookupDict2 skipwords path).
+        self.following = list(following)
+        # True when `following` reflects the real clause tail, so a $atend gate is evaluated by
+        # actual position (does the matched span reach the clause end?) instead of the historical
+        # isolated-word at_end=True assumption. Only set for multi-word probing/rendering.
+        self.clause_ctx = clause_ctx
 
 
 def is_digit(c):
@@ -606,6 +742,16 @@ def _ph_is_vowel(p):
     return p.type == phVOWEL and "nonsyllabic" not in p.flags
 
 
+def _deletes_word_final_schwa(schwa_ph):
+    """True if the Indic inherent-schwa phoneme's own program deletes it word-finally
+    (`IF thisPh(isWordEnd) ... THEN ChangePhoneme(NULL)`, as in hi/bn/kn/ml/te/gu/mr).
+    Languages that keep the final schwa (ta renders it ʌ, pa) have no such deletion, so
+    their word-final schwa must stay counted for stress placement."""
+    prog = getattr(schwa_ph, "program", None) or ()
+    return (any("thisPh(isWordEnd)" in ln for ln in prog)
+            and any("ChangePhoneme(NULL)" in ln for ln in prog))
+
+
 def _nonsyllabic_before_vowel(p):
     """True for a vowel-typed phoneme whose program turns it into the consonant N when the
     next phoneme is a vowel (`IF nextPh(isVowel) THEN ChangePhoneme(N)`). This is the yue/zh
@@ -620,6 +766,43 @@ def _nonsyllabic_before_vowel(p):
         return False
     txt = " ".join(prog)
     return "nextPh(isVowel)" in txt and "ChangePhoneme(N)" in txt
+
+
+def _is_syllabic_marker(mnem, ph):
+    """The phonSYLLABIC virtual phoneme `-` (phsource `phoneme -`): marks the PRECEDING
+    consonant as a syllabic nucleus. GetVowelStress (dictionary.c:878) counts it as a
+    syllable slot even though it carries no sound of its own, and the output loop
+    (dictionary.c:1391, `*p == phonSYLLABIC`) emits that syllable's stress before the
+    consonant it follows. A bare `-` after a vowel (ar/fa letter names `...e-,ta`,
+    `maqs[-'u:Rah`) still adds the slot, shifting the following real vowels' stress one
+    place — which is exactly how espeak places the secondary."""
+    return ph.type == K.phVIRTUAL and mnem == "-"
+
+
+def _output_nucleus_count(phonetic):
+    """Number of syllable nuclei the SetWordStress OUTPUT loop actually emits — i.e. how far
+    its `v` counter runs. It advances once per real vowel and once per syllabic CONSONANT
+    (a consonant immediately before phonSYLLABIC `-`), mirroring dictionary.c:1384 exactly.
+
+    This can be SMALLER than GetVowelStress's `vowel_count-1`: a `-` that follows a VOWEL
+    still gets its own vowel_stress slot in GetVowelStress (dictionary.c:868 counts every
+    phonSYLLABIC unconditionally) but the output loop does NOT consume it (the preceding vowel
+    already advanced `v`, and `-`'s own `*p` is the next real phoneme, not another `-`). Every
+    such vowel+`-` leaves one trailing vowel_stress index that the output loop never reads, so
+    an explicit primary marked on a post-`-` vowel is orphaned there. espeak keeps that
+    orphan; its clause nucleus (intonation) then falls back to the last OUTPUT-reachable
+    max-stress syllable — which is what the tonic placement below must target."""
+    n = 0
+    m = len(phonetic)
+    for pi, (mnem, ph) in enumerate(phonetic):
+        if _nonsyllabic_before_vowel(ph) and pi + 1 < m and _ph_is_vowel(phonetic[pi + 1][1]):
+            continue
+        syl_cons = (not _ph_is_vowel(ph) and ph.type not in (phINVALID, phPAUSE)
+                    and pi + 1 < m
+                    and _is_syllabic_marker(phonetic[pi + 1][0], phonetic[pi + 1][1]))
+        if _ph_is_vowel(ph) or syl_cons:
+            n += 1
+    return n
 
 
 def get_vowel_stress(toks, stressed_syllable=0):
@@ -686,6 +869,12 @@ def get_vowel_stress(toks, stressed_syllable=0):
                 vowel_stress[count] = STRESS_IS_UNSTRESSED
             count += 1
             stress = -1
+        elif _is_syllabic_marker(mnem, ph):
+            # phonSYLLABIC marker (dictionary.c:876-879): the previous consonant is a syllable
+            # nucleus. Add a vowel_stress slot (unstressed if no stress precedes) WITHOUT
+            # resetting `stress` or moving primary_posn (control&1 is always set on this call).
+            vowel_stress.append(stress if stress >= 0 else STRESS_IS_UNSTRESSED)
+            count += 1
         phonetic.append((mnem, ph))
     vowel_stress.append(STRESS_IS_UNSTRESSED)
     return vowel_stress, phonetic, count, primary_posn, max_stress
@@ -703,6 +892,23 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
     toks = mnem_index.tokenize(phoneme_str)
     if not toks:
         return phoneme_str
+    _stripped_final_schwa = False
+    if (tr.config.get("indic_schwa") and len(toks) >= 3 and toks[-1][0] == "V"
+            and _deletes_word_final_schwa(toks[-1][1])):
+        # The word-final inherent schwa is DELETED word-finally by the V phoneme's own program
+        # (`IF thisPh(isWordEnd) ... THEN ChangePhoneme(NULL)`), and that deletion PRECEDES the
+        # word's stress placement: GetVowelStress must not count the schwa as the final syllable,
+        # or a 1L language drops the clause tonic on it. bn করছিলাম (kVrVtS#|ilamV): with the
+        # trailing V gone the tonic lands on the last real vowel i (kˌɔɾɔtʃʰˈilam), not the schwa
+        # (kˈɔɾɔtʃʰˌilam); bn আমার (amarV -> amar) still takes syllable 1 (ˈamaɾ) by the ordinary
+        # 1L rule. Languages whose V program has NO word-final deletion (ta, pa) PRONOUNCE the
+        # schwa (பூத -> bˈuːdʌ), so are left untouched. Deletion needs a consonant before the
+        # schwa and a vowel before that (ph V's prevPhW(isNotVowel)/prev2PhW(isVowel), and hi's
+        # NOT isFirstVowel); look back past inert barrier/stress tokens.
+        _prev = [t for t in toks[:-1] if t[1].type not in (phSTRESS, phINVALID)]
+        if len(_prev) >= 2 and _prev[-1][1].type != phVOWEL and _ph_is_vowel(_prev[-2][1]):
+            toks = toks[:-1]
+            _stripped_final_schwa = True
     stressflags = tr.stress_flags
 
     unstressed_word = False
@@ -733,6 +939,10 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         max_stress = STRESS_IS_PRIMARY
 
     max_stress_input = max_stress
+    # espeak keeps unstressed_word TRUE for the whole of SetWordStress; the reset just below is an
+    # espyak-only device to gate the el u_clause_final block. Capture the C-faithful value so the
+    # S_INITIAL_2 / S_2_SYL_2 auto-secondary block (which C skips for every $u word) still keys off it.
+    unstressed_word_input = unstressed_word
     if (unstressed_word and tonic >= STRESS_IS_PRIMARY and max_stress >= STRESS_IS_PRIMARY
             and primary_posn >= vowel_count - 2):
         # a $u function word that IS the clause nucleus keeps its own lexical stress only when that
@@ -926,7 +1136,7 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             vowel_stress[vowel_count - 1] = STRESS_IS_UNSTRESSED
             vowel_stress[vowel_count - 2] = STRESS_IS_PRIMARY
 
-    if not unstressed_word:
+    if not unstressed_word_input:
         if (stressflags & K.S_2_SYL_2) and vowel_count == 3:
             # two-syllable word: if one syllable has primary stress, give the other secondary
             if vowel_stress[1] == STRESS_IS_PRIMARY:
@@ -991,12 +1201,41 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
             if vowel_stress[_v] == STRESS_IS_PRIMARY:
                 vowel_stress[_v] = STRESS_IS_SECONDARY
 
+    # Scan only the OUTPUT-reachable syllables: a vowel+`-` leaves a trailing vowel_stress slot
+    # the output loop never reads (see _output_nucleus_count), so a primary orphaned there must
+    # not win the max-stress position — espeak's nucleus falls back to the last reachable one.
+    # For every word WITHOUT a vowel+`-` this equals vowel_count-1, so behaviour is unchanged.
+    _reachable = min(vowel_count - 1, _output_nucleus_count(phonetic))
     max_stress = STRESS_IS_DIMINISHED
     max_stress_posn = 0
-    for v in range(1, vowel_count):
+    for v in range(1, _reachable + 1):
         if vowel_stress[v] >= max_stress:
             max_stress = vowel_stress[v]
             max_stress_posn = v
+    # Clause tonic on a $u word whose nonsyllabic onset schwa @- outranks every real vowel.
+    # espeak runs SetWordStress(tonic=-1) first: a $u word reduces its real vowels to
+    # unstressed_wd1 (monosyllable) / unstressed_wd2 (polysyllable), but the nonsyllabic onset
+    # @- (from a "C) r"-type rule) is untouched by SetWordStress and keeps its translate-time
+    # default stress 1 (translate.c next_stress). The separate intonation pass
+    # (count_pitch_vowels) then counts EVERY phVOWEL — @- included (SFLAG_SYLLABLE, translate.c
+    # phVOWEL test ignores phNONSYLLABIC) — as a pitch syllable and places the clause tonic
+    # (PRIMARY_LAST) on the LAST max-stress one. When unstressed_wd reduces the real vowels
+    # BELOW @-'s level 1 (wd==0, e.g. la/lt), the @- is the unique maximum and takes the tonic,
+    # rendering as a bare ˈ before the following cluster (la pro -> pˈrɔ, trans -> tˈrans). The
+    # real vowels keep their reduced level, so no visible mark lands on them.
+    nonsyl_tonic_pi = -1
+    if (tonic >= STRESS_IS_PRIMARY and unstressed_word
+            and max_stress_input < STRESS_IS_PRIMARY):
+        _reduced = tr.unstressed_wd1 if vowel_count <= 2 else tr.unstressed_wd2
+        if _reduced < STRESS_IS_UNSTRESSED:  # real vowels reduce below @-'s pitch level 1
+            for _pi in range(len(phonetic) - 1, -1, -1):
+                _p = phonetic[_pi][1]
+                if _p.type == phVOWEL and "nonsyllabic" in _p.flags:
+                    nonsyl_tonic_pi = _pi
+                    break
+            if nonsyl_tonic_pi >= 0:
+                # reduce the real vowels naturally; the @- carries PRIMARY_LAST (marked below)
+                tonic = _reduced
     if tonic >= 0:
         # A first-syllable-stress (1L) CONTENT word with no inherent stress (every vowel
         # diminished/unstressed, e.g. ga arsa -> @rs@) takes the clause tonic on syllable 1,
@@ -1008,10 +1247,12 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
         elif (tr.config.get("indic_schwa") and unstressed_word and vowel_count > 1
                 and tr.stress_rule == K.STRESSPOSN_1L
                 and max_stress_posn == vowel_count - 1
+                and not _stripped_final_schwa
                 and phoneme_str.rstrip("'\",%/ ")[-1:] == "V"):
             # A $u function word normally keeps the last syllable (nl onze -> ɔnzˈə), but when a 1L
-            # Indic word ends in the inherent schwa V (DELETED word-finally), the clause tonic landing
-            # there is lost (bn আমার = amarV -> the V drops, leaving only ˌamaɾ); use syllable 1 (ˈamaɾ).
+            # Indic word ends in the inherent schwa V that was NOT stripped above (the deletion
+            # condition did not hold — e.g. a preceding vowel rather than consonant), the clause
+            # tonic landing on that schwa is lost; use syllable 1 instead.
             max_stress_posn = 1
         if (tonic > max_stress) or (max_stress <= STRESS_IS_PRIMARY):
             vowel_stress[max_stress_posn] = tonic
@@ -1047,22 +1288,15 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 vowel_stress[vowel_count - 1] = tonic
                 max_stress_posn = vowel_count - 1
 
-    # A $u (unstressed function word, dict flag 0x8) that carries the clause accent (so it was
-    # un-diminished to tonic above) keeps ONLY its primary: drop the auto-secondary espeak never adds
-    # to a function word (pt aquela ,,ak'el%%& -> ak'el%%&, estivemos; aquele=$alt2/menina keep theirs).
-    if (dict_flags & 0x8) and not unstressed_word:
-        for _v in range(1, vowel_count + 1):
-            if vowel_stress[_v] == STRESS_IS_SECONDARY:
-                vowel_stress[_v] = STRESS_IS_UNSTRESSED
     # A clause-tonic word with NO syllabic vowel (vowel_count == 1: its only vowel is a
     # nonsyllabic schwa @-, excluded from the count) gets no stress mark from the loops above
     # (max_stress_posn stays 0). espeak's intonation, however, treats @- as a syllable
     # (MakePhonemeList counts it: translate.c phVOWEL test ignores phNONSYLLABIC) and, finding
     # no primary, promotes the highest-stress (here only) syllable to the clause nucleus
     # (count_pitch_vowels PRIMARY_LAST) — so an isolated `ən` renders ˈən. Mark the LAST
-    # nonsyllabic vowel for the output loop to stress.
-    nonsyl_tonic_pi = -1
-    if (tonic >= STRESS_IS_PRIMARY and vowel_count == 1
+    # nonsyllabic vowel for the output loop to stress. (The $u onset-@- case above may already
+    # have set nonsyl_tonic_pi; don't clobber it — tonic was lowered to the reduced level there.)
+    if (nonsyl_tonic_pi < 0 and tonic >= STRESS_IS_PRIMARY and vowel_count == 1
             and not unstressed_word):
         for _pi in range(len(phonetic) - 1, -1, -1):
             _p = phonetic[_pi][1]
@@ -1097,12 +1331,31 @@ def set_word_stress(tr, phoneme_str, mnem_index, dict_flags=0, tonic=-1, control
                 shorten = prev_v_stress < STRESS_IS_PRIMARY
             if shorten:
                 continue
-        if _ph_is_vowel(ph):
+        _syl_cons = (not _ph_is_vowel(ph) and ph.type not in (phINVALID, phPAUSE)
+                     and _pi + 1 < len(phonetic)
+                     and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1]))
+        if _ph_is_vowel(ph) or _syl_cons:
             # @- excluded from the vowel count in get_vowel_stress when nonsyllabic (its
             # phNONSYLLABIC flag, _ph_is_vowel False) — must also be skipped here or `v`
             # desyncs and the stress mark lands on it (eo pra -> pˈra instead of prˈa). In
             # fr/vi @- is syllabic (a real nucleus), so it is counted and stressed here.
+            # A consonant directly before the phonSYLLABIC `-` is also a syllable nucleus here
+            # (dictionary.c:1391 `*p == phonSYLLABIC`), matching the extra slot get_vowel_stress
+            # counted — so `v` stays aligned with vowel_stress.
             v_stress = vowel_stress[v]
+            # A real vowel immediately followed by the phonSYLLABIC `-` marker has its stress reset
+            # to the following syllable's pending (default-unstressed) level — espeak's phoneme-list
+            # build does this unconditionally (translate.c:587-589 sets prev_vowel.stresslevel =
+            # next_stress for every phonSYLLABIC). The clause nucleus is re-promoted by a separate
+            # intonation pass, which here has already run: max_stress_posn carries the tonic. So only
+            # a NON-nucleus vowel is wiped. A number connective that plants `-` right after a vowel
+            # (fo "36" seks-og-tríati `s%Egsu-otr%e:dIvU`) drops the spurious trochaic secondary the
+            # auto-secondary loop gave `u` (sɛɡsuo… not sɛɡsˌuo…), while da barrikade `bA-?ik'&:D@-`,
+            # whose `A` IS the nucleus (max_stress_posn), keeps its clause primary (bˈɑ…).
+            if (_ph_is_vowel(ph) and v != max_stress_posn and _pi + 1 < len(phonetic)
+                    and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1])):
+                v_stress = STRESS_IS_UNSTRESSED
+                vowel_stress[v] = v_stress
             if v_stress <= STRESS_IS_UNSTRESSED:
                 if (v > 1) and (max_stress >= 2) and (stressflags & K.S_FINAL_DIM) and (v == vowel_count - 1):
                     v_stress = STRESS_IS_DIMINISHED
@@ -1167,7 +1420,10 @@ def change_word_stress(tr, phoneme_str, mnem_index, new_stress, pick_last=False)
                 and _ph_is_vowel(phonetic[_pi + 1][1]):
             out.append(mnem)
             continue
-        if _ph_is_vowel(ph):
+        _syl_cons = (not _ph_is_vowel(ph) and ph.type not in (phINVALID, phPAUSE)
+                     and _pi + 1 < len(phonetic)
+                     and _is_syllabic_marker(phonetic[_pi + 1][0], phonetic[_pi + 1][1]))
+        if _ph_is_vowel(ph) or _syl_cons:
             vs = vowel_stress[v]
             if vs == STRESS_IS_DIMINISHED or vs > STRESS_IS_UNSTRESSED:
                 out.append(_STRESS_MNEM.get(vs, ""))
@@ -1433,6 +1689,11 @@ def _match_post(tr, rb, prog, k, buf, letter, letter_w, letter_xbytes,
         # post-context has scanned. da `el (l$p_alt` must check `appel`, not the scanned `appell`.
         part_end = match_end_ptr if match_end_ptr is not None else post_ptr
         failed, add_points = _dollar_rule(tr, command, word_flags, dict_flags, buf, part_end)
+        if command == K.DOLLAR_UNPR:
+            # $unpron marks a cluster as "unpronounceable" for the FLAG_UNPRON_TEST rerun
+            # (dictionary.c:1725 sets match.end_type = SUFX_UNPRON). Carry it on the rule's
+            # end_type so Unpronouncable2 sees it (es `_) d ($unpr` -> "dr" is spelled).
+            end_type = K.SUFX_UNPRON
     elif rb == ord("-"):
         if letter == ord("-") or (letter == ord(" ") and (word_flags & K.FLAG_HYPHEN_AFTER)):
             add_points = 22 - distance_right
@@ -1755,8 +2016,20 @@ def _is_vowel_letter(tr, ch):
     lb = tr.config.get("letter_bits", {})
     vowels = lb.get(0, "aeiou") if isinstance(lb, dict) else "aeiou"
     extra = tr.config.get("extra_vowels", "") or ""
+    # SetLetterVowel(tr,c) also makes c a syllable nucleus (groups A + VOWEL2); cy `w`/`y`
+    # go through this path, so they must count as vowels here too (else `wrth`, `hwn`, `shwd`
+    # look vowel-less and get spelled letter-by-letter instead of pronounced).
+    setvow = tr.config.get("set_letter_vowel", "") or ""
     syll = tr.config.get("syllabic_consonants", "")  # cs/hr/sl/sk/sr: r,l are syllabic nuclei
-    return c == "y" or c in vowels or c in extra or c in syll or c in _ACCENTED_VOWELS
+    if 0xC0 <= ord(c) < 0xC0 + len(_REMOVE_ACCENT):
+        # IsLetter (dictionary.c:788) tests an accented letter via remove_accent[]: the base
+        # letter's groups decide, so cy ŵ/ŷ count as vowels because SetLetterVowel('w'/'y') does
+        # (tŷ -> tˈɨː, dŵr -> dˈuːr, not spelled letter names).
+        base = chr(_REMOVE_ACCENT[ord(c) - 0xC0]) if _REMOVE_ACCENT[ord(c) - 0xC0] else c
+        if base != c and _is_vowel_letter(tr, base):
+            return True
+    return (c == "y" or c in vowels or c in extra or c in setvow
+            or c in syll or c in _ACCENTED_VOWELS)
 
 
 def _unpronounceable(tr, word, posn=0):
@@ -1800,19 +2073,34 @@ def _unpronounceable(tr, word, posn=0):
             # vowel set — not a Latin acronym. Guards languages that don't set letter_bits_offset
             # (ky/mk/nog/ba are Cyrillic but leave it unset, so the offset check alone misses them).
             return False
+    if lopt == 2 and vowel_posn > 2:
+        # LOPT_UNPRONOUNCABLE==2 (de/en/es): the deep-vowel decision is delegated to Unpronouncable2
+        # (translateword.c:1173), a *_rules test — checked BEFORE the leading-`s` adjustment and the
+        # max_initial_consonants heuristic (which are the else-path for langs with a shallow vowel).
+        return unpronounceable2(tr, word)
     if c1 is not None and ord(c1) == lopt:
         vowel_posn -= 1  # disregard a leading LOPT_UNPRONOUNCABLE char (default 's') when counting
-    if lopt == 2 and vowel_posn < 9:
-        # LOPT_UNPRONOUNCABLE==2 (de/en/es): the deep-vowel decision is made by Unpronouncable2, a
-        # *_rules `$unpron`-marker test (a known cluster like de `tsch`, en `str` stays whole). That
-        # rules pass is not ported, so for these languages only the limiting NO-vowel case peels
-        # (en th, brrr); a word that HAS a vowel is left to the rules, exactly as before the peel
-        # path existed (de tschechien -> tʃˈɛçɪən, not a peeled ˈteːʃ…).
-        return False
     return vowel_posn > (cfg.get("max_initial_consonants", 3) + 1)
 
 
-def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0):
+def unpronounceable2(tr, word):
+    """Port of Unpronouncable2 (translateword.c:1187). For LOPT_UNPRONOUNCABLE==2 languages
+    (en/de/es), reruns the letter-to-sound rules over `word` under FLAG_UNPRON_TEST instead of the
+    generic vowel-depth heuristic. Under that flag MatchRule only lets start-anchored rules
+    (RULE_PRE_ATSTART) win, and translate_rules returns the first such match's end_type | 1 as the
+    end_flags. The word is UNpronounceable (-> spell letter by letter) iff no start-anchored rule
+    matched (end_flags == 0) or the one that matched is an explicit `$unpron` marker (SUFX_UNPRON):
+    en `st` matches `_) st (` -> pronounceable (sˈənt); de `nvda` matches nothing -> spelled."""
+    mnem = getattr(tr, "mnem", None)
+    if mnem is None:
+        return False  # no phoneme index available: fall back to pronounceable (unchanged behaviour)
+    _ph, end_flags, _ep = translate_rules(tr, word, mnem, word_flags=K.FLAG_UNPRON_TEST,
+                                          pre_substituted=True)
+    return (end_flags == 0) or bool(end_flags & K.SUFX_UNPRON)
+
+
+def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict_flags=0,
+                    left_ctx="", right_ctx="", pre_substituted=False):
     """Port of TranslateRules (dictionary.c:2080) for a single space-free word.
 
     Returns (phonemes, end_type, end_phonemes). When `want_endings` and a standard
@@ -1820,13 +2108,31 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
     pronunciation, and `end_type` encodes the affix (the caller removes it and
     retranslates the stem). Otherwise end_type=0.
     (Accent removal, spell-word fallback, and language-switch are not yet wired.)
+
+    ``left_ctx``/``right_ctx`` supply neighbouring-word text so a rule's pre/post
+    context (RULE_SPACE ``_`` / RULE_DIGIT ``D``) can match ACROSS a word boundary the
+    way espeak's MatchRule reads the shared clause buffer. Only the core ``word`` is
+    translated; the context bytes sit in the buffer purely for pre/post matching (each
+    separated from the word by a space, framed by the \\x00 sentinels). This is what
+    lets the digit-context punctuation rules fire — ``D_) : (_DD_`` (omit colon in a
+    time), ``D_) - (_D`` (dash), ``__) - (_D`` (minus) — for an isolated ``:`` or ``-``.
     """
     rules = tr.rules
-    word = _apply_replacements(getattr(rules, "replacements", None), word)
+    # SubstituteChar (translate.c:784) runs ONCE, at clause tokenisation (TranslateChar,
+    # translate.c:1174), so the dict lookup and the rule matcher both see the same already-
+    # substituted source. espyak's translate_word substitutes before its dict lookup and passes
+    # the result here, so re-substituting would apply the table twice. That is invisible for an
+    # idempotent table (ä->æ) but corrupts a non-idempotent one: Sindarin maps `x`->`cs` and
+    # `ch`->`x`, so a second pass cascades ch->x->cs (ach -> ˈaks instead of ˈaχ). Callers that
+    # have already substituted pass pre_substituted=True.
+    if not pre_substituted:
+        word = _apply_replacements(getattr(rules, "replacements", None), word)
     wb = word.encode("utf-8")
-    buf = bytearray(b"\x00 " + wb + b" \x00")
-    p = 2                       # index of first letter
-    end = len(buf) - 2          # index of trailing space
+    lb = (left_ctx.encode("utf-8") + b" ") if left_ctx else b""
+    rb = (b" " + right_ctx.encode("utf-8")) if right_ctx else b""
+    buf = bytearray(b"\x00 " + lb + wb + rb + b" \x00")
+    p = 2 + len(lb)             # index of first letter of the word (past any left context)
+    end = 2 + len(lb) + len(wb)  # index of the space right after the word
     phonemes = ""
     tr.word_vowel_count = 0
     tr.word_stressed_count = 0
@@ -1907,13 +2213,29 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
                         p = p_start
                         continue
                     if 0x61 <= base <= 0x7A and len(wb) > wc_bytes:
+                        # espeak force_compat bug (pt pròs -> pɹˈuʃ): the remove_accent restart
+                        # (dictionary.c:2229) does an IN-PLACE byte replace p[-1]=ix over a 2-byte
+                        # accented char, leaving the buffer malformed such that the `A) s (_S1`
+                        # RULE_ENDING (et=0xff800001) SURVIVES — the final -s is stripped, the
+                        # accented stem is re-translated in isolation, and the word-final -s is
+                        # appended. A clean plain-`pros` translation instead discards that ending
+                        # (end_type=0), so espyak's clean re-translation loses the bug. Flag it here
+                        # when force_compat and the accented vowel is word-final before a lone `s`
+                        # (want_endings guards against the FLAG_UNPRON_TEST / suffix-stem passes);
+                        # _render_word reproduces the stem-in-isolation + appended -s. The DEFAULT
+                        # engine keeps the linguistically-correct pɹˈʊʃ. See docs/divergences.md.
+                        if (want_endings and getattr(tr, "force_compat", False)
+                                and not (word_flags & K.FLAG_UNPRON_TEST)
+                                and bytes(buf[p_start + wc_bytes:end]) == b"s"
+                                and p_start > 2 + len(lb)):
+                            tr._compat_accent_s = True
                         # slice from the CHAR START (p_start), not the advanced p: the failed
                         # default match leaves p mid-character, which split the multi-byte
                         # accented char and corrupted the re-translated word (sjn fëanor).
                         new_word = (buf[2:p_start] + bytes([base])
                                     + buf[p_start + wc_bytes:end]).decode("utf-8", "replace")
                         return translate_rules(tr, new_word, mnem_index, word_flags,
-                                               want_endings, dict_flags)
+                                               want_endings, dict_flags, pre_substituted=True)
                     # unrecognised ASCII letter in a multi-letter word: espeak sets
                     # FLAG_SPELLWORD and re-translates as individual letters (dictionary.c:2274).
                     # mto foreign names (no rule for 'd' in amsterdam). Scoped to ASCII so non-ASCII
@@ -1936,6 +2258,16 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
         # .group rule only fires before an L02 letter and so produces nothing here. Emit a sentinel
         # carrying the codepoint; _render_phonemes replaces it with the in-band (en)…(shn)…
         # spelling. Gated per-language (compat_spell_codepoint) and to the script's Unicode block.
+        if (word_flags & K.FLAG_UNPRON_TEST) and match1 is not None and match1.points == 0 \
+                and is_alpha(wc):
+            # Unpronouncable2 abort (dictionary.c:2270): under the test flag, an alphabetic letter
+            # group that matched no start-anchored rule aborts the whole word (espeak's condition
+            # `(any_alpha > 1) || (p[wc_bytes-1] > ' ')` is always true for a letter). points stays
+            # 0 all the way out, so TranslateRules returns end_flags 0 and the word is judged
+            # unpronounceable — en `ph`/`bh`/`sh` peel their first consonant instead of pronouncing
+            # the silent-h cluster (`_B) h`), rather than pronouncing through it.
+            return "", 0, ""
+
         if match1 is not None and match1.points == 0:
             cfg = getattr(tr, "config", None) or {}
             blk = cfg.get("compat_spell_codepoint")
@@ -1965,6 +2297,14 @@ def translate_rules(tr, word, mnem_index, word_flags=0, want_endings=False, dict
         if match1 is None or match1.phonemes is None:
             continue
         if match1.points > 0:
+            if word_flags & K.FLAG_UNPRON_TEST:
+                # Unpronouncable2 test (dictionary.c:2293): the FIRST group that matches a
+                # start-anchored rule (RULE_PRE_ATSTART; only those update `best` under
+                # FLAG_UNPRON_TEST) settles the question — return its end_type | 1 as the
+                # end_flags. A $unpron ($unpron -> SUFX_UNPRON) marker means "still
+                # unpronounceable"; any other match means pronounceable. Never appends, so no
+                # phonemes are produced here.
+                return "", (match1.end_type | 1), ""
             if (match1.phonemes and match1.phonemes.startswith("_^_")
                     and not (word_flags & K.FLAG_DONT_SWITCH_TRANSLATOR)):
                 # phonSWITCH (dictionary.c:2297): a rule producing a language switch as its
