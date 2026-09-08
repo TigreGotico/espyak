@@ -262,7 +262,7 @@ def test_french_cardinal_matches_oracle(oracle, num):
 #   ru     NUM_OMIT_1_HUNDRED ("сто" not "один сто")
 #   ro/pt  NUM_AND_UNITS (Romanian "și", Portuguese "e" between tens and units)
 #   it     NUM_SINGLE_VOWEL (settanta+uno -> settantuno)
-#   ca     NUM_SINGLE_STRESS + NUM_AND_UNITS + NUM_OMIT_1_HUNDRED/THOUSAND (es block)
+#   ca/an  NUM_SINGLE_STRESS + NUM_AND_UNITS + NUM_OMIT_1_HUNDRED/THOUSAND (es block)
 #   fr     NUM_VIGESIMAL (70 = soixante-dix, 90 = quatre-vingt-dix) + NUM_SINGLE_STRESS
 NUMBERS_FLAG_CASES = [
     ("nl", "20"), ("nl", "70"), ("nl", "100"), ("nl", "1000"),
@@ -275,6 +275,7 @@ NUMBERS_FLAG_CASES = [
     ("pt", "32"), ("pt", "33"), ("pt", "100"),
     ("it", "28"), ("it", "31"), ("it", "71"), ("it", "80"), ("it", "95"),
     ("ca", "21"), ("ca", "42"), ("ca", "70"), ("ca", "100"),
+    ("an", "21"), ("an", "42"), ("an", "100"), ("an", "1005"),
     ("fr", "21"), ("fr", "70"), ("fr", "71"), ("fr", "80"), ("fr", "90"), ("fr", "95"),
 ]
 
