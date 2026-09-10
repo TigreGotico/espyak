@@ -11,6 +11,7 @@ jobs:
     secrets: inherit
     with:
       espeak_ng_version: '1.52.0'
+      gh_automations_ref: 'feat/test-dep-hooks'
       python_versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
       install_extras: 'test'
       test_path: 'test'
