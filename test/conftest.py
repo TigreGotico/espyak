@@ -3,26 +3,31 @@ import subprocess
 
 import pytest
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ORACLE_BIN = os.path.join(REPO, "oracle", "espeak-ng", "src", "espeak-ng")
-ORACLE_DATA_ROOT = os.path.join(REPO, "oracle", "espeak-ng")
+from oracle_source import find
 
 
-def oracle_available():
-    return os.path.isfile(ORACLE_BIN)
+def pytest_configure(config):
+    """Refuse to run at all without a matching oracle.
+
+    Skipping instead of failing makes an absent oracle indistinguishable from
+    a passing comparison in the summary line a reader sees.
+    """
+    try:
+        config.espyak_oracle = find()
+    except RuntimeError as problem:
+        raise pytest.UsageError(str(problem))
 
 
 @pytest.fixture(scope="session")
-def oracle():
-    """Run the espeak-ng oracle binary. Skips the test if the binary isn't built."""
-    if not oracle_available():
-        pytest.skip("espeak-ng oracle binary not built (see test/oracle/gen_oracle.py)")
+def oracle(pytestconfig):
+    """Run the espeak-ng oracle binary."""
+    binary, data_root = pytestconfig.espyak_oracle
 
     def run(text, lang="en", mode="ipa"):
         args = {"ipa": ["--ipa"], "x": ["-x"]}[mode]
-        env = dict(os.environ, ESPEAK_DATA_PATH=ORACLE_DATA_ROOT)
+        env = dict(os.environ, ESPEAK_DATA_PATH=data_root)
         out = subprocess.run(
-            [ORACLE_BIN, "-q", "-v", lang, *args],
+            [binary, "-q", "-v", lang, *args],
             input=text, capture_output=True, text=True, env=env, timeout=30,
         )
         return out.stdout.strip()
