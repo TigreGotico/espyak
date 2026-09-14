@@ -7,9 +7,11 @@ on:
 
 jobs:
   coverage:
-    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
+    uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@feat/test-dep-hooks
     secrets: inherit
     with:
+      espeak_ng_version: '1.52.0'
+      gh_automations_ref: 'feat/test-dep-hooks'
       python_version: '3.11'
       coverage_source: 'espyak'
       test_path: 'test/'

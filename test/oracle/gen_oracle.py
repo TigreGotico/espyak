@@ -18,8 +18,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-ORACLE_BIN = os.path.join(REPO, "oracle", "espeak-ng", "src", "espeak-ng")
-ORACLE_DATA = os.path.join(REPO, "oracle", "espeak-ng", "espeak-ng-data")
+sys.path.insert(0, os.path.join(REPO, "test"))
+from oracle_source import find  # noqa: E402
 DICTSOURCE = os.path.join(REPO, "espyak", "data", "dictsource")
 FIXTURES = os.path.join(REPO, "test", "fixtures")
 
@@ -32,8 +32,9 @@ MODES = {
 
 
 def run_espeak(text, lang, extra):
-    env = dict(os.environ, ESPEAK_DATA_PATH=os.path.dirname(ORACLE_DATA))
-    cmd = [ORACLE_BIN, "-q", "-v", lang, *extra]
+    binary, data_root = find()
+    env = dict(os.environ, ESPEAK_DATA_PATH=data_root)
+    cmd = [binary, "-q", "-v", lang, *extra]
     out = subprocess.run(
         cmd, input=text, capture_output=True, text=True, env=env, timeout=30,
     )
@@ -83,8 +84,10 @@ def main():
     ap.add_argument("--all", action="store_true", help="all dictsource languages")
     args = ap.parse_args()
 
-    if not os.path.isfile(ORACLE_BIN):
-        sys.exit("oracle binary not found at %s (build it first)" % ORACLE_BIN)
+    try:
+        find()
+    except RuntimeError as problem:
+        sys.exit(str(problem))
 
     if args.all:
         langs = sorted(
