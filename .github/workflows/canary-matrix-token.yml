@@ -1,0 +1,56 @@
+name: canary-matrix-token
+# Canary for OpenVoiceOS/gh-automations#140 (harness T-3078): the "Send to Matrix"
+# step of publish-alpha.yml at abc572a, verbatim, on a repository whose
+# organisation holds no MATRIX_TOKEN. The guarded job must warn and exit 0.
+# The control job sets a non-empty dummy token and shows the pre-guard path,
+# a curl failure; it is continue-on-error so the run stays green.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/canary-t3078-matrix-token]
+
+jobs:
+  empty_token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send to Matrix
+        env:
+          MATRIX_TOKEN: ${{ secrets.MATRIX_TOKEN }}
+        run: |
+          # An empty token means the caller passes a secret its organisation
+          # does not hold (MATRIX_TOKEN is an OpenVoiceOS org secret and not a
+          # TigreGotico one): the merge is done, the alpha is out, and a 401
+          # from Matrix must not redden the run. Warn, name the fix, and stop.
+          if [ -z "$MATRIX_TOKEN" ]; then
+            echo "::warning title=Matrix notification skipped::MATRIX_TOKEN is empty for ${{ github.repository }}: add it as a repository or organisation secret, or set notify_matrix: false"
+            exit 0
+          fi
+          MSG="canary T-3078: this line must not be reached with an empty token"
+          ROOM_ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' '!WjxEKjjINpyBRPFgxl:krbel.duckdns.org')
+          curl -sf -X PUT \
+            "https://matrix.org/_matrix/client/v3/rooms/${ROOM_ENC}/send/m.room.message/$(date +%s%N)" \
+            -H "Authorization: Bearer ${MATRIX_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -cn --arg body "$MSG" '{"msgtype":"m.text","body":$body}')"
+      - name: The guard exited 0
+        run: echo "reached the next step, so the previous step exited 0"
+
+  dummy_token_control:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Send to Matrix (control, non-empty dummy token)
+        env:
+          MATRIX_TOKEN: canary-not-a-token
+        run: |
+          if [ -z "$MATRIX_TOKEN" ]; then
+            echo "::warning title=Matrix notification skipped::MATRIX_TOKEN is empty for ${{ github.repository }}: add it as a repository or organisation secret, or set notify_matrix: false"
+            exit 0
+          fi
+          MSG="canary T-3078 control"
+          ROOM_ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' '!WjxEKjjINpyBRPFgxl:krbel.duckdns.org')
+          curl -sf -X PUT \
+            "https://matrix.org/_matrix/client/v3/rooms/${ROOM_ENC}/send/m.room.message/$(date +%s%N)" \
+            -H "Authorization: Bearer ${MATRIX_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -cn --arg body "$MSG" '{"msgtype":"m.text","body":$body}')"
