@@ -31,9 +31,15 @@ def test_lexique_schwa(en):
 
 def test_arpa_output_is_token_separated(en):
     out = en.phonemize("hello world", alphabet="arpa")
-    # ARPABET is space-separated uppercase tokens.
+    # ARPABET is space-separated uppercase ASCII tokens.
     assert out.upper() == out
     assert " " in out
+    # IPA həlˈəʊ wˈɜːld. The two symbols that a scriptconv
+    # older than 0.0.4a23 rendered wrong: ɜː was left as the IPA
+    # character (0.0.4a15), and əʊ was split into AX UH instead of the
+    # OW diphthong (0.0.4a16 to 0.0.4a22). Pin both, so the floor in
+    # pyproject.toml cannot silently drop back.
+    assert out.split() == ["HH", "AX", "L", "OW", "W", "ER", "L", "D"]
 
 
 def test_unknown_alphabet_raises(en):
