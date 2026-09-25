@@ -1370,7 +1370,7 @@ class G2P:
 
     def _render_unit(self, word, tonic, ipa, tie, separator, caps_stress, following,
                      skip, at_end):
-        """Render one clause word-unit (the normal, non-'&'/non-'\\x02' path) at the given
+        """Render one clause word-unit (the normal, non-'&'/non-'\x02' path) at the given
         ``tonic``, including espeak's foreign-word phonSWITCH fallback. Sets
         ``self._switch_consumed`` (words the switched language's multi-word entry consumed).
 
@@ -1410,20 +1410,36 @@ class G2P:
                 self._switch_consumed = sk
         return rendered
 
-    def phonemize(self, text, ipa=True, tie=None, separator=None):
+    def phonemize(self, text, ipa=True, tie=None, separator=None, alphabet=None):
         """Translate text to phonemes with espeak's clause-intonation nucleus placement.
 
         Each word-unit is first rendered with its NATURAL (lexical) stress. The clause
         intonation nucleus — espeak's CalcPitches/count_pitch_vowels: the LAST syllable at
         the highest stress level in the clause — is then located at the word granularity:
-        the nucleus is the LAST unit whose natural render carries the maximum stress mark
-        (primary ˈ > secondary ˌ > none). Trailing unstressed ($u) function words after a
+        the nucleus is the LAST unit whose natural render carries the maximum stress
+        mark (primary ˈ > secondary ˌ > none). Trailing unstressed ($u) function words after a
         higher-stressed word are therefore POST-NUCLEAR and keep their reduced natural form
         (more or -> mˈɔːɹ ɔː; give it to me -> ɡˈɪv ɪt tə mˌiː), while a clause whose maximum
         is only secondary/none promotes that nucleus unit to the clause tonic (the -> ðˈə,
         where is the -> wˈeəɹ ɪz ðə). An isolated word is its own nucleus, so single-word
         renders are unchanged.
+
+        *alphabet* selects the output notation, transcoded from IPA via scriptconv:
+        ``"ipa"`` (default), ``"kirshenbaum"`` (espeak's native ASCII-IPA),
+        ``"x-sampa"``, ``"arpa"``, ``"lexique"``, ``"cotovia"`` or ``"rfe"``. When
+        given it overrides the *ipa* flag. ``"ipa"``/``"kirshenbaum"`` use espeak's
+        own output; the rest transcode the IPA result with ``scriptconv.convert``.
         """
+        _post_convert = None
+        if alphabet is not None:
+            _a = alphabet.lower()
+            if _a == "kirshenbaum":
+                ipa = False
+            elif _a == "ipa":
+                ipa = True
+            else:
+                ipa = True
+                _post_convert = _a  # IPA → <alphabet> via scriptconv at return
         # Malayalam chillu: base consonant + virama + ZWJ is the atomic chillu (a dead
         # consonant). espeak normalises the sequence to the atomic char so the la+virama rules
         # (ി (ल्K -> I) don't mis-fire, then breaks after it. Map + break: നിര്‍ഝ -> നിർ ഝ ->
@@ -1858,6 +1874,12 @@ class G2P:
             import re as _re
             _V = "aɑeɛiɪoɔuʊyʏøœəɐ"
             result = _re.sub(r"([%s]ː?)r(?= [ˈˌ]?[%s])" % (_V, _V), r"\1ɹ", result)
+        if _post_convert is not None:
+            from scriptconv.notation import convert as _sc_convert
+            # Transcode the IPA output to the requested notation. scriptconv
+            # passes symbols outside the target inventory (stress marks,
+            # spaces, separators) through unchanged.
+            result = _sc_convert(result, "ipa", _post_convert)
         return result
 
     # IPA vowel onset/coda characters (first element of every en vowel/diphthong).
