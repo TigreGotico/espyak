@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.3a3](https://github.com/TigreGotico/espyak/tree/0.0.3a3) (2026-09-26)
+
+[Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.3a2...0.0.3a3)
+
+**Merged pull requests:**
+
+- chore\(deps\): update actions/checkout action to v7 [\#3](https://github.com/TigreGotico/espyak/pull/3) ([renovate[bot]](https://github.com/apps/renovate))
+
 ## [0.0.3a2](https://github.com/TigreGotico/espyak/tree/0.0.3a2) (2026-07-30)
 
 [Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.3a1...0.0.3a2)
