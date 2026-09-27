@@ -37,6 +37,21 @@ _CLAUSE_PUNCT_NO_COLON = ".,;!?…\"“”‘’«»()[]{}"
 # are deliberately absent — English names them (exclamation, colon) while Dutch does not,
 # so those are left to the per-language dictionary rather than hardcoded here.
 _SILENT_ALONE = ".,;?…\"'“”‘’«»()[]{}"
+# Symbols espeak's clause reader isolates as their own word when the language names them
+# ("#1" -> hash one, "a@b" -> a at b). Membership here only marks a CANDIDATE; whether a
+# symbol IS named is a per-language dictionary lookup (_symbol_has_name).
+#
+# Deliberately excluded:
+#   `-`  has its own hyphen handling (boundary strip, internal word break)
+#   `_`  is already mapped to a space by espeak's breaks[] table
+#   `%` `‰` attach to a preceding number and are read after it
+#   `.` `,` `;` `:` `!` `?` are clause punctuation, consumed by the clause reader
+_SPOKEN_SYMBOLS = "/#@+=&$£€°*<>~^|"
+
+# A run of symbols can be a single multi-character rules entry ("!=" -> not equals,
+# ">=" -> greater or equal in en_rules). A candidate adjacent to one of these is left
+# alone so the longer match still fires.
+_SYMBOL_RUN_CHARS = _SPOKEN_SYMBOLS + "!?"
 
 
 def _ga_caps_prefix(tok, j):
@@ -1368,6 +1383,24 @@ class G2P:
                 start = j + len(peel)
         words.append((tok[start:], first_sub and sub_first))
 
+    def _symbol_has_name(self, ch):
+        """True if this language gives `ch` a spoken name, so it can stand as its own word.
+
+        The named sets differ per language (nl names £ and °, en does not), so this is a
+        dictionary lookup rather than a fixed table. Cached per instance: phonemize()
+        consults it for every candidate symbol on every call.
+        """
+        cache = self.__dict__.setdefault("_symbol_name_cache", {})
+        if ch not in cache:
+            try:
+                ph, _ = self._dict.lookup(ch, LookupContext())
+                if not ph:
+                    ph, _ = self._dict.lookup("_" + ch, LookupContext())
+                cache[ch] = bool(ph)
+            except Exception:
+                cache[ch] = False
+        return cache[ch]
+
     def _render_unit(self, word, tonic, ipa, tie, separator, caps_stress, following,
                      skip, at_end):
         """Render one clause word-unit (the normal, non-'&'/non-'\\x02' path) at the given
@@ -1456,9 +1489,28 @@ class G2P:
         if self.force_compat:
             for ch in self._config.get("compat_separators", ""):
                 _trans[ord(ch)] = " "
-        # a '/' is a word break that is itself spoken as its character name (ca a/e -> a barra e,
-        # en a/b -> a slash b), so isolate it as its own token.
-        _trans[ord("/")] = " / "
+        # A symbol that has a spoken name in this language is a word break AND a word of its
+        # own: espeak's clause reader emits it as a separate token, so "#1" reads "hash one"
+        # and "a@b" reads "a at b". espyak kept the symbol glued to its neighbours, so the
+        # whole token missed the dictionary and rendered as NOTHING ("#1" -> '', "£5" -> '',
+        # "5+3" -> '') or silently swallowed the symbol ("a@b" -> ˈab).
+        #
+        # Only a symbol standing ALONE is isolated. A run of symbols can be a single rules
+        # entry ("!=" -> not equals, ">=" -> greater or equal in en_rules), and splitting it
+        # would lose that match. Which symbols are named differs per language (nl names £ and
+        # °, en does not), so membership is a dictionary lookup rather than a fixed table.
+        _named = [s for s in _SPOKEN_SYMBOLS
+                  if s not in _trans and self._symbol_has_name(s)]
+        if _named:
+            _out, _n = [], len(text)
+            for _i, _ch in enumerate(text):
+                if (_ch in _named
+                        and (_i == 0 or text[_i - 1] not in _SYMBOL_RUN_CHARS)
+                        and (_i == _n - 1 or text[_i + 1] not in _SYMBOL_RUN_CHARS)):
+                    _out.append(" %s " % _ch)
+                else:
+                    _out.append(_ch)
+            text = "".join(_out)
         # language chars_ignore table (tr_languages.c / readclause.c IgnoreOrReplaceChar): drop or
         # replace input codepoints before tokenising. fa rewrites U+200C (ZWNJ) to '-' and drops
         # U+0640 (TATWEEL); this is espeak's real behaviour, so it applies in both modes.
