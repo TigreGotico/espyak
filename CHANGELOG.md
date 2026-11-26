@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.4a1](https://github.com/TigreGotico/espyak/tree/0.0.4a1) (2026-11-26)
+
+[Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.3a4...0.0.4a1)
+
+**Merged pull requests:**
+
+- fix: isolate a symbol that has a spoken name as its own word [\#14](https://github.com/TigreGotico/espyak/pull/14) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.0.3a4](https://github.com/TigreGotico/espyak/tree/0.0.3a4) (2026-11-26)
 
 [Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.3a3...0.0.3a4)
