@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.3a4](https://github.com/TigreGotico/espyak/tree/0.0.3a4) (2026-11-26)
+
+[Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.3a3...0.0.3a4)
+
+**Merged pull requests:**
+
+- ci: replace the deprecated set-output command [\#18](https://github.com/TigreGotico/espyak/pull/18) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.0.3a3](https://github.com/TigreGotico/espyak/tree/0.0.3a3) (2026-09-26)
 
 [Full Changelog](https://github.com/TigreGotico/espyak/compare/0.0.3a2...0.0.3a3)
