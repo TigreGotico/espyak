@@ -1392,13 +1392,10 @@ class G2P:
         """
         cache = self.__dict__.setdefault("_symbol_name_cache", {})
         if ch not in cache:
-            try:
-                ph, _ = self._dict.lookup(ch, LookupContext())
-                if not ph:
-                    ph, _ = self._dict.lookup("_" + ch, LookupContext())
-                cache[ch] = bool(ph)
-            except Exception:
-                cache[ch] = False
+            ph, _ = self._dict.lookup(ch, LookupContext())
+            if not ph:
+                ph, _ = self._dict.lookup("_" + ch, LookupContext())
+            cache[ch] = bool(ph)
         return cache[ch]
 
     def _render_unit(self, word, tonic, ipa, tie, separator, caps_stress, following,
@@ -1510,7 +1507,7 @@ class G2P:
                 if (_ch in _named
                         and (_i == 0 or text[_i - 1] not in _SYMBOL_RUN_CHARS)
                         and (_i == _n - 1 or text[_i + 1] not in _SYMBOL_RUN_CHARS)):
-                    _out.append(" %s " % _ch)
+                    _out.append(f" {_ch} ")
                 else:
                     _out.append(_ch)
             text = "".join(_out)
