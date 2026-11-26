@@ -1499,6 +1499,9 @@ class G2P:
         # entry ("!=" -> not equals, ">=" -> greater or equal in en_rules), and splitting it
         # would lose that match. Which symbols are named differs per language (nl names £ and
         # °, en does not), so membership is a dictionary lookup rather than a fixed table.
+        # a '/' is a word break that is itself spoken as its character name (ca a/e -> a barra e,
+        # en a/b -> a slash b), even inside a run ('a//b', 'http://'), so isolate it always.
+        _trans[ord("/")] = " / "
         _named = [s for s in _SPOKEN_SYMBOLS
                   if s not in _trans and self._symbol_has_name(s)]
         if _named:

@@ -56,3 +56,13 @@ def test_dutch_symbol_token_not_dropped(nl, text):
 @pytest.mark.parametrize("lang,text", [("en", "1/2"), ("nl", "1/2"), ("en", "x/b")])
 def test_slash_still_isolated(oracle, lang, text):
     assert G2P(lang).phonemize(text).split() == oracle(text, lang).split()
+
+
+@pytest.mark.parametrize("lang,text,want", [
+    ("pt", "a//b", "ɐ bˈe"),
+    ("pt", "a/=b", "ɐ iɡwˈɐl bˈe"),
+    ("en", "a//b", "ɐ slˈaʃ slˈaʃ bˈiː"),
+    ("en", "http://x.com", "ˌeɪtʃtˌiːtˌiːpˈiː slˈaʃ slˈaʃ ksdˈɒtkɒm"),
+])
+def test_a_slash_inside_a_symbol_run_stays_its_own_word(lang, text, want):
+    assert G2P(lang).phonemize(text) == want
