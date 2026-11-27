@@ -262,7 +262,7 @@ def test_french_cardinal_matches_oracle(oracle, num):
 #   ru     NUM_OMIT_1_HUNDRED ("сто" not "один сто")
 #   ro/pt  NUM_AND_UNITS (Romanian "și", Portuguese "e" between tens and units)
 #   it     NUM_SINGLE_VOWEL (settanta+uno -> settantuno)
-#   ca     NUM_SINGLE_STRESS + NUM_AND_UNITS + NUM_OMIT_1_HUNDRED/THOUSAND (es block)
+#   ca/an  NUM_SINGLE_STRESS + NUM_AND_UNITS + NUM_OMIT_1_HUNDRED/THOUSAND (es block)
 #   fr     NUM_VIGESIMAL (70 = soixante-dix, 90 = quatre-vingt-dix) + NUM_SINGLE_STRESS
 NUMBERS_FLAG_CASES = [
     ("nl", "20"), ("nl", "70"), ("nl", "100"), ("nl", "1000"),
@@ -275,6 +275,7 @@ NUMBERS_FLAG_CASES = [
     ("pt", "32"), ("pt", "33"), ("pt", "100"),
     ("it", "28"), ("it", "31"), ("it", "71"), ("it", "80"), ("it", "95"),
     ("ca", "21"), ("ca", "42"), ("ca", "70"), ("ca", "100"),
+    ("an", "21"), ("an", "42"), ("an", "100"), ("an", "1005"),
     ("fr", "21"), ("fr", "70"), ("fr", "71"), ("fr", "80"), ("fr", "90"), ("fr", "95"),
 ]
 
@@ -362,6 +363,27 @@ def test_nl_sentence_degemination_preserved():
     # cross-word sentence degemination must remain (kost twintig -> kˈɔs tʋˈɪntəx)
     assert _nfc(G2P("nl").phonemize("kost twintig")) == "kˈɔs tʋˈɪntəx"
 
+
+
+# A pronounced symbol suffixed to a number ("42%") is not clause punctuation: it is split
+# off and spoken AFTER the number, matching espeak's order.
+@pytest.mark.parametrize("num", ["42%", "50%", "100%", "0%", "1%",
+                                 "3.5%", "1.5%", "0.5%"])
+def test_percent_after_number_matches_oracle(en, oracle, num):
+    assert en.phonemize(num) == oracle(num, "en")
+
+
+@pytest.mark.parametrize("num", ["42%", "50%", "3.5%"])
+def test_percent_number_not_dropped(en, num):
+    """Guard without the oracle: neither the number nor the symbol may vanish."""
+    got = en.phonemize(num)
+    assert got.strip(), "rendered empty: %r" % num
+    assert "s\u02c8\u025bnt" in got, "percent not spoken in %r: %r" % (num, got)
+
+
+# A lone symbol keeps its ordinary lookup.
+def test_lone_percent_matches_oracle(en, oracle):
+    assert en.phonemize("%") == oracle("%", "en")
 
 # --- Indian lakh/crore grouping (translate.c break_numbers = BREAK_LAKH_*) -----------------
 # Above the first thousand group the digits group in PAIRS, so the magnitude words are lakh
