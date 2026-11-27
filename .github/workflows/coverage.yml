@@ -10,6 +10,7 @@ jobs:
     uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
     secrets: inherit
     with:
+      espeak_ng_version: '1.52.0'
       python_version: '3.11'
       coverage_source: 'espyak'
       test_path: 'test/'
